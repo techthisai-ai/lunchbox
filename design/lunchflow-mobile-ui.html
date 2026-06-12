@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LunchFlow — Mobile UI Design System</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --orange: #F97316;
+      --orange-dark: #EA580C;
+      --orange-light: #FFF7ED;
+      --green: #16A34A;
+      --green-dark: #15803D;
+      --green-light: #F0FDF4;
+      --white: #FFFFFF;
+      --bg: #F8FAFC;
+      --text: #0F172A;
+      --muted: #64748B;
+      --border: #E2E8F0;
+      --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
+      --shadow-lg: 0 12px 40px rgba(15, 23, 42, 0.12);
+      --radius: 16px;
+      --radius-sm: 12px;
+      --phone-w: 375px;
+      --phone-h: 812px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+      background: var(--white);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .app-shell {
+      width: 100%;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .phone {
+      width: 100%;
+      min-height: 100vh;
+      background: var(--white);
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+    .screen-viewport {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+    .screen-page {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+      animation: slideIn .28s ease;
+    }
+    .screen-page.white { background: var(--white); }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(24px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .screen-page.fade { animation: fadeIn .3s ease; }
+    .status-bar {
+      height: 44px; padding: 12px 24px 0;
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 14px; font-weight: 600; flex-shrink: 0;
+    }
+    .screen-body { flex: 1; overflow-y: auto; background: var(--bg); -webkit-overflow-scrolling: touch; }
+    .screen-body.white { background: var(--white); }
+    .screen-content { padding: 20px; padding-bottom: 100px; }
+    .screen-content.tight { padding: 16px; padding-bottom: 90px; }
+    .logo-mark {
+      width: 72px; height: 72px; border-radius: 20px;
+      background: linear-gradient(135deg, var(--orange), var(--green));
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px; box-shadow: var(--shadow);
+    }
+    .logo-mark svg { width: 40px; height: 40px; }
+    .app-title { text-align: center; font-size: 32px; font-weight: 800; letter-spacing: -0.02em; }
+    .app-title span { color: var(--orange); }
+    .tagline { text-align: center; color: var(--muted); margin: 8px 0 48px; font-size: 15px; }
+    .btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; padding: 16px 24px; border: none; border-radius: var(--radius-sm);
+      font-size: 16px; font-weight: 700; cursor: pointer; font-family: inherit;
+      transition: transform .15s;
+    }
+    .btn:active { transform: scale(.98); }
+    .btn-primary { background: var(--orange); color: white; box-shadow: 0 8px 24px rgba(249,115,22,.35); }
+    .btn-green { background: var(--green); color: white; box-shadow: 0 8px 24px rgba(22,163,74,.3); }
+    .btn-outline { background: white; color: var(--orange); border: 2px solid var(--orange); }
+    .btn-sm { padding: 10px 16px; font-size: 13px; width: auto; }
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+    .field input, .field select {
+      width: 100%; padding: 14px 16px; border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm); font-size: 15px; font-family: inherit;
+      background: var(--white);
+    }
+    .field input:focus { outline: none; border-color: var(--orange); }
+    .otp-row { display: flex; gap: 10px; }
+    .otp-row input { text-align: center; font-size: 20px; font-weight: 700; padding: 14px 0; }
+    .card {
+      background: var(--white); border-radius: var(--radius);
+      padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px;
+    }
+    .card-flat { box-shadow: none; border: 1px solid var(--border); }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .card-title { font-size: 15px; font-weight: 700; }
+    .badge {
+      display: inline-flex; align-items: center; padding: 4px 10px;
+      border-radius: 999px; font-size: 11px; font-weight: 700;
+    }
+    .badge-orange { background: var(--orange-light); color: var(--orange-dark); }
+    .badge-green { background: var(--green-light); color: var(--green-dark); }
+    .badge-blue { background: #EFF6FF; color: #2563EB; }
+    .badge-gray { background: #F1F5F9; color: #475569; }
+    .page-header { padding: 8px 20px 16px; background: var(--white); }
+    .page-header h2 { font-size: 22px; font-weight: 800; }
+    .page-header p { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .food-ready-btn {
+      width: 180px; height: 180px; border-radius: 50%;
+      background: var(--orange); color: white; border: none;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      margin: 24px auto; cursor: pointer;
+      box-shadow: 0 16px 48px rgba(249,115,22,.4);
+      font-family: inherit;
+    }
+    .food-ready-btn .icon { font-size: 36px; margin-bottom: 8px; }
+    .food-ready-btn .label { font-size: 16px; font-weight: 800; }
+    .food-ready-btn .sub { font-size: 11px; opacity: .85; margin-top: 4px; }
+    .driver-card { display: flex; gap: 14px; align-items: center; }
+    .avatar {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: var(--orange-light); display: flex; align-items: center; justify-content: center;
+      font-weight: 700; color: var(--orange); flex-shrink: 0;
+    }
+    .avatar-lg { width: 56px; height: 56px; font-size: 18px; }
+    .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .quick-item {
+      background: var(--white); border-radius: var(--radius-sm); padding: 14px 8px;
+      text-align: center; box-shadow: var(--shadow); border: 1px solid var(--border);
+    }
+    .quick-item .qi-icon {
+      width: 36px; height: 36px; border-radius: 10px; margin: 0 auto 8px;
+      display: flex; align-items: center; justify-content: center; font-size: 16px;
+    }
+    .quick-item span { font-size: 10px; font-weight: 600; color: var(--muted); }
+    .bottom-nav {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      height: 80px; background: var(--white); border-top: 1px solid var(--border);
+      display: none; justify-content: space-around; align-items: center;
+      padding-bottom: 16px; box-shadow: 0 -4px 20px rgba(0,0,0,.04);
+      z-index: 50;
+    }
+    .bottom-nav.visible { display: flex; }
+    .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; color: var(--muted); cursor: pointer; border: none; background: none; font-family: inherit; padding: 8px 12px; }
+    .nav-item.active { color: var(--orange); }
+    .nav-dot { width: 24px; height: 24px; border-radius: 8px; background: #F1F5F9; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+    .nav-item.active .nav-dot { background: var(--orange-light); }
+    .timeline { position: relative; padding-left: 28px; }
+    .timeline::before {
+      content: ''; position: absolute; left: 9px; top: 8px; bottom: 8px;
+      width: 2px; background: var(--border);
+    }
+    .tl-item { position: relative; padding-bottom: 20px; }
+    .tl-item:last-child { padding-bottom: 0; }
+    .tl-dot {
+      position: absolute; left: -28px; top: 2px;
+      width: 20px; height: 20px; border-radius: 50%;
+      background: var(--white); border: 2px solid var(--border);
+    }
+    .tl-item.done .tl-dot { background: var(--green); border-color: var(--green); }
+    .tl-item.active .tl-dot { background: var(--orange); border-color: var(--orange); box-shadow: 0 0 0 4px var(--orange-light); }
+    .tl-item.pending .tl-dot { background: #F1F5F9; }
+    .tl-title { font-size: 14px; font-weight: 700; }
+    .tl-time { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .map-screen {
+      height: 100%; background: #E8F4EA; position: relative; overflow: hidden;
+    }
+    .map-grid {
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(100,116,139,.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(100,116,139,.08) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+    .map-route {
+      position: absolute; top: 35%; left: 15%; width: 70%; height: 30%;
+      border: 3px dashed var(--orange); border-radius: 40px; opacity: .6;
+    }
+    .map-marker {
+      position: absolute; display: flex; flex-direction: column; align-items: center;
+    }
+    .map-marker .pin {
+      width: 36px; height: 36px; border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg); display: flex; align-items: center; justify-content: center;
+      box-shadow: var(--shadow);
+    }
+    .map-marker .pin-inner { transform: rotate(45deg); font-size: 14px; }
+    .map-marker .pin-label {
+      margin-top: 6px; background: white; padding: 4px 10px;
+      border-radius: 8px; font-size: 10px; font-weight: 700; box-shadow: var(--shadow);
+    }
+    .map-overlay {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: var(--white); border-radius: 24px 24px 0 0;
+      padding: 20px; box-shadow: 0 -8px 32px rgba(0,0,0,.1);
+    }
+    .qr-box {
+      width: 180px; height: 180px; margin: 20px auto;
+      background: white; border: 2px solid var(--border); border-radius: var(--radius);
+      display: grid; grid-template-columns: repeat(8,1fr); gap: 2px; padding: 12px;
+    }
+    .qr-cell { background: var(--text); border-radius: 1px; }
+    .qr-cell.w { background: white; }
+    .price-card {
+      border: 2px solid var(--border); border-radius: var(--radius);
+      padding: 20px; margin-bottom: 12px; position: relative;
+    }
+    .price-card.featured { border-color: var(--orange); background: var(--orange-light); }
+    .price-card .popular {
+      position: absolute; top: -10px; right: 16px;
+      background: var(--orange); color: white; font-size: 10px;
+      font-weight: 700; padding: 4px 12px; border-radius: 999px;
+    }
+    .price { font-size: 28px; font-weight: 800; color: var(--orange); }
+    .price span { font-size: 14px; font-weight: 600; color: var(--muted); }
+    .notif-item { display: flex; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+    .notif-item:last-child { border-bottom: none; }
+    .notif-icon {
+      width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 18px;
+    }
+    .search-bar {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--white); border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm); padding: 12px 16px; margin-bottom: 14px;
+    }
+    .search-bar input { border: none; flex: 1; font-size: 14px; font-family: inherit; outline: none; }
+    .filter-row { display: flex; gap: 8px; overflow-x: auto; margin-bottom: 14px; padding-bottom: 4px; }
+    .filter-chip {
+      padding: 8px 14px; border-radius: 999px; font-size: 12px; font-weight: 600;
+      white-space: nowrap; border: 1px solid var(--border); background: white;
+    }
+    .filter-chip.active { background: var(--green); color: white; border-color: var(--green); }
+    .wallet-balance {
+      background: linear-gradient(135deg, var(--orange), var(--orange-dark));
+      color: white; border-radius: var(--radius); padding: 24px; margin-bottom: 16px;
+      box-shadow: 0 12px 32px rgba(249,115,22,.3);
+    }
+    .wallet-balance .amount { font-size: 32px; font-weight: 800; margin-top: 4px; }
+    .pay-method {
+      display: flex; align-items: center; gap: 14px; padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .pay-method:last-child { border-bottom: none; }
+    .pay-icon {
+      width: 44px; height: 44px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 12px;
+    }
+    .profile-header {
+      text-align: center; padding: 24px 20px; background: var(--white);
+      border-bottom: 1px solid var(--border);
+    }
+    .profile-avatar {
+      width: 80px; height: 80px; border-radius: 50%; margin: 0 auto 12px;
+      background: linear-gradient(135deg, var(--orange-light), var(--green-light));
+      border: 3px solid var(--orange); display: flex; align-items: center; justify-content: center;
+      font-size: 28px; font-weight: 800; color: var(--orange);
+    }
+    .menu-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 20px; background: white; border-bottom: 1px solid var(--border);
+    }
+    .menu-item .left { display: flex; align-items: center; gap: 14px; font-weight: 600; font-size: 14px; }
+    .menu-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center; font-size: 16px;
+    }
+    .referral-banner {
+      background: linear-gradient(135deg, var(--green), var(--green-dark));
+      color: white; border-radius: var(--radius); padding: 24px; text-align: center;
+      margin-bottom: 16px; box-shadow: 0 12px 32px rgba(22,163,74,.25);
+    }
+    .ref-code {
+      background: rgba(255,255,255,.2); border: 2px dashed rgba(255,255,255,.5);
+      border-radius: var(--radius-sm); padding: 12px; font-size: 20px;
+      font-weight: 800; letter-spacing: .15em; margin: 16px 0;
+    }
+    .support-option {
+      display: flex; align-items: center; gap: 16px; padding: 18px;
+      background: white; border-radius: var(--radius); margin-bottom: 12px;
+      box-shadow: var(--shadow); cursor: pointer;
+    }
+    .success-ring {
+      width: 120px; height: 120px; border-radius: 50%;
+      background: var(--green-light); border: 4px solid var(--green);
+      display: flex; align-items: center; justify-content: center;
+      margin: 32px auto 24px; animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(22,163,74,.3); }
+      50% { box-shadow: 0 0 0 16px rgba(22,163,74,0); }
+    }
+    .eta-big { font-size: 36px; font-weight: 800; color: var(--orange); text-align: center; }
+    .section-title { font-size: 16px; font-weight: 800; margin: 20px 0 12px; }
+    .stat-row { display: flex; gap: 10px; }
+    .stat-box {
+      flex: 1; background: white; border-radius: var(--radius-sm);
+      padding: 14px; text-align: center; box-shadow: var(--shadow);
+    }
+    .stat-box .val { font-size: 18px; font-weight: 800; color: var(--orange); }
+    .stat-box .lbl { font-size: 10px; color: var(--muted); font-weight: 600; margin-top: 2px; }
+    .delivery-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 0; border-bottom: 1px solid var(--border);
+    }
+    .delivery-row:last-child { border-bottom: none; }
+    .back-btn {
+      width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--border);
+      background: white; display: flex; align-items: center; justify-content: center;
+      font-size: 18px; margin-bottom: 12px; cursor: pointer; font-family: inherit;
+    }
+    .splash-bg {
+      min-height: 100%; display: flex; flex-direction: column;
+      justify-content: center; padding: 40px 28px; background: var(--white);
+    }
+    .splash-footer { margin-top: auto; padding-top: 60px; }
+    .login-top { padding: 40px 20px 20px; }
+    .login-top h2 { font-size: 26px; font-weight: 800; margin-bottom: 6px; }
+    .reg-scroll { max-height: calc(100% - 44px); overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="phone">
+      <div class="status-bar"><span>9:41</span><span style="font-size:12px">●●● ▮▮▮</span></div>
+      <div class="screen-viewport" id="viewport"></div>
+      <nav class="bottom-nav" id="bottomNav"></nav>
+    </div>
+  </div>
+  <script>
+    const TAB_ROOTS = ['home', 'tracking', 'history', 'profile'];
+    const TAB_INDEX = { home: 0, tracking: 1, history: 2, profile: 3 };
+    let navStack = ['splash'];
+    let activeTab = 'home';
+
+    const viewport = document.getElementById('viewport');
+    const bottomNav = document.getElementById('bottomNav');
+
+    function currentScreen() { return navStack[navStack.length - 1]; }
+
+    function navigate(id, { replace = false, reset = false } = {}) {
+      if (reset) { navStack = [id]; render(); return; }
+      if (replace) navStack[navStack.length - 1] = id;
+      else navStack.push(id);
+      if (TAB_ROOTS.includes(id)) activeTab = id;
+      render();
+    }
+
+    function goBack() {
+      if (navStack.length > 1) { navStack.pop(); render(); }
+    }
+
+    function switchTab(tab) {
+      activeTab = tab;
+      navStack = [tab];
+      render();
+    }
+
+    function render() {
+      const screen = currentScreen();
+      const renderer = screens[screen];
+      if (!renderer) return;
+      const isTabRoot = TAB_ROOTS.includes(screen) && navStack.length === 1;
+      const anim = screen === 'splash' || screen === 'tracking' ? 'fade' : '';
+      viewport.innerHTML = `<div class="screen-page${screen.endsWith('login') || screen === 'splash' || screen === 'register' ? ' white' : ''}${anim ? ' ' + anim : ''}">${renderer()}</div>`;
+      bindEvents();
+      updateBottomNav(isTabRoot);
+    }
+
+    function bindEvents() {
+      viewport.querySelectorAll('[data-nav]').forEach(el => {
+        el.onclick = (e) => { e.preventDefault(); navigate(el.dataset.nav); };
+      });
+      viewport.querySelectorAll('[data-replace]').forEach(el => {
+        el.onclick = (e) => { e.preventDefault(); navigate(el.dataset.replace, { replace: true }); };
+      });
+      viewport.querySelectorAll('[data-reset]').forEach(el => {
+        el.onclick = (e) => { e.preventDefault(); navigate(el.dataset.reset, { reset: true }); };
+      });
+      viewport.querySelectorAll('[data-back]').forEach(el => {
+        el.onclick = (e) => { e.preventDefault(); goBack(); };
+      });
+      viewport.querySelectorAll('[data-tab]').forEach(el => {
+        el.onclick = (e) => { e.preventDefault(); switchTab(el.dataset.tab); };
+      });
+    }
+
+    function updateBottomNav(show) {
+      if (!show) { bottomNav.classList.remove('visible'); return; }
+      const items = [
+        { tab: 'home', icon: '🏠', label: 'Home' },
+        { tab: 'tracking', icon: '📍', label: 'Track' },
+        { tab: 'history', icon: '📋', label: 'History' },
+        { tab: 'profile', icon: '👤', label: 'Profile' }
+      ];
+      bottomNav.innerHTML = items.map(it =>
+        `<button class="nav-item${activeTab === it.tab ? ' active' : ''}" data-tab="${it.tab}"><span class="nav-dot">${it.icon}</span>${it.label}</button>`
+      ).join('');
+      bottomNav.classList.add('visible');
+      bindEvents();
+    }
+
+    const screens = {
+      splash: splashScreen,
+      login: loginScreen,
+      register: registerScreen,
+      home: homeScreen,
+      'food-ready': foodReadyScreen,
+      tracking: trackingScreen,
+      status: statusScreen,
+      qr: qrScreen,
+      plans: plansScreen,
+      notif: notifScreen,
+      history: historyScreen,
+      wallet: walletScreen,
+      profile: profileScreen,
+      referral: referralScreen,
+      support: supportScreen
+    };
+
+    render();
+
+    function splashScreen() {
+      return `<div class="screen-body white"><div class="splash-bg">
+        <div class="logo-mark"><svg viewBox="0 0 40 40" fill="none"><rect x="8" y="14" width="24" height="18" rx="3" fill="white"/><path d="M12 14V11a8 8 0 0116 0v3" stroke="white" stroke-width="2.5" fill="none"/><circle cx="28" cy="10" r="5" fill="#16A34A"/></svg></div>
+        <div class="app-title">Lunch<span>Flow</span></div>
+        <p class="tagline">Fresh lunchbox. Delivered daily.<br>Home to School &amp; Office.</p>
+        <div class="splash-footer"><button class="btn btn-primary" data-nav="login">Get Started</button>
+        <p style="text-align:center;margin-top:16px;font-size:12px;color:var(--muted)">Trusted by 10,000+ families &amp; professionals</p></div>
+      </div></div>`;
+    }
+
+    function loginScreen() {
+      return `<div class="screen-body white"><div class="login-top"><div class="logo-mark" style="width:56px;height:56px;margin:0 0 24px"><svg viewBox="0 0 40 40" fill="none" style="width:28px;height:28px"><rect x="8" y="14" width="24" height="18" rx="3" fill="white"/></svg></div>
+        <h2>Welcome back</h2><p style="color:var(--muted);font-size:14px;margin-bottom:28px">Sign in with your mobile number</p></div>
+        <div class="screen-content"><div class="field"><label>Mobile Number</label><input type="tel" value="+91 98765 43210" readonly></div>
+        <div class="field"><label>Enter OTP</label><div class="otp-row"><input maxlength="1" value="4" readonly><input maxlength="1" value="7" readonly><input maxlength="1" value="2" readonly><input maxlength="1" value="9" readonly></div>
+        <p style="font-size:12px;color:var(--muted);margin-top:8px">Resend OTP in <span style="color:var(--orange);font-weight:700">0:28</span></p></div>
+        <button class="btn btn-primary" style="margin-top:8px" data-reset="home">Login</button>
+        <p style="text-align:center;margin-top:20px;font-size:13px;color:var(--muted)">New user? <span style="color:var(--orange);font-weight:700;cursor:pointer" data-nav="register">Register</span></p></div></div>`;
+    }
+
+    function registerScreen() {
+      return `<div class="screen-body white reg-scroll"><div class="page-header"><button class="back-btn" data-back>←</button><h2>Create Account</h2><p>Register for daily lunchbox delivery</p></div>
+        <div class="screen-content tight" style="padding-bottom:40px">
+        ${field('Full Name','Priya Sharma')}${field('Mobile Number','+91 98765 43210')}${field('Home Address','42 Green Park, Delhi')}
+        ${field('School / Office Name','Delhi Public School')}${field('Student Name','Aarav Sharma')}${field('Class / Section','Class 5 · Section B')}
+        ${field('Emergency Contact','+91 91234 56789')}
+        <button class="btn btn-green" style="margin-top:8px" data-reset="home">Complete Registration</button></div></div>`;
+    }
+
+    function field(label, val) {
+      return `<div class="field"><label>${label}</label><input value="${val}" readonly></div>`;
+    }
+
+    function homeScreen() {
+      return `<div class="screen-body"><div class="page-header" style="background:var(--bg)"><div style="display:flex;justify-content:space-between;align-items:center">
+        <div><p style="font-size:13px;color:var(--muted)">Good morning,</p><h2 style="font-size:20px">Priya Sharma</h2></div>
+        <div style="display:flex;gap:10px;align-items:center"><button class="back-btn" style="margin:0" data-nav="notif">🔔</button><div class="avatar">PS</div></div></div></div>
+        <div class="screen-content tight">
+        <div class="card" style="background:linear-gradient(135deg,var(--orange-light),white);border:1px solid #FED7AA">
+          <div class="card-header"><span class="card-title">Today's Delivery</span><span class="badge badge-orange">In Progress</span></div>
+          <p style="font-size:13px;color:var(--muted)">Lunchbox for Aarav · DPS School</p>
+          <div class="eta-big" style="font-size:28px;margin-top:8px">12:35 PM</div>
+          <p style="text-align:center;font-size:12px;color:var(--muted)">Estimated arrival</p></div>
+        <div style="text-align:center"><button class="food-ready-btn" data-nav="food-ready"><span class="icon">🍱</span><span class="label">Food Ready</span><span class="sub">Tap when lunch is packed</span></button></div>
+        <div class="card"><div class="card-header"><span class="card-title">Driver Status</span><span class="badge badge-green">En Route</span></div>
+          <div class="driver-card"><div class="avatar avatar-lg">RK</div><div><p style="font-weight:700">Rajesh Kumar</p><p style="font-size:12px;color:var(--muted)">DL 4C AB 1234 · ★ 4.9</p></div>
+          <button class="btn btn-sm btn-outline" style="margin-left:auto">Call</button></div></div>
+        <div class="card card-flat"><div class="card-header"><span class="card-title">Active Subscription</span><span class="badge badge-green">School Plan</span></div>
+          <p style="font-size:14px;font-weight:600">₹699/month · Renews Jun 28</p></div>
+        <div class="section-title">Quick Actions</div>
+        <div class="quick-grid">
+          ${quick('📍','Track','var(--orange-light)','tracking')}${quick('📋','History','var(--green-light)','history')}${quick('💳','Wallet','#EFF6FF','wallet')}${quick('🎁','Refer','#FDF4FF','referral')}</div>
+        <div class="section-title">Recent Deliveries</div>
+        ${deliveryCard('Jun 11','Delivered','12:28 PM','green')}${deliveryCard('Jun 10','Delivered','12:31 PM','green')}
+        </div></div>`;
+    }
+
+    function quick(icon, label, bg, nav) {
+      return `<div class="quick-item" data-nav="${nav}" style="cursor:pointer"><div class="qi-icon" style="background:${bg}">${icon}</div><span>${label}</span></div>`;
+    }
+
+    function deliveryCard(date, status, time, tone) {
+      return `<div class="card card-flat" style="padding:12px 16px"><div class="delivery-row"><div><p style="font-weight:700;font-size:14px">${date}</p><p style="font-size:12px;color:var(--muted)">Home → DPS School</p></div><div style="text-align:right"><span class="badge badge-${tone}">${status}</span><p style="font-size:11px;color:var(--muted);margin-top:4px">${time}</p></div></div></div>`;
+    }
+
+    function foodReadyScreen() {
+      return `<div class="screen-body white"><div class="screen-content" style="text-align:center;padding-top:40px">
+        <div class="success-ring"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg></div>
+        <h2 style="font-size:22px;font-weight:800;margin-bottom:8px">Pickup Request Created!</h2>
+        <p style="color:var(--muted);font-size:14px;margin-bottom:32px">Your lunchbox is ready for pickup</p>
+        <div class="card" style="text-align:left"><div class="card-header"><span class="card-title">Driver Assigned</span><span class="badge badge-green">Confirmed</span></div>
+          <div class="driver-card"><div class="avatar">RK</div><div><p style="font-weight:700">Rajesh Kumar</p><p style="font-size:12px;color:var(--muted)">Arriving in 8 minutes</p></div></div></div>
+        <div class="card card-flat" style="margin-top:14px"><p style="font-size:13px;color:var(--muted)">Pickup ETA</p><div class="eta-big">8 min</div></div>
+        <button class="btn btn-primary" style="margin-top:24px" data-tab="tracking">Track Live Delivery</button>
+        <button class="btn btn-outline" style="margin-top:12px" data-back>Back to Home</button></div></div>`;
+    }
+
+    function trackingScreen() {
+      return `<div class="screen-body" style="padding:0"><div class="map-screen"><div class="map-grid"></div><div class="map-route"></div>
+        <div class="map-marker" style="top:22%;left:18%"><div class="pin" style="background:var(--green)"><span class="pin-inner">🏠</span></div><div class="pin-label">Home</div></div>
+        <div class="map-marker" style="top:55%;left:55%"><div class="pin" style="background:var(--orange);width:44px;height:44px;border-radius:50%;transform:none"><span style="font-size:20px">🛵</span></div></div>
+        <div class="map-marker" style="top:18%;right:12%"><div class="pin" style="background:#2563EB"><span class="pin-inner">🏫</span></div><div class="pin-label">DPS School</div></div>
+        <div class="map-overlay"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div><p style="font-size:12px;color:var(--muted)">ETA to School</p><p style="font-size:24px;font-weight:800;color:var(--orange)">14 min</p></div>
+          <span class="badge badge-orange">In Transit</span></div>
+          <div class="driver-card" style="margin-bottom:14px"><div class="avatar avatar-lg">RK</div><div style="flex:1"><p style="font-weight:700">Rajesh Kumar</p><p style="font-size:12px;color:var(--muted)">★ 4.9 · 842 deliveries</p></div>
+          <button class="btn btn-sm btn-green">Call Driver</button></div>
+          <div class="section-title" style="margin:0 0 8px;font-size:13px">Delivery Timeline</div>
+          <div class="timeline" style="padding-left:24px"><div class="tl-item done" style="padding-bottom:12px"><div class="tl-dot"></div><p class="tl-title" style="font-size:12px">Picked Up</p><p class="tl-time">12:08 PM</p></div>
+          <div class="tl-item active" style="padding-bottom:0"><div class="tl-dot"></div><p class="tl-title" style="font-size:12px">In Transit</p><p class="tl-time">Now</p></div></div>
+          <button class="btn btn-sm btn-outline" style="margin-top:12px" data-nav="status">Full Status</button>
+          <button class="btn btn-sm btn-outline" style="margin-top:8px" data-nav="qr">QR Track</button></div></div></div>`;
+    }
+
+    function statusScreen() {
+      const steps = [
+        ['Order Created','11:45 AM','done'],['Food Ready','12:02 PM','done'],
+        ['Driver Assigned','12:05 PM','done'],['Picked Up','12:08 PM','done'],
+        ['In Transit','12:10 PM','active'],['Delivered','—','pending']
+      ];
+      return `<div class="screen-body white"><div class="page-header"><button class="back-btn" data-back>←</button><h2>Delivery Status</h2><p>Order #LF-2024-8842 · Today</p></div>
+        <div class="screen-content"><div class="card" style="background:var(--orange-light);border:1px solid #FED7AA;text-align:center;padding:20px">
+          <p style="font-size:13px;color:var(--muted)">Current Status</p><p style="font-size:20px;font-weight:800;color:var(--orange);margin-top:4px">In Transit</p></div>
+        <div class="section-title">Timeline</div><div class="card"><div class="timeline">
+        ${steps.map(([t,time,s])=>`<div class="tl-item ${s}"><div class="tl-dot"></div><p class="tl-title">${t}</p><p class="tl-time">${time}</p></div>`).join('')}
+        </div></div><button class="btn btn-primary" data-tab="tracking">Track on Map</button></div></div>`;
+    }
+
+    function qrScreen() {
+      return `<div class="screen-body"><div class="page-header" style="background:var(--bg)"><button class="back-btn" data-back>←</button><h2>QR Tracking</h2><p>Scan to verify your lunchbox</p></div>
+        <div class="screen-content tight"><div class="card" style="text-align:center;padding:24px">
+          <p style="font-size:13px;font-weight:700;margin-bottom:8px">Lunchbox ID: LF-AAR-2847</p>
+          <div class="qr-box">${qrPattern()}</div>
+          <button class="btn btn-green btn-sm" style="width:100%;margin-top:8px">Scan QR Code</button></div>
+        <div class="card"><div class="card-header"><span class="card-title">Parcel Status</span><span class="badge badge-orange">In Transit</span></div>
+          <p style="font-size:13px;color:var(--muted)">Last scanned: Gate 2, DPS School · 12:18 PM</p></div>
+        <div class="section-title">Delivery History</div>
+        ${deliveryCard('Jun 11','Verified','12:28 PM','green')}${deliveryCard('Jun 10','Verified','12:31 PM','green')}
+        </div></div>`;
+    }
+
+    function qrPattern() {
+      let h = '';
+      for (let i = 0; i < 64; i++) h += `<div class="qr-cell${Math.random()>.45?'':' w'}"></div>`;
+      return h;
+    }
+
+    function plansScreen() {
+      return `<div class="screen-body"><div class="page-header" style="background:var(--bg)"><button class="back-btn" data-back>←</button><h2>Subscription Plans</h2><p>Choose the plan that fits you</p></div>
+        <div class="screen-content tight">
+        <div class="section-title" style="margin-top:0">School Plans</div>
+        ${planCard('Basic School','₹699','Monthly','1 lunchbox/day · Mon–Fri',false)}
+        ${planCard('Premium School','₹999','Monthly','2 lunchboxes · Priority delivery',true)}
+        <div class="section-title">Office Plans</div>
+        ${planCard('Standard Office','₹999','Monthly','Daily office delivery · 1 box',false)}
+        ${planCard('Team Office','₹1499','Monthly','Up to 3 boxes · Express route',true)}
+        <button class="btn btn-primary" style="margin-top:8px">Subscribe Now</button></div></div>`;
+    }
+
+    function planCard(name, price, period, desc, featured) {
+      return `<div class="price-card${featured?' featured':''}">${featured?'<span class="popular">Most Popular</span>':''}
+        <p style="font-weight:700;font-size:16px;margin-bottom:4px">${name}</p>
+        <div class="price">${price} <span>/ ${period}</span></div>
+        <p style="font-size:13px;color:var(--muted);margin-top:8px">${desc}</p>
+        <div style="margin-top:12px">${['Daily pickup','Live tracking','SMS alerts'].map(f=>`<p style="font-size:12px;margin-bottom:4px">✓ ${f}</p>`).join('')}</div></div>`;
+    }
+
+    function notifScreen() {
+      const items = [
+        ['🛵','Pickup Update','Driver Rajesh is 5 min away from your home','2 min ago','orange'],
+        ['✅','Driver Assigned','Rajesh Kumar will pick up your lunchbox','12 min ago','green'],
+        ['📦','Delivery Confirmed','Lunchbox delivered to DPS · 12:28 PM','Yesterday','green'],
+        ['🔔','Subscription Reminder','Your plan renews in 3 days · ₹699','Jun 9','blue']
+      ];
+      const toneBg = { orange:'var(--orange-light)', green:'var(--green-light)', blue:'#EFF6FF' };
+      const toneClr = { orange:'var(--orange)', green:'var(--green)', blue:'#2563EB' };
+      return `<div class="screen-body white"><div class="page-header"><button class="back-btn" data-back>←</button><div style="display:flex;justify-content:space-between;align-items:center">
+        <div><h2>Notifications</h2><p>4 unread messages</p></div><span style="font-size:13px;color:var(--orange);font-weight:700">Mark all read</span></div></div>
+        <div class="screen-content tight"><div class="card" style="padding:4px 16px">
+        ${items.map(([icon,title,msg,time,tone])=>`<div class="notif-item"><div class="notif-icon" style="background:${toneBg[tone]};color:${toneClr[tone]}">${icon}</div>
+          <div style="flex:1"><p style="font-weight:700;font-size:14px">${title}</p><p style="font-size:12px;color:var(--muted);margin-top:2px">${msg}</p><p style="font-size:11px;color:var(--muted);margin-top:4px">${time}</p></div></div>`).join('')}
+        </div></div></div>`;
+    }
+
+    function historyScreen() {
+      return `<div class="screen-body"><div class="page-header" style="background:var(--bg)"><h2>Delivery History</h2></div>
+        <div class="screen-content tight"><div class="search-bar"><span>🔍</span><input placeholder="Search deliveries..." value=""></div>
+        <div class="filter-row"><span class="filter-chip active">All</span><span class="filter-chip">Delivered</span><span class="filter-chip">In Transit</span><span class="filter-chip">Cancelled</span></div>
+        ${histCard('Jun 11, 2024','Home → DPS School','Delivered','12:28 PM','green')}
+        ${histCard('Jun 10, 2024','Home → DPS School','Delivered','12:31 PM','green')}
+        ${histCard('Jun 9, 2024','Home → DPS School','Delivered','12:25 PM','green')}
+        ${histCard('Jun 8, 2024','Home → Office','Delivered','1:02 PM','green')}
+        </div></div>`;
+    }
+
+    function histCard(date, route, status, time, tone) {
+      return `<div class="card"><div class="delivery-row"><div><p style="font-weight:700">${date}</p><p style="font-size:12px;color:var(--muted);margin-top:2px">${route}</p></div>
+        <div style="text-align:right"><span class="badge badge-${tone}">${status}</span><p style="font-size:11px;color:var(--muted);margin-top:4px">${time}</p></div></div></div>`;
+    }
+
+    function walletScreen() {
+      return `<div class="screen-body"><div class="page-header" style="background:var(--bg)"><button class="back-btn" data-back>←</button><h2>Wallet &amp; Payments</h2></div>
+        <div class="screen-content tight" style="padding-top:8px">
+        <div class="wallet-balance"><p style="font-size:13px;opacity:.9">Wallet Balance</p><div class="amount">₹1,250</div><p style="font-size:12px;opacity:.8;margin-top:4px">+ ₹50 referral credit</p></div>
+        <div class="section-title" style="margin-top:0">Payment Methods</div><div class="card">
+        <div class="pay-method"><div class="pay-icon" style="background:#F0FDF4;color:var(--green)">UPI</div><div style="flex:1"><p style="font-weight:700">UPI</p><p style="font-size:12px;color:var(--muted)">priya@upi · Default</p></div><span class="badge badge-green">Active</span></div>
+        <div class="pay-method"><div class="pay-icon" style="background:#EFF6FF;color:#2563EB">VISA</div><div style="flex:1"><p style="font-weight:700">•••• 4242</p><p style="font-size:12px;color:var(--muted)">Expires 08/27</p></div></div></div>
+        <div class="section-title">Transaction History</div>
+        ${txRow('Jun 11','Subscription','-₹699')}${txRow('Jun 10','Referral Credit','+₹50')}${txRow('Jun 1','Subscription','-₹699')}
+        <button class="btn btn-outline" style="margin-top:16px">Download Receipt</button></div></div>`;
+    }
+
+    function txRow(date, desc, amt) {
+      const pos = amt.startsWith('+');
+      return `<div class="card card-flat" style="padding:12px 16px;margin-bottom:8px"><div class="delivery-row"><div><p style="font-weight:600;font-size:14px">${desc}</p><p style="font-size:11px;color:var(--muted)">${date}</p></div><p style="font-weight:700;color:${pos?'var(--green)':'var(--text)'}">${amt}</p></div></div>`;
+    }
+
+    function profileScreen() {
+      return `<div class="screen-body white"><div class="profile-header"><div class="profile-avatar">PS</div><h2 style="font-size:20px;font-weight:800">Priya Sharma</h2><p style="font-size:13px;color:var(--muted)">+91 98765 43210</p></div>
+        ${menuItem('👤','Personal Details')}${menuItem('📋','Subscription Details','School · ₹699/mo','plans')}
+        ${menuItem('📍','Saved Addresses','2 addresses')}${menuItem('💳','Wallet & Payments','','wallet')}${menuItem('🎁','Referral & Rewards','','referral')}${menuItem('❓','Help & Support','','support')}${menuItem('⚙️','Settings')}${menuItem('🚪','Logout','','','splash')}
+        </div>`;
+    }
+
+    function menuItem(icon, label, sub, nav, resetNav) {
+      const attrs = resetNav ? `data-reset="${resetNav}"` : nav ? `data-nav="${nav}"` : '';
+      return `<div class="menu-item" ${attrs} style="cursor:${nav||resetNav?'pointer':'default'}"><div class="left"><div class="menu-icon" style="background:${resetNav==='splash'?'#FEF2F2':'var(--bg)'}">${icon}</div><div><p>${label}</p>${sub?`<p style="font-size:11px;color:var(--muted);font-weight:500">${sub}</p>`:''}</div></div><span style="color:var(--muted)">›</span></div>`;
+    }
+
+    function referralScreen() {
+      return `<div class="screen-body"><div class="page-header" style="background:var(--bg)"><button class="back-btn" data-back>←</button><h2>Referral &amp; Rewards</h2></div>
+        <div class="screen-content tight" style="padding-top:8px">
+        <div class="referral-banner"><p style="font-size:13px;opacity:.9">Invite Friends &amp; Earn</p><p style="font-size:22px;font-weight:800;margin-top:4px">Get ₹50 per referral</p>
+          <div class="ref-code">LUNCH50</div><button class="btn" style="background:white;color:var(--green);margin-top:4px">Invite Friends</button></div>
+        <div class="stat-row"><div class="stat-box"><div class="val">₹250</div><div class="lbl">Credits Earned</div></div>
+          <div class="stat-box"><div class="val">5</div><div class="lbl">Friends Invited</div></div>
+          <div class="stat-box"><div class="val">3</div><div class="lbl">Successful</div></div></div>
+        <div class="section-title">Rewards Dashboard</div>
+        ${rewardRow('Referral Bonus','Priya referred Ankit','+₹50','Jun 10')}${rewardRow('Welcome Bonus','Account signup','+₹25','May 28')}
+        </div></div>`;
+    }
+
+    function rewardRow(title, desc, amt, date) {
+      return `<div class="card card-flat" style="padding:14px 16px"><div class="delivery-row"><div><p style="font-weight:700;font-size:14px">${title}</p><p style="font-size:12px;color:var(--muted)">${desc}</p></div><div style="text-align:right"><p style="font-weight:800;color:var(--green)">${amt}</p><p style="font-size:11px;color:var(--muted)">${date}</p></div></div></div>`;
+    }
+
+    function supportScreen() {
+      return `<div class="screen-body"><div class="page-header" style="background:var(--bg)"><button class="back-btn" data-back>←</button><h2>Help &amp; Support</h2><p>We're here to help you</p></div>
+        <div class="screen-content tight">
+        <div class="support-option"><div class="menu-icon" style="background:var(--green-light);font-size:20px">💬</div><div><p style="font-weight:700">Chat Support</p><p style="font-size:12px;color:var(--muted)">Avg. response: 2 min</p></div><span>›</span></div>
+        <div class="support-option"><div class="menu-icon" style="background:var(--orange-light);font-size:20px">📞</div><div><p style="font-weight:700">Call Support</p><p style="font-size:12px;color:var(--muted)">1800-LUNCH-FLOW</p></div><span>›</span></div>
+        <div class="section-title">FAQs</div>
+        ${faq('How do I mark food as ready?')}${faq('What if my driver is delayed?')}${faq('How to change delivery address?')}
+        <button class="btn btn-outline" style="margin-top:20px;border-color:#EF4444;color:#EF4444">Raise a Complaint</button>
+        </div></div>`;
+    }
+
+    function faq(q) {
+      return `<div class="card card-flat" style="padding:14px 16px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center"><p style="font-weight:600;font-size:14px">${q}</p><span style="color:var(--muted)">+</span></div>`;
+    }
+  </script>
+</body>
+</html>

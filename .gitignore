@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Expo / React Native
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Metro
+.metro-health-check*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env & secrets
+.env
+.env*.local
+
+# IDE / agent tooling
+.agents/
+
+# Debug logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Native build folders
+ios/
+android/
