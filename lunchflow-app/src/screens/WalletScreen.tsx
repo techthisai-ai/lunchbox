@@ -1,52 +1,89 @@
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { colors, spacing } from '../constants/theme';
+import { colors, gradients, spacing } from '../constants/theme';
+import { useAuth } from '../context/AuthContext';
 import { ProfileStackParamList } from '../navigation/types';
+import { downloadReceipt, loadWallet, WalletState } from '../services/paymentService';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Wallet'>;
 
-const transactions = [
-  { date: 'Jun 11', desc: 'Subscription', amt: '-₹699', positive: false },
-  { date: 'Jun 10', desc: 'Referral Credit', amt: '+₹50', positive: true },
-  { date: 'Jun 1', desc: 'Subscription', amt: '-₹699', positive: false },
-];
-
 export function WalletScreen({ navigation }: Props) {
+  const { user } = useAuth();
+  const [wallet, setWallet] = useState<WalletState | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!user?.phone) {
+      setWallet(null);
+      return;
+    }
+    setWallet(await loadWallet(user.phone));
+  }, [user?.phone]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh]),
+  );
+
+  const handleDownloadReceipt = () => {
+    const latest = wallet?.transactions[0];
+    if (!latest) {
+      Alert.alert('No receipt', 'Complete a payment first to download a receipt.');
+      return;
+    }
+
+    const downloaded = downloadReceipt(latest);
+    if (!downloaded) {
+      Alert.alert('Receipt', latest.receiptText);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScreenHeader title="Wallet & Payments" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={styles.scroll}>
-        <LinearGradient colors={[colors.orange, colors.orangeDark]} style={styles.balance}>
+        <LinearGradient colors={[...gradients.primary]} style={styles.balance}>
           <Text style={styles.balanceLabel}>Wallet Balance</Text>
-          <Text style={styles.amount}>₹1,250</Text>
-          <Text style={styles.credit}>+ ₹50 referral credit</Text>
+          <Text style={styles.amount}>₹{(wallet?.balance ?? 1250).toLocaleString('en-IN')}</Text>
+          <Text style={styles.credit}>+ ₹{wallet?.referralCredit ?? 50} referral credit</Text>
         </LinearGradient>
 
         <Text style={styles.section}>Payment Methods</Text>
         <Card>
-          <PayRow icon="UPI" iconBg={colors.greenLight} iconColor={colors.green} title="UPI" sub="priya@upi · Default" badge="Active" />
-          <PayRow icon="VISA" iconBg={colors.blueLight} iconColor={colors.blue} title="•••• 4242" sub="Expires 08/27" />
+          {(wallet?.paymentMethods ?? []).map((method) => (
+            <PayRow
+              key={method.id}
+              icon={method.icon}
+              iconBg={method.iconBg}
+              iconColor={method.iconColor}
+              title={method.title}
+              sub={method.sub}
+              badge={method.badge}
+            />
+          ))}
         </Card>
 
         <Text style={styles.section}>Transaction History</Text>
-        {transactions.map((t) => (
-          <Card flat key={t.date + t.desc} style={{ paddingVertical: 12 }}>
+        {(wallet?.transactions ?? []).map((t) => (
+          <Card flat key={t.id} style={{ paddingVertical: 12 }}>
             <View style={styles.txRow}>
               <View>
                 <Text style={styles.txDesc}>{t.desc}</Text>
-                <Text style={styles.txDate}>{t.date}</Text>
+                <Text style={styles.txDate}>{t.date} · {t.method}</Text>
               </View>
               <Text style={[styles.txAmt, t.positive && { color: colors.green }]}>{t.amt}</Text>
             </View>
           </Card>
         ))}
-        <Button title="Download Receipt" variant="outline" onPress={() => {}} style={{ marginTop: spacing.md }} />
+        <Button title="Download Receipt" variant="outline" onPress={handleDownloadReceipt} style={{ marginTop: spacing.md }} />
       </ScrollView>
     </SafeAreaView>
   );

@@ -1,25 +1,35 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { Input } from '../../components/Input';
 import { ScreenHeader } from '../../components/ScreenHeader';
-import { DEMO_CREDENTIALS } from '../../constants/auth';
+import { normalizePhone } from '../../constants/auth';
 import { colors, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DriverLogin'>;
 
-export function DriverLoginScreen({ navigation }: Props) {
+export function DriverLoginScreen({ navigation, route }: Props) {
   const { loginAsDriver } = useAuth();
-  const [phone, setPhone] = useState<string>(DEMO_CREDENTIALS.driver.phone);
-  const [password, setPassword] = useState<string>(DEMO_CREDENTIALS.driver.password);
+  const [phone, setPhone] = useState(route.params?.phone ?? '');
   const [error, setError] = useState('');
 
-  const handleLogin = () => {
-    const err = loginAsDriver(phone, password);
+  useEffect(() => {
+    if (route.params?.phone) {
+      setPhone(route.params.phone);
+    }
+  }, [route.params?.phone]);
+
+  const handleLogin = async () => {
+    setError('');
+    const err = await loginAsDriver(phone);
+    if (err === 'DRIVER_REGISTER_REQUIRED') {
+      navigation.replace('DriverRegister', { phone: normalizePhone(phone) || undefined });
+      return;
+    }
     if (err) {
       setError(err);
       return;
@@ -34,15 +44,14 @@ export function DriverLoginScreen({ navigation }: Props) {
         <View style={styles.badge}>
           <Text style={styles.badgeText}>DRIVER PORTAL</Text>
         </View>
-        <Input label="Mobile Number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-        <Input label="Password" value={password} onChangeText={setPassword} secureTextEntry />
+        <Input label="Mobile Number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Enter 10-digit mobile number" />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Button title="Login as Driver" variant="green" onPress={handleLogin} style={{ marginTop: 8 }} />
-        <View style={styles.demo}>
-          <Text style={styles.demoTitle}>Demo credentials</Text>
-          <Text style={styles.demoText}>Phone: {DEMO_CREDENTIALS.driver.phone}</Text>
-          <Text style={styles.demoText}>Password: {DEMO_CREDENTIALS.driver.password}</Text>
-        </View>
+        <Pressable onPress={() => navigation.navigate('DriverRegister', { phone: normalizePhone(phone) || undefined })}>
+          <Text style={styles.register}>
+            New driver? <Text style={styles.link}>Register</Text>
+          </Text>
+        </Pressable>
       </View>
     </SafeAreaView>
   );
@@ -61,14 +70,6 @@ const styles = StyleSheet.create({
   },
   badgeText: { fontSize: 11, fontWeight: '800', color: colors.green, letterSpacing: 1 },
   error: { color: colors.red, fontSize: 13, marginBottom: 8 },
-  demo: {
-    marginTop: spacing.xl,
-    padding: spacing.md,
-    backgroundColor: colors.bg,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  demoTitle: { fontSize: 12, fontWeight: '700', marginBottom: 6 },
-  demoText: { fontSize: 12, color: colors.muted, marginTop: 2 },
+  register: { textAlign: 'center', marginTop: spacing.lg, fontSize: 13, color: colors.muted },
+  link: { color: colors.green, fontWeight: '700' },
 });

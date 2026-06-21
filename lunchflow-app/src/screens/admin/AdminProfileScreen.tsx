@@ -6,18 +6,28 @@ import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../../components/Button';
 import { colors, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
-import { RootStackParamList } from '../../navigation/types';
+import { AdminProfileStackParamList } from '../../navigation/types';
+
+type Nav = NativeStackNavigationProp<AdminProfileStackParamList>;
 
 export function AdminProfileScreen() {
   const { user, logout } = useAuth();
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<Nav>();
 
   const handleLogout = () => {
     logout();
-    navigation.dispatch(
+    navigation.getParent()?.getParent()?.dispatch(
       CommonActions.reset({ index: 0, routes: [{ name: 'Splash' }] }),
     );
   };
+
+  const menuItems = [
+    { icon: 'settings-outline' as const, label: 'System Settings' },
+    { icon: 'document-text-outline' as const, label: 'Reports & Analytics', screen: 'AdminReports' as const },
+    { icon: 'wallet-outline' as const, label: 'Salary Management', screen: 'AdminSalary' as const },
+    { icon: 'cash-outline' as const, label: 'Expense Management', screen: 'AdminExpenses' as const },
+    { icon: 'notifications-outline' as const, label: 'Notifications' },
+  ];
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -32,12 +42,14 @@ export function AdminProfileScreen() {
         </View>
       </View>
       <ScrollView>
-        {[
-          { icon: 'settings-outline' as const, label: 'System Settings' },
-          { icon: 'document-text-outline' as const, label: 'Reports & Analytics' },
-          { icon: 'notifications-outline' as const, label: 'Notifications' },
-        ].map((item) => (
-          <Pressable key={item.label} style={styles.menuItem}>
+        {menuItems.map((item) => (
+          <Pressable
+            key={item.label}
+            style={styles.menuItem}
+            onPress={() => {
+              if (item.screen) navigation.navigate(item.screen);
+            }}
+          >
             <View style={styles.menuLeft}>
               <View style={styles.menuIcon}>
                 <Ionicons name={item.icon} size={18} color={colors.text} />

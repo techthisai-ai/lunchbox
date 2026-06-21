@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
 import { colors, radius } from '../constants/theme';
 
-type Variant = 'primary' | 'green' | 'outline' | 'danger';
+type Variant = 'primary' | 'green' | 'outline' | 'danger' | 'premium' | 'highlight';
 
 type Props = {
   title: string;
@@ -23,7 +23,14 @@ export function Button({ title, onPress, variant = 'primary', small, style }: Pr
         style,
       ]}
     >
-      <Text style={[styles.text, variant === 'outline' && styles.outlineText, variant === 'danger' && styles.dangerText]}>
+      <Text
+        style={[
+          styles.text,
+          variant === 'outline' && styles.outlineText,
+          variant === 'danger' && styles.dangerText,
+          variant === 'highlight' && styles.highlightText,
+        ]}
+      >
         {title}
       </Text>
     </Pressable>
@@ -45,10 +52,13 @@ const styles = StyleSheet.create({
   },
   primary: { backgroundColor: colors.orange },
   green: { backgroundColor: colors.green },
+  premium: { backgroundColor: colors.dark },
+  highlight: { backgroundColor: colors.yellow },
   outline: { backgroundColor: colors.white, borderWidth: 2, borderColor: colors.orange },
   danger: { backgroundColor: colors.white, borderWidth: 2, borderColor: colors.red },
-  pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
+  pressed: { opacity: 0.92, transform: [{ scale: 0.98 }] },
   text: { color: colors.white, fontSize: 16, fontWeight: '700' },
   outlineText: { color: colors.orange },
+  highlightText: { color: colors.dark },
   dangerText: { color: colors.red },
 });

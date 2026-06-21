@@ -12,28 +12,36 @@ export function SplashScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <LogoMark />
-        <Text style={styles.title}>
-          Lunch<Text style={styles.orange}>Flow</Text>
-        </Text>
-        <Text style={styles.tagline}>
-          Fresh lunchbox. Delivered daily.{'\n'}Home to School & Office.
-        </Text>
-      </View>
-      <View style={styles.footer}>
-        <Button title="Get Started" onPress={() => navigation.replace('RoleSelect')} />
-        <Text style={styles.trust}>Trusted by 10,000+ families & professionals</Text>
+        <View style={styles.stack}>
+          <LogoMark />
+          <Text style={styles.title}>
+            Lunch<Text style={styles.orange}>Flow</Text>
+          </Text>
+          <Button
+            title="Get Started"
+            onPress={() => navigation.replace('RoleSelect')}
+            style={styles.button}
+          />
+        </View>
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.white, padding: spacing.xl },
-  content: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  title: { fontSize: 32, fontWeight: '800', marginTop: spacing.lg, letterSpacing: -0.5 },
+  container: { flex: 1, backgroundColor: colors.white },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+  stack: {
+    width: '100%',
+    maxWidth: 320,
+    alignItems: 'center',
+  },
+  title: { fontSize: 32, fontWeight: '800', marginTop: spacing.lg, letterSpacing: -0.5, textAlign: 'center' },
   orange: { color: colors.orange },
-  tagline: { textAlign: 'center', color: colors.muted, marginTop: spacing.sm, fontSize: 15, lineHeight: 22 },
-  footer: { paddingBottom: spacing.lg },
-  trust: { textAlign: 'center', marginTop: spacing.md, fontSize: 12, color: colors.muted },
+  button: { marginTop: spacing.xl, width: '100%', alignSelf: 'center' },
 });

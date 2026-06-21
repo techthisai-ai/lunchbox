@@ -2,15 +2,13 @@ import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../constants/theme';
-import { AdminDashboardScreen } from '../screens/admin/AdminDashboardScreen';
-import { AdminDriversScreen } from '../screens/admin/AdminDriversScreen';
-import { AdminLoginScreen } from '../screens/admin/AdminLoginScreen';
-import { AdminOrdersScreen } from '../screens/admin/AdminOrdersScreen';
-import { AdminProfileScreen } from '../screens/admin/AdminProfileScreen';
 import { DriverDeliveriesScreen } from '../screens/driver/DriverDeliveriesScreen';
 import { DriverHomeScreen } from '../screens/driver/DriverHomeScreen';
 import { DriverLoginScreen } from '../screens/driver/DriverLoginScreen';
+import { DriverRegisterScreen } from '../screens/driver/DriverRegisterScreen';
 import { DriverProfileScreen } from '../screens/driver/DriverProfileScreen';
 import { DeliveryStatusScreen } from '../screens/DeliveryStatusScreen';
 import { FoodReadyScreen } from '../screens/FoodReadyScreen';
@@ -18,7 +16,10 @@ import { HistoryScreen } from '../screens/HistoryScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { NotificationsScreen } from '../screens/NotificationsScreen';
+import { PersonalDetailsScreen } from '../screens/PersonalDetailsScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
+import { SavedAddressesScreen } from '../screens/SavedAddressesScreen';
+import { SettingsScreen } from '../screens/SettingsScreen';
 import { QRTrackingScreen } from '../screens/QRTrackingScreen';
 import { ReferralScreen } from '../screens/ReferralScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
@@ -29,7 +30,6 @@ import { SupportScreen } from '../screens/SupportScreen';
 import { TrackingScreen } from '../screens/TrackingScreen';
 import { WalletScreen } from '../screens/WalletScreen';
 import {
-  AdminTabParamList,
   DriverTabParamList,
   HomeStackParamList,
   MainTabParamList,
@@ -41,7 +41,6 @@ import {
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const DriverTab = createBottomTabNavigator<DriverTabParamList>();
-const AdminTab = createBottomTabNavigator<AdminTabParamList>();
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 const TrackStack = createNativeStackNavigator<TrackStackParamList>();
 const ProfileStack = createNativeStackNavigator<ProfileStackParamList>();
@@ -53,26 +52,48 @@ const stackScreenOptions = {
   gestureEnabled: true,
 };
 
-const defaultTabBarStyle = {
-  height: 64,
-  paddingBottom: 10,
-  paddingTop: 8,
-  borderTopColor: colors.border,
-  backgroundColor: colors.white,
+function useTabBarStyle() {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'web' ? 12 : 8);
+
+  return {
+    minHeight: 68 + bottomInset,
+    paddingBottom: bottomInset,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.white,
+  };
+}
+
+const tabBarLabelStyle = {
+  fontSize: 11,
+  fontWeight: '600' as const,
+  lineHeight: 14,
+  marginTop: 2,
+  marginBottom: Platform.OS === 'web' ? 4 : 0,
 };
 
-function tabBarStyleForRoute(route: Parameters<typeof getFocusedRouteNameFromRoute>[0], rootScreens: string[]) {
+const tabBarIconStyle = {
+  marginBottom: 0,
+};
+
+function tabBarStyleForRoute(
+  route: Parameters<typeof getFocusedRouteNameFromRoute>[0],
+  rootScreens: string[],
+  baseStyle: ReturnType<typeof useTabBarStyle>,
+) {
   const focused = getFocusedRouteNameFromRoute(route) ?? rootScreens[0];
   if (!rootScreens.includes(focused)) {
     return { display: 'none' as const };
   }
-  return defaultTabBarStyle;
+  return baseStyle;
 }
 
 function HomeStackNavigator() {
   return (
     <HomeStack.Navigator screenOptions={stackScreenOptions}>
-      <HomeStack.Screen name="Home" component={HomeScreen} />
+      <HomeStack.Screen name="HomeMain" component={HomeScreen} />
       <HomeStack.Screen name="FoodReady" component={FoodReadyScreen} options={{ animation: 'slide_from_bottom' }} />
       <HomeStack.Screen name="Notifications" component={NotificationsScreen} />
     </HomeStack.Navigator>
@@ -92,7 +113,10 @@ function TrackStackNavigator() {
 function ProfileStackNavigator() {
   return (
     <ProfileStack.Navigator screenOptions={stackScreenOptions}>
-      <ProfileStack.Screen name="Profile" component={ProfileScreen} />
+      <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
+      <ProfileStack.Screen name="PersonalDetails" component={PersonalDetailsScreen} />
+      <ProfileStack.Screen name="SavedAddresses" component={SavedAddressesScreen} />
+      <ProfileStack.Screen name="Settings" component={SettingsScreen} />
       <ProfileStack.Screen name="Wallet" component={WalletScreen} />
       <ProfileStack.Screen name="Subscription" component={SubscriptionScreen} />
       <ProfileStack.Screen name="Referral" component={ReferralScreen} />
@@ -102,13 +126,16 @@ function ProfileStackNavigator() {
 }
 
 function CustomerTabs() {
+  const tabBarStyle = useTabBarStyle();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: colors.orange,
         tabBarInactiveTintColor: colors.muted,
-        tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
+        tabBarLabelStyle,
+        tabBarIconStyle,
         tabBarIcon: ({ color, size }) => {
           const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
             Home: 'home',
@@ -120,23 +147,26 @@ function CustomerTabs() {
         },
       })}
     >
-      <Tab.Screen name="Home" component={HomeStackNavigator} options={({ route }) => ({ tabBarStyle: tabBarStyleForRoute(route, ['Home']) })} />
-      <Tab.Screen name="Track" component={TrackStackNavigator} options={({ route }) => ({ title: 'Track', tabBarStyle: tabBarStyleForRoute(route, ['Tracking']) })} />
-      <Tab.Screen name="History" component={HistoryScreen} />
-      <Tab.Screen name="Profile" component={ProfileStackNavigator} options={({ route }) => ({ tabBarStyle: tabBarStyleForRoute(route, ['Profile']) })} />
+      <Tab.Screen name="Home" component={HomeStackNavigator} options={({ route }) => ({ tabBarStyle: tabBarStyleForRoute(route, ['HomeMain'], tabBarStyle) })} />
+      <Tab.Screen name="Track" component={TrackStackNavigator} options={({ route }) => ({ title: 'Track', tabBarStyle: tabBarStyleForRoute(route, ['Tracking'], tabBarStyle) })} />
+      <Tab.Screen name="History" component={HistoryScreen} options={{ tabBarStyle }} />
+      <Tab.Screen name="Profile" component={ProfileStackNavigator} options={({ route }) => ({ tabBarStyle: tabBarStyleForRoute(route, ['ProfileMain'], tabBarStyle) })} />
     </Tab.Navigator>
   );
 }
 
 function DriverTabsNavigator() {
+  const tabBarStyle = useTabBarStyle();
+
   return (
     <DriverTab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: colors.green,
+        tabBarActiveTintColor: colors.orange,
         tabBarInactiveTintColor: colors.muted,
-        tabBarStyle: defaultTabBarStyle,
-        tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
+        tabBarStyle,
+        tabBarLabelStyle,
+        tabBarIconStyle,
         tabBarIcon: ({ color, size }) => {
           const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
             DriverHome: 'home',
@@ -154,41 +184,13 @@ function DriverTabsNavigator() {
   );
 }
 
-function AdminTabsNavigator() {
-  return (
-    <AdminTab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarActiveTintColor: colors.blue,
-        tabBarInactiveTintColor: colors.muted,
-        tabBarStyle: defaultTabBarStyle,
-        tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
-        tabBarIcon: ({ color, size }) => {
-          const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
-            AdminDashboard: 'grid',
-            AdminOrders: 'receipt',
-            AdminDrivers: 'bicycle',
-            AdminProfile: 'person',
-          };
-          return <Ionicons name={icons[route.name]} size={size} color={color} />;
-        },
-      })}
-    >
-      <AdminTab.Screen name="AdminDashboard" component={AdminDashboardScreen} options={{ title: 'Dashboard' }} />
-      <AdminTab.Screen name="AdminOrders" component={AdminOrdersScreen} options={{ title: 'Orders' }} />
-      <AdminTab.Screen name="AdminDrivers" component={AdminDriversScreen} options={{ title: 'Drivers' }} />
-      <AdminTab.Screen name="AdminProfile" component={AdminProfileScreen} options={{ title: 'Profile' }} />
-    </AdminTab.Navigator>
-  );
-}
-
 export function RootNavigator() {
   return (
     <RootStack.Navigator
       screenOptions={{
         headerShown: false,
         animation: 'slide_from_right',
-        contentStyle: { backgroundColor: colors.white },
+        contentStyle: { backgroundColor: colors.bg },
         gestureEnabled: true,
       }}
     >
@@ -197,10 +199,14 @@ export function RootNavigator() {
       <RootStack.Screen name="Login" component={LoginScreen} />
       <RootStack.Screen name="Register" component={RegisterScreen} />
       <RootStack.Screen name="DriverLogin" component={DriverLoginScreen} />
-      <RootStack.Screen name="AdminLogin" component={AdminLoginScreen} />
+      <RootStack.Screen name="DriverRegister" component={DriverRegisterScreen} />
+      <RootStack.Screen
+        name="SubscriptionOnboarding"
+        component={SubscriptionScreen}
+        options={{ animation: 'fade_from_bottom', gestureEnabled: false }}
+      />
       <RootStack.Screen name="MainTabs" component={CustomerTabs} options={{ animation: 'fade_from_bottom' }} />
       <RootStack.Screen name="DriverTabs" component={DriverTabsNavigator} options={{ animation: 'fade_from_bottom' }} />
-      <RootStack.Screen name="AdminTabs" component={AdminTabsNavigator} options={{ animation: 'fade_from_bottom' }} />
     </RootStack.Navigator>
   );
 }

@@ -4,7 +4,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
-import { DEMO_CREDENTIALS } from '../../constants/auth';
+import { getInitials } from '../../constants/auth';
 import { colors, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { RootStackParamList } from '../../navigation/types';
@@ -24,10 +24,10 @@ export function DriverProfileScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>RK</Text>
+          <Text style={styles.avatarText}>{getInitials(user?.name ?? '')}</Text>
         </View>
-        <Text style={styles.name}>{user?.name}</Text>
-        <Text style={styles.phone}>+91 {user?.phone}</Text>
+        <Text style={styles.name}>{user?.name || '—'}</Text>
+        <Text style={styles.phone}>{user?.phone ? `+91 ${user.phone}` : '—'}</Text>
         <View style={styles.roleBadge}>
           <Text style={styles.roleText}>DRIVER</Text>
         </View>
@@ -35,7 +35,7 @@ export function DriverProfileScreen() {
       <ScrollView contentContainerStyle={styles.scroll}>
         <Card flat>
           <Text style={styles.label}>Vehicle</Text>
-          <Text style={styles.value}>{DEMO_CREDENTIALS.driver.vehicle}</Text>
+          <Text style={styles.value}>{user?.vehicle || '—'}</Text>
         </Card>
         <Card flat>
           <Text style={styles.label}>Rating</Text>

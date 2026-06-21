@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '../constants/theme';
+import { colors, spacing, typography } from '../constants/theme';
 
 type Props = {
   title: string;
@@ -29,7 +29,7 @@ export function ScreenHeader({ title, subtitle, onBack, right }: Props) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md, backgroundColor: colors.white },
+  wrap: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md, backgroundColor: colors.bg },
   back: {
     width: 36,
     height: 36,
@@ -41,6 +41,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   row: { flexDirection: 'row', alignItems: 'center' },
-  title: { fontSize: 22, fontWeight: '800', color: colors.text },
-  subtitle: { fontSize: 13, color: colors.muted, marginTop: 2 },
+  title: { ...typography.h1, color: colors.text },
+  subtitle: { ...typography.caption, color: colors.muted, marginTop: 2, fontWeight: '500' },
 });

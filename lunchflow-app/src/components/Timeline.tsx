@@ -45,7 +45,7 @@ const styles = StyleSheet.create({
   },
   done: { backgroundColor: colors.green, borderColor: colors.green },
   active: { backgroundColor: colors.orange, borderColor: colors.orange },
-  pending: { backgroundColor: '#F1F5F9', borderColor: colors.border },
+  pending: { backgroundColor: colors.surfaceMuted, borderColor: colors.border },
   title: { fontSize: 14, fontWeight: '700', color: colors.text },
   time: { fontSize: 11, color: colors.muted, marginTop: 2 },
 });

@@ -3,13 +3,13 @@ import { NavigatorScreenParams } from '@react-navigation/native';
 export type RootStackParamList = {
   Splash: undefined;
   RoleSelect: undefined;
-  Login: undefined;
-  Register: undefined;
-  DriverLogin: undefined;
-  AdminLogin: undefined;
+  Login: { phone?: string } | undefined;
+  Register: { phone?: string } | undefined;
+  DriverLogin: { phone?: string } | undefined;
+  DriverRegister: { phone?: string } | undefined;
+  SubscriptionOnboarding: undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList>;
   DriverTabs: NavigatorScreenParams<DriverTabParamList>;
-  AdminTabs: NavigatorScreenParams<AdminTabParamList>;
 };
 
 export type MainTabParamList = {
@@ -29,11 +29,18 @@ export type AdminTabParamList = {
   AdminDashboard: undefined;
   AdminOrders: undefined;
   AdminDrivers: undefined;
-  AdminProfile: undefined;
+  AdminProfile: NavigatorScreenParams<AdminProfileStackParamList>;
+};
+
+export type AdminProfileStackParamList = {
+  AdminProfileMain: undefined;
+  AdminReports: undefined;
+  AdminSalary: undefined;
+  AdminExpenses: undefined;
 };
 
 export type HomeStackParamList = {
-  Home: undefined;
+  HomeMain: undefined;
   FoodReady: undefined;
   Notifications: undefined;
 };
@@ -45,7 +52,10 @@ export type TrackStackParamList = {
 };
 
 export type ProfileStackParamList = {
-  Profile: undefined;
+  ProfileMain: undefined;
+  PersonalDetails: undefined;
+  SavedAddresses: undefined;
+  Settings: undefined;
   Wallet: undefined;
   Subscription: undefined;
   Referral: undefined;

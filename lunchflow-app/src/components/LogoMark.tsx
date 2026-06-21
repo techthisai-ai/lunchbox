@@ -1,13 +1,13 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, View } from 'react-native';
-import { colors, radius, shadow } from '../constants/theme';
+import { colors, gradients, radius, shadow } from '../constants/theme';
 
 export function LogoMark({ size = 72 }: { size?: number }) {
   return (
     <View style={[styles.wrap, { width: size, height: size, borderRadius: size * 0.28 }, shadow.card]}>
       <LinearGradient
-        colors={[colors.orange, colors.green]}
+        colors={[...gradients.brand]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={[styles.gradient, { borderRadius: size * 0.28 }]}

@@ -1,50 +1,77 @@
-import { CommonActions } from '@react-navigation/native';
+import { CommonActions, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { getInitials } from '../constants/auth';
+import { SubscriptionPlan } from '../constants/subscriptions';
 import { colors, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { ProfileStackParamList } from '../navigation/types';
+import { loadActiveSubscription } from '../services/subscriptionService';
 
-type Props = NativeStackScreenProps<ProfileStackParamList, 'Profile'>;
+type Props = NativeStackScreenProps<ProfileStackParamList, 'ProfileMain'>;
 
-const menuItems = [
-  { icon: 'person-outline' as const, label: 'Personal Details' },
-  { icon: 'document-text-outline' as const, label: 'Subscription Details', sub: 'School · ₹699/mo', route: 'Subscription' as const },
-  { icon: 'location-outline' as const, label: 'Saved Addresses', sub: '2 addresses' },
+const baseMenuItems = [
+  { icon: 'person-outline' as const, label: 'Personal Details', route: 'PersonalDetails' as const },
+  { icon: 'document-text-outline' as const, label: 'Subscription Details', route: 'Subscription' as const },
+  { icon: 'location-outline' as const, label: 'Saved Addresses', sub: '2 addresses', route: 'SavedAddresses' as const },
   { icon: 'gift-outline' as const, label: 'Referral & Rewards', route: 'Referral' as const },
   { icon: 'wallet-outline' as const, label: 'Wallet & Payments', route: 'Wallet' as const },
   { icon: 'help-circle-outline' as const, label: 'Help & Support', route: 'Support' as const },
-  { icon: 'settings-outline' as const, label: 'Settings' },
+  { icon: 'settings-outline' as const, label: 'Settings', route: 'Settings' as const },
 ];
 
 export function ProfileScreen({ navigation }: Props) {
   const { user, logout } = useAuth();
-  const rootNav = navigation.getParent()?.getParent()?.getParent();
+  const [activePlan, setActivePlan] = useState<SubscriptionPlan | null>(null);
 
-  const handleLogout = () => {
-    logout();
-    rootNav?.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'Splash' }] }));
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.phone) {
+        setActivePlan(null);
+        return;
+      }
+      loadActiveSubscription(user.phone).then(setActivePlan);
+    }, [user?.phone]),
+  );
+
+  const menuItems = useMemo(
+    () =>
+      baseMenuItems.map((item) =>
+        item.route === 'Subscription'
+          ? {
+              ...item,
+              sub: activePlan ? `${activePlan.badgeLabel} · ${activePlan.price}` : 'Student · 1M · ₹699',
+            }
+          : item,
+      ),
+    [activePlan],
+  );
+
+  const handleLogout = async () => {
+    await logout();
+    navigation.getParent()?.getParent()?.dispatch(
+      CommonActions.reset({ index: 0, routes: [{ name: 'Splash' }] }),
+    );
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>PS</Text>
+          <Text style={styles.avatarText}>{getInitials(user?.name ?? '')}</Text>
         </View>
-        <Text style={styles.name}>{user?.name ?? 'Priya Sharma'}</Text>
-        <Text style={styles.phone}>+91 {user?.phone ?? '9876543210'}</Text>
+        <Text style={styles.name}>{user?.name || '—'}</Text>
+        <Text style={styles.phone}>{user?.phone ? `+91 ${user.phone}` : '—'}</Text>
       </View>
       <ScrollView>
         {menuItems.map((item) => (
           <Pressable
             key={item.label}
             style={styles.menuItem}
-            onPress={() => {
-              if (item.route) navigation.navigate(item.route);
-            }}
+            onPress={() => navigation.navigate(item.route)}
           >
             <View style={styles.menuLeft}>
               <View style={styles.menuIcon}>
