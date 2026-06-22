@@ -16,6 +16,7 @@ export function RatingOverlayProvider({ children }: { children: ReactNode }) {
   const [phone, setPhone] = useState('');
 
   const promptRatingForOrder = useCallback(async (nextOrder: DeliveryOrder, customerPhone: string) => {
+    if (!nextOrder.driver?.id) return;
     const existing = await loadRatingsForCustomer(customerPhone);
     if (existing.some((r) => r.orderId === nextOrder.id)) return;
     setOrder(nextOrder);
@@ -60,6 +61,7 @@ export function RatingOverlayProvider({ children }: { children: ReactNode }) {
       <RatingDialog
         visible={visible}
         orderLabel={order ? `${order.studentName} · ${order.school}` : ''}
+        driverName={order?.driver?.name}
         submitting={submitting}
         onSubmit={handleSubmit}
         onSkip={close}

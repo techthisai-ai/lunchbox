@@ -1,55 +1,30 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AdminAddCategoryModal } from '../../components/admin/AdminAddCategoryModal';
 import { AdminAddExpenseModal } from '../../components/admin/AdminAddExpenseModal';
 import { AdminFilterSelect } from '../../components/admin/AdminFilterSelect';
+import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
+import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
 import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
-import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
 import { Badge } from '../../components/Badge';
 import { colors, radius, spacing } from '../../constants/theme';
-import { useAdminLayout } from '../../hooks/useAdminLayout';
-import { listExpenseRecords } from '../../services/adminFinanceService';
-import { ExpenseCategory, ExpenseRecord } from '../../types/finance';
+import { listExpenseCategories, listExpenseRecords } from '../../services/adminFinanceService';
+import { ExpenseCategoryDef, ExpenseRecord } from '../../types/finance';
 
-const PAGE_SIZE = 8;
+const CATEGORY_TONE: Record<string, 'orange' | 'blue' | 'green' | 'gray'> = {
+  fuel: 'orange',
+  packaging: 'orange',
+  maintenance: 'blue',
+  misc: 'gray',
+};
 
-const CATEGORY_OPTIONS = [
-  { id: 'all' as const, label: 'All Categories' },
-  { id: 'fuel' as const, label: 'Fuel' },
-  { id: 'packaging' as const, label: 'Packaging' },
-  { id: 'maintenance' as const, label: 'Maintenance' },
-  { id: 'misc' as const, label: 'Miscellaneous' },
-];
-
-const CATEGORY_META: Record<
-  ExpenseCategory,
-  {
-    label: string;
-    tone: 'orange' | 'blue' | 'green' | 'gray';
-    amountColor: string;
-  }
-> = {
-  fuel: {
-    label: 'Fuel',
-    tone: 'orange',
-    amountColor: colors.orange,
-  },
-  packaging: {
-    label: 'Packaging',
-    tone: 'orange',
-    amountColor: colors.orange,
-  },
-  maintenance: {
-    label: 'Maintenance',
-    tone: 'blue',
-    amountColor: colors.blue,
-  },
-  misc: {
-    label: 'Miscellaneous',
-    tone: 'gray',
-    amountColor: colors.purple,
-  },
+const CATEGORY_AMOUNT_COLOR: Record<string, string> = {
+  fuel: colors.orange,
+  packaging: colors.orange,
+  maintenance: colors.blue,
+  misc: colors.purple,
 };
 
 function todayKey(): string {
@@ -59,10 +34,6 @@ function todayKey(): string {
 function currentMonth(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function formatTodayLabel(): string {
-  return new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function formatMonthLabel(month: string): string {
@@ -89,44 +60,34 @@ function paymentLabel(method?: ExpenseRecord['paymentMethod']): string {
   return 'Cash';
 }
 
-type ExpenseKpiCardProps = {
-  label: string;
-  value: string;
-  subtext: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  iconBg: string;
-  iconColor: string;
-};
+function getCategoryLabel(id: string, categories: ExpenseCategoryDef[]): string {
+  return categories.find((category) => category.id === id)?.label ?? id;
+}
 
-function ExpenseKpiCard({ label, value, subtext, icon, iconBg, iconColor, minWidth }: ExpenseKpiCardProps & { minWidth?: number }) {
-  return (
-    <View style={[styles.kpiCard, minWidth != null ? { minWidth } : null]}>
-      <View style={[styles.kpiIcon, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={18} color={iconColor} />
-      </View>
-      <View style={styles.kpiBody}>
-        <Text style={styles.kpiLabel}>{label}</Text>
-        <Text style={styles.kpiValue}>{value}</Text>
-        <Text style={styles.kpiSubtext}>{subtext}</Text>
-      </View>
-    </View>
-  );
+function getCategoryTone(id: string): 'orange' | 'blue' | 'green' | 'gray' {
+  return CATEGORY_TONE[id] ?? 'gray';
+}
+
+function getCategoryAmountColor(id: string): string {
+  return CATEGORY_AMOUNT_COLOR[id] ?? colors.text;
 }
 
 export function AdminExpensesScreen() {
   const [records, setRecords] = useState<ExpenseRecord[]>([]);
+  const [categories, setCategories] = useState<ExpenseCategoryDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [monthFilter, setMonthFilter] = useState(currentMonth());
-  const [categoryFilter, setCategoryFilter] = useState<'all' | ExpenseCategory>('all');
-  const [page, setPage] = useState(1);
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
-  const { showMobileHeader, pageTitleSize, kpiCardMinWidth } = useAdminLayout();
+  const [addCategoryOpen, setAddCategoryOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setRecords(await listExpenseRecords());
+      const [expenses, categoryList] = await Promise.all([listExpenseRecords(), listExpenseCategories()]);
+      setRecords(expenses);
+      setCategories(categoryList);
     } finally {
       setLoading(false);
     }
@@ -138,9 +99,10 @@ export function AdminExpensesScreen() {
     }, [refresh]),
   );
 
-  useEffect(() => {
-    setPage(1);
-  }, [query, monthFilter, categoryFilter]);
+  const categoryOptions = useMemo(
+    () => [{ id: 'all' as const, label: 'All Categories' }, ...categories.map((category) => ({ id: category.id, label: category.label }))],
+    [categories],
+  );
 
   const monthOptions = useMemo(() => {
     const months = new Set(records.map((record) => record.date.slice(0, 7)));
@@ -157,23 +119,13 @@ export function AdminExpensesScreen() {
     .filter((record) => record.date.startsWith(currentMonth()))
     .reduce((sum, record) => sum + record.amount, 0);
 
-  const topCategory = useMemo(() => {
-    const totals = records.reduce<Record<string, number>>((acc, record) => {
-      acc[record.category] = (acc[record.category] ?? 0) + record.amount;
-      return acc;
-    }, {});
-    const entry = Object.entries(totals).sort((a, b) => b[1] - a[1])[0];
-    if (!entry) return { label: '—', amount: 0 };
-    return { label: CATEGORY_META[entry[0] as ExpenseCategory].label, amount: entry[1] };
-  }, [records]);
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return records.filter((record) => {
-      const meta = CATEGORY_META[record.category];
+      const label = getCategoryLabel(record.category, categories);
       const matchesQuery =
         !q ||
-        [record.title, record.notes, meta.label, record.date]
+        [record.title, record.notes, label, record.date]
           .filter(Boolean)
           .join(' ')
           .toLowerCase()
@@ -182,79 +134,29 @@ export function AdminExpensesScreen() {
       const matchesCategory = categoryFilter === 'all' || record.category === categoryFilter;
       return matchesQuery && matchesMonth && matchesCategory;
     });
-  }, [records, query, monthFilter, categoryFilter]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const pageRows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-
-  const pageNumbers = useMemo(() => {
-    const pages: number[] = [];
-    const max = Math.min(totalPages, 4);
-    for (let i = 1; i <= max; i += 1) pages.push(i);
-    return pages;
-  }, [totalPages]);
-
-  const handleRowAction = (record: ExpenseRecord) => {
-    Alert.alert(record.title, record.notes || 'No notes', [{ text: 'Close', style: 'cancel' }]);
-  };
+  }, [records, query, monthFilter, categoryFilter, categories]);
 
   return (
     <AdminPageLayout wide>
-      <AdminAddExpenseModal
-        visible={addExpenseOpen}
-        onClose={() => setAddExpenseOpen(false)}
-        onAdded={refresh}
-      />
+      <AdminAddExpenseModal visible={addExpenseOpen} onClose={() => setAddExpenseOpen(false)} onAdded={refresh} />
+      <AdminAddCategoryModal visible={addCategoryOpen} onClose={() => setAddCategoryOpen(false)} onAdded={refresh} />
+
       <View style={styles.header}>
-        <View style={styles.headerText}>
-          {!showMobileHeader ? <Text style={[styles.pageTitle, { fontSize: pageTitleSize }]}>Expenses</Text> : null}
-          {!showMobileHeader ? <Text style={styles.subtitle}>Track and manage all business expenses.</Text> : null}
-        </View>
+        <Pressable style={styles.addCategoryBtn} onPress={() => setAddCategoryOpen(true)}>
+          <Ionicons name="pricetag-outline" size={18} color={colors.text} />
+          <Text style={styles.addCategoryBtnText}>Add Category</Text>
+        </Pressable>
         <Pressable style={styles.addBtn} onPress={() => setAddExpenseOpen(true)}>
           <Ionicons name="add" size={18} color={colors.white} />
           <Text style={styles.addBtnText}>Add Expense</Text>
         </Pressable>
       </View>
 
-      <View style={styles.kpiRow}>
-        <ExpenseKpiCard
-          label="Total Expenses"
-          value={`₹${totalAllTime.toLocaleString('en-IN')}`}
-          subtext="All time"
-          icon="wallet"
-          iconBg={colors.orangeLight}
-          iconColor={colors.orange}
-          minWidth={kpiCardMinWidth}
-        />
-        <ExpenseKpiCard
-          label="Expenses Today"
-          value={`₹${todayTotal.toLocaleString('en-IN')}`}
-          subtext={formatTodayLabel()}
-          icon="water"
-          iconBg={colors.yellowLight}
-          iconColor={colors.dark}
-          minWidth={kpiCardMinWidth}
-        />
-        <ExpenseKpiCard
-          label="Expenses This Month"
-          value={`₹${monthTotal.toLocaleString('en-IN')}`}
-          subtext={formatMonthLabel(currentMonth())}
-          icon="calendar"
-          iconBg={colors.greenLight}
-          iconColor={colors.greenDark}
-          minWidth={kpiCardMinWidth}
-        />
-        <ExpenseKpiCard
-          label="Top Category"
-          value={topCategory.label}
-          subtext={topCategory.amount > 0 ? `₹${topCategory.amount.toLocaleString('en-IN')}` : 'No data'}
-          icon="pie-chart"
-          iconBg={colors.purpleLight}
-          iconColor={colors.purple}
-          minWidth={kpiCardMinWidth}
-        />
-      </View>
+      <AdminKpiRow dense>
+        <AdminKpiCard compact label="Total Expenses" value={`₹${totalAllTime.toLocaleString('en-IN')}`} icon="wallet" iconBg={colors.orangeLight} iconColor={colors.orange} />
+        <AdminKpiCard compact label="Expenses Today" value={`₹${todayTotal.toLocaleString('en-IN')}`} icon="water" iconBg={colors.yellowLight} iconColor={colors.dark} />
+        <AdminKpiCard compact label="Expenses This Month" value={`₹${monthTotal.toLocaleString('en-IN')}`} icon="calendar" iconBg={colors.greenLight} iconColor={colors.greenDark} />
+      </AdminKpiRow>
 
       <View style={styles.tableCard}>
         <View style={styles.toolbar}>
@@ -272,11 +174,7 @@ export function AdminExpensesScreen() {
             <Ionicons name="calendar-outline" size={14} color={colors.muted} />
             <AdminFilterSelect value={monthFilter} options={monthOptions} onChange={setMonthFilter} minWidth={130} />
           </View>
-          <AdminFilterSelect value={categoryFilter} options={CATEGORY_OPTIONS} onChange={setCategoryFilter} minWidth={140} />
-          <Pressable style={styles.filterBtn}>
-            <Ionicons name="funnel-outline" size={16} color={colors.text} />
-            <Text style={styles.filterBtnText}>Filter</Text>
-          </Pressable>
+          <AdminFilterSelect value={categoryFilter} options={categoryOptions} onChange={setCategoryFilter} minWidth={140} />
         </View>
 
         {loading ? (
@@ -285,61 +183,62 @@ export function AdminExpensesScreen() {
           </View>
         ) : (
           <View style={styles.tableWrap}>
-            <AdminTableScroll minWidth={780}>
-              <View style={styles.table}>
+            <View style={styles.table}>
               <View style={styles.tableHead}>
                 <View style={styles.colName}>
-                  <Text style={styles.th}>Expense Name</Text>
-                </View>
-                <View style={styles.colCategory}>
-                  <Text style={styles.th}>Category</Text>
-                </View>
-                <View style={styles.colAmount}>
-                  <Text style={styles.th}>Amount</Text>
-                </View>
-                <View style={styles.colDate}>
-                  <Text style={styles.th}>Date</Text>
-                </View>
-                <View style={styles.colPayment}>
-                  <Text style={styles.th} numberOfLines={1}>
-                    Payment Method
+                  <Text style={[styles.th, styles.cellText]} numberOfLines={1}>
+                    Expense Name
                   </Text>
                 </View>
-                <View style={styles.colActions}>
-                  <Text style={styles.th}>Actions</Text>
+                <View style={styles.colCategory}>
+                  <Text style={[styles.th, styles.cellText]} numberOfLines={1}>
+                    Category
+                  </Text>
+                </View>
+                <View style={styles.colAmount}>
+                  <Text style={[styles.th, styles.cellText]} numberOfLines={1}>
+                    Amount
+                  </Text>
+                </View>
+                <View style={styles.colDate}>
+                  <Text style={[styles.th, styles.cellText]} numberOfLines={1}>
+                    Date
+                  </Text>
+                </View>
+                <View style={styles.colPayment}>
+                  <Text style={[styles.th, styles.cellText]} numberOfLines={1}>
+                    Payment
+                  </Text>
                 </View>
               </View>
 
-              {pageRows.length > 0 ? (
-                pageRows.map((record) => {
-                  const meta = CATEGORY_META[record.category];
+              {filtered.length > 0 ? (
+                filtered.map((record) => {
+                  const label = getCategoryLabel(record.category, categories);
+                  const tone = getCategoryTone(record.category);
+                  const amountColor = getCategoryAmountColor(record.category);
                   return (
                     <View key={record.id} style={styles.tableRow}>
                       <View style={styles.colName}>
-                        <Text style={[styles.td, styles.expenseTitle]} numberOfLines={1}>
+                        <Text style={[styles.td, styles.expenseTitle, styles.cellText]} numberOfLines={1}>
                           {record.title}
                         </Text>
                       </View>
                       <View style={styles.colCategory}>
-                        <Badge label={meta.label} tone={meta.tone} />
+                        <Badge label={label} tone={tone} />
                       </View>
                       <View style={styles.colAmount}>
-                        <Text style={[styles.td, styles.amountText, { color: meta.amountColor }]}>
+                        <Text style={[styles.td, styles.amountText, styles.cellText, { color: amountColor }]} numberOfLines={1}>
                           ₹{record.amount.toLocaleString('en-IN')}
                         </Text>
                       </View>
                       <View style={styles.colDate}>
-                        <Text style={styles.td} numberOfLines={2}>
+                        <Text style={[styles.td, styles.cellText]} numberOfLines={1}>
                           {formatExpenseDate(record)}
                         </Text>
                       </View>
                       <View style={styles.colPayment}>
                         <Badge label={paymentLabel(record.paymentMethod)} tone="green" />
-                      </View>
-                      <View style={styles.colActions}>
-                        <Pressable style={styles.actionBtn} onPress={() => handleRowAction(record)}>
-                          <Ionicons name="ellipsis-vertical" size={16} color={colors.muted} />
-                        </Pressable>
                       </View>
                     </View>
                   );
@@ -350,34 +249,9 @@ export function AdminExpensesScreen() {
                   <Text style={styles.emptyText}>Add a new expense or adjust your filters.</Text>
                 </View>
               )}
-              </View>
-            </AdminTableScroll>
+            </View>
           </View>
         )}
-
-        <View style={styles.pagination}>
-          <Text style={styles.pageInfo}>
-            Showing {filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to{' '}
-            {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} entries
-          </Text>
-          <View style={styles.pageControls}>
-            <Pressable style={styles.pageBtn} disabled={currentPage <= 1} onPress={() => setPage((p) => Math.max(1, p - 1))}>
-              <Ionicons name="chevron-back" size={16} color={currentPage <= 1 ? colors.border : colors.text} />
-            </Pressable>
-            {pageNumbers.map((n) => (
-              <Pressable key={n} style={[styles.pageNum, n === currentPage && styles.pageNumActive]} onPress={() => setPage(n)}>
-                <Text style={[styles.pageNumText, n === currentPage && styles.pageNumTextActive]}>{n}</Text>
-              </Pressable>
-            ))}
-            <Pressable
-              style={styles.pageBtn}
-              disabled={currentPage >= totalPages}
-              onPress={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
-              <Ionicons name="chevron-forward" size={16} color={currentPage >= totalPages ? colors.border : colors.text} />
-            </Pressable>
-          </View>
-        </View>
       </View>
     </AdminPageLayout>
   );
@@ -386,15 +260,22 @@ export function AdminExpensesScreen() {
 const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    flexWrap: 'wrap',
-    gap: 16,
-    marginBottom: spacing.lg,
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginBottom: spacing.md,
   },
-  headerText: { flex: 1, minWidth: 220 },
-  pageTitle: { fontSize: 28, fontWeight: '800', color: colors.text },
-  subtitle: { fontSize: 14, color: colors.muted, marginTop: 6, fontWeight: '600', lineHeight: 20 },
+  addCategoryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.white,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 16,
+    height: 40,
+  },
+  addCategoryBtnText: { fontSize: 13, fontWeight: '800', color: colors.text },
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -404,32 +285,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     height: 40,
   },
-  addBtnText: { fontSize: 13, fontWeight: '800', color: colors.white },
-  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: spacing.lg },
-  kpiCard: {
-    flex: 1,
-    minWidth: 200,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    backgroundColor: colors.white,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-  },
-  kpiIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  kpiBody: { flex: 1, minWidth: 0 },
-  kpiLabel: { fontSize: 12, color: colors.muted, fontWeight: '600' },
-  kpiValue: { fontSize: 22, fontWeight: '800', color: colors.text, marginTop: 4 },
-  kpiSubtext: { fontSize: 11, color: colors.muted, fontWeight: '600', marginTop: 4 },
+  addBtnText: { fontSize: 13, fontWeight: '800', color: colors.onPrimary },
   tableCard: {
     backgroundColor: colors.white,
     borderRadius: radius.md,
@@ -465,95 +321,37 @@ const styles = StyleSheet.create({
     gap: 8,
     minWidth: 170,
   },
-  filterBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: 14,
-    height: 40,
-  },
-  filterBtnText: { fontSize: 13, fontWeight: '700', color: colors.text },
-  tableWrap: { width: '100%', paddingHorizontal: spacing.md, paddingTop: spacing.md },
+  tableWrap: { width: '100%', paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.md },
   table: { width: '100%' },
   tableHead: {
     flexDirection: 'row',
     alignItems: 'center',
+    width: '100%',
     paddingVertical: 12,
-    paddingHorizontal: 4,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    gap: 12,
+    gap: 8,
   },
   tableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 4,
+    width: '100%',
+    paddingVertical: 11,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSubtle,
-    gap: 12,
-    minHeight: 52,
+    gap: 8,
   },
-  th: { fontSize: 11, fontWeight: '700', color: colors.muted, textTransform: 'uppercase', letterSpacing: 0.3 },
-  td: { fontSize: 13, color: colors.text, fontWeight: '600' },
-  colName: { flex: 2, minWidth: 200, flexShrink: 1 },
-  colCategory: { width: 120, flexShrink: 0, justifyContent: 'center' },
-  colAmount: { width: 96, flexShrink: 0, justifyContent: 'center' },
-  colDate: { flex: 1, minWidth: 150, flexShrink: 1, justifyContent: 'center' },
-  colPayment: { width: 120, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
-  colActions: { width: 56, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
+  th: { fontSize: 10, fontWeight: '700', color: colors.muted, textTransform: 'uppercase' },
+  td: { fontSize: 12, color: colors.text, fontWeight: '600' },
+  cellText: { width: '100%', minWidth: 0 },
+  colName: { flex: 1.45, minWidth: 0, overflow: 'hidden' },
+  colCategory: { flex: 0.9, minWidth: 0, overflow: 'hidden', alignItems: 'flex-start' },
+  colAmount: { flex: 0.7, minWidth: 0, overflow: 'hidden', alignItems: 'flex-start' },
+  colDate: { flex: 1.15, minWidth: 0, overflow: 'hidden' },
+  colPayment: { flex: 0.65, minWidth: 0, overflow: 'hidden', alignItems: 'flex-start' },
   expenseTitle: { fontWeight: '800' },
   amountText: { fontWeight: '800' },
-  actionBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.bg,
-  },
   emptyRow: { paddingVertical: 48, alignItems: 'center', paddingHorizontal: spacing.md },
   emptyTitle: { fontSize: 16, fontWeight: '800', color: colors.text, marginBottom: 6 },
   emptyText: { fontSize: 13, color: colors.muted, fontWeight: '600', textAlign: 'center' },
-  pagination: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: 12,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  pageInfo: { fontSize: 12, color: colors.muted, fontWeight: '600' },
-  pageControls: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  pageBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.white,
-  },
-  pageNum: {
-    minWidth: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-    backgroundColor: colors.white,
-  },
-  pageNumActive: { backgroundColor: colors.orange, borderColor: colors.orange },
-  pageNumText: { fontSize: 12, fontWeight: '700', color: colors.text },
-  pageNumTextActive: { color: colors.white },
 });

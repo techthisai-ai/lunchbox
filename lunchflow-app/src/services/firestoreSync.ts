@@ -7,7 +7,10 @@ export async function syncDocument<T extends Record<string, unknown>>(
   data: T,
 ): Promise<void> {
   try {
-    await setDoc(doc(db, collection, id), { ...data, updatedAt: new Date().toISOString() }, { merge: true });
+    const payload = Object.fromEntries(
+      Object.entries({ ...data, updatedAt: new Date().toISOString() }).filter(([, value]) => value !== undefined),
+    );
+    await setDoc(doc(db, collection, id), payload, { merge: true });
   } catch {
     // Local fallback remains source of truth when remote write fails.
   }

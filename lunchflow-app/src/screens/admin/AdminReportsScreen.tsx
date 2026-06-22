@@ -141,10 +141,6 @@ export function AdminReportsScreen() {
           {!showMobileHeader ? <Text style={[styles.pageTitle, { fontSize: pageTitleSize }]}>Reports</Text> : null}
         </View>
         <View style={styles.headerActions}>
-          <View style={styles.datePill}>
-            <Ionicons name="calendar-outline" size={16} color={colors.muted} />
-            <Text style={styles.dateText}>{formatTodayDate()}</Text>
-          </View>
           <Pressable style={styles.exportBtn} onPress={handleExport}>
             <Ionicons name="download-outline" size={16} color={colors.white} />
             <Text style={styles.exportText}>Export Report</Text>
@@ -152,61 +148,14 @@ export function AdminReportsScreen() {
         </View>
       </View>
 
-      <AdminKpiRow>
-        <AdminKpiCard
-          label="Daily Revenue"
-          value={formatCurrency(daily.revenue)}
-          icon="wallet"
-          iconBg={colors.purpleLight}
-          iconColor={colors.purple}
-        />
-        <AdminKpiCard
-          label="Monthly Revenue"
-          value={formatCurrency(monthly.revenue)}
-          icon="bar-chart"
-          iconBg={colors.greenLight}
-          iconColor={colors.greenDark}
-        />
-        <AdminKpiCard
-          label="Active Subscriptions"
-          value={String(subs.active)}
-          icon="people"
-          iconBg={colors.blueLight}
-          iconColor={colors.blue}
-        />
-        <AdminKpiCard
-          label="Profit"
-          value={formatCurrency(profitAmount)}
-          icon="trending-up"
-          iconBg={colors.greenLight}
-          iconColor={colors.greenDark}
-          valueColor={profitAmount > 0 ? colors.greenDark : colors.text}
-        />
-        <AdminKpiCard
-          label="Loss"
-          value={formatCurrency(lossAmount)}
-          icon="trending-down"
-          iconBg={colors.redLight}
-          iconColor={colors.red}
-          valueColor={lossAmount > 0 ? colors.red : colors.text}
-        />
-      </AdminKpiRow>
-
-      <AdminKpiRow>
-        <AdminKpiCard
-          label="Salary Paid"
-          value={formatCurrency(salary.paid)}
-          icon="cash"
-          iconBg={colors.greenLight}
-          iconColor={colors.greenDark}
-        />
-        <AdminKpiCard
-          label="Total Expenses"
-          value={formatCurrency(expense.total)}
-          icon="card"
-          iconBg={colors.yellowLight}
-          iconColor={colors.dark}
-        />
+      <AdminKpiRow dense>
+        <AdminKpiCard compact label="Daily Revenue" value={formatCurrency(daily.revenue)} icon="wallet" iconBg={colors.purpleLight} iconColor={colors.purple} />
+        <AdminKpiCard compact label="Monthly Revenue" value={formatCurrency(monthly.revenue)} icon="bar-chart" iconBg={colors.greenLight} iconColor={colors.greenDark} />
+        <AdminKpiCard compact label="Active Subscriptions" value={String(subs.active)} icon="people" iconBg={colors.blueLight} iconColor={colors.blue} />
+        <AdminKpiCard compact label="Profit" value={formatCurrency(profitAmount)} icon="trending-up" iconBg={colors.greenLight} iconColor={colors.greenDark} valueColor={profitAmount > 0 ? colors.greenDark : colors.text} />
+        <AdminKpiCard compact label="Loss" value={formatCurrency(lossAmount)} icon="trending-down" iconBg={colors.redLight} iconColor={colors.red} valueColor={lossAmount > 0 ? colors.red : colors.text} />
+        <AdminKpiCard compact label="Salary Paid" value={formatCurrency(salary.paid)} icon="cash" iconBg={colors.greenLight} iconColor={colors.greenDark} />
+        <AdminKpiCard compact label="Total Expenses" value={formatCurrency(expense.total)} icon="card" iconBg={colors.yellowLight} iconColor={colors.dark} />
       </AdminKpiRow>
 
       <View style={styles.bottomRow}>
@@ -264,18 +213,6 @@ const styles = StyleSheet.create({
   pageTitle: { fontSize: 28, fontWeight: '800', color: colors.text },
   breadcrumb: { fontSize: 13, color: colors.muted, marginTop: 4, fontWeight: '600' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-  datePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: 12,
-    height: 40,
-  },
-  dateText: { fontSize: 13, color: colors.text, fontWeight: '600' },
   exportBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -285,9 +222,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     height: 40,
   },
-  exportText: { fontSize: 13, fontWeight: '700', color: colors.white },
-  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 12 },
-  bottomRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  exportText: { fontSize: 13, fontWeight: '700', color: colors.onPrimary },
+  bottomRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 12 },
   panel: { flex: 1, minWidth: 0, width: '100%' },
   breakdownRow: {
     flexDirection: 'row',

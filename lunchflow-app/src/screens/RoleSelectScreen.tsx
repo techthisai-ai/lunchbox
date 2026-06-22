@@ -85,7 +85,7 @@ export function RoleSelectScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.white, padding: spacing.lg },
+  container: { flex: 1, backgroundColor: colors.bg, padding: spacing.lg },
   header: { alignItems: 'center', paddingVertical: spacing.lg },
   title: { fontSize: 28, fontWeight: '800', marginTop: spacing.md, letterSpacing: -0.5 },
   orange: { color: colors.orange },

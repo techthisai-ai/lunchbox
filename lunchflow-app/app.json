@@ -7,7 +7,11 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan customer QR codes to verify pickup.",
+        "NSLocationWhenInUseUsageDescription": "Share live delivery location with customers and admin."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -17,7 +21,33 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.lunchflow"
+      "package": "com.thisai.lunchbox",
+      "permissions": ["POST_NOTIFICATIONS", "ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "CAMERA"]
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#FFD6E8",
+          "defaultChannel": "order-updates"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow LunchFlow to share your live delivery location."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow LunchFlow to scan pickup QR codes."
+        }
+      ]
+    ],
+    "extra": {
+      "googleMapsApiKey": ""
     },
     "web": {
       "favicon": "./assets/favicon.png"

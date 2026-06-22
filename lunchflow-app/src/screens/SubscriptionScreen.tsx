@@ -145,6 +145,7 @@ export function SubscriptionScreen() {
         paymentDraft.amountPaid,
         paymentDraft.description,
         methodLabel,
+        selectedPlan.id,
       );
 
       await saveActiveSubscription(
@@ -296,7 +297,7 @@ const styles = StyleSheet.create({
     top: -10,
     left: 16,
     backgroundColor: colors.orange,
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: 10,
     fontWeight: '700',
     paddingHorizontal: 12,

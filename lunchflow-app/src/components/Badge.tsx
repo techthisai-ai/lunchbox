@@ -4,11 +4,11 @@ import { colors, radius } from '../constants/theme';
 type Tone = 'orange' | 'green' | 'blue' | 'gray' | 'yellow' | 'red';
 
 const toneStyles: Record<Tone, { bg: string; fg: string }> = {
-  orange: { bg: colors.orangeLight, fg: colors.orangeDark },
+  orange: { bg: colors.yellowLight, fg: colors.dark },
   green: { bg: colors.greenLight, fg: colors.greenDark },
   blue: { bg: colors.blueLight, fg: colors.blue },
   gray: { bg: colors.surfaceMuted, fg: colors.muted },
-  yellow: { bg: colors.yellowLight, fg: colors.dark },
+  yellow: { bg: colors.yellow, fg: colors.dark },
   red: { bg: colors.redLight, fg: colors.red },
 };
 

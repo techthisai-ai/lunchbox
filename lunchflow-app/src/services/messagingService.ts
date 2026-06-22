@@ -1,5 +1,10 @@
+/**
+ * Order status SMS, WhatsApp, and device push are delivered by Firebase Cloud Functions
+ * (`onOrderStatusChange`) when an order document status changes in Firestore.
+ *
+ * This module keeps a lightweight local inbox entry so the UI updates immediately.
+ */
 import { pushNotification } from './notificationService';
-import { DeliveryOrder } from '../types/delivery';
 import { loadNotificationPreferences } from './customerPreferencesService';
 
 export async function sendCustomerSmsAndWhatsApp(
@@ -8,35 +13,20 @@ export async function sendCustomerSmsAndWhatsApp(
   whatsappText: string,
 ): Promise<void> {
   const prefs = await loadNotificationPreferences(phone);
+  const message = smsText || whatsappText;
 
-  if (prefs.sms) {
+  if (prefs.push || prefs.sms || prefs.whatsapp) {
     await pushNotification(phone, {
       icon: 'notifications',
-      title: 'SMS Update',
-      msg: smsText,
-    });
-  }
-
-  if (prefs.whatsapp) {
-    await pushNotification(phone, {
-      icon: 'checkmark-circle',
-      title: 'WhatsApp Update',
-      msg: whatsappText,
-    });
-  }
-
-  if (prefs.push) {
-    await pushNotification(phone, {
-      icon: 'bicycle',
-      title: 'Delivery Update',
-      msg: smsText,
+      title: 'Order Update',
+      msg: message,
     });
   }
 }
 
 export async function sendDriverAssignmentNotification(
   driverPhone: string,
-  order: Pick<DeliveryOrder, 'id' | 'customerName' | 'studentName' | 'pickupAddress' | 'school' | 'customerPhone'>,
+  order: { id: string; customerName: string; studentName: string; pickupAddress: string; school: string; customerPhone: string },
 ): Promise<void> {
   await pushNotification(driverPhone, {
     icon: 'bicycle',

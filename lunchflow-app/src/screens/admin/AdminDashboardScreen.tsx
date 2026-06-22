@@ -7,14 +7,15 @@ import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
 import { AdminNotificationBell } from '../../components/admin/AdminNotificationBell';
 import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { AdminPanel } from '../../components/admin/AdminPanel';
-import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
 import { Badge } from '../../components/Badge';
+import { formatOrderDisplayId } from '../../utils/adminOrderHelpers';
 import { LiveDeliveryMap } from '../../components/LiveDeliveryMap';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
 import { buildDailySalesReport, buildSalaryReport } from '../../services/reportsService';
 import {
   getAdminStatusLabel,
+  listActiveFleetOrders,
   listAllOrdersToday,
   processExpiredPickupOrders,
   subscribeToAllOrdersToday,
@@ -79,6 +80,7 @@ export function AdminDashboardScreen() {
   const activeDrivers = drivers.filter((d) => d.status === 'On Route' || d.status === 'Available');
   const availableDrivers = drivers.filter((d) => d.status === 'Available');
   const mapOrder = pickMapOrder(orders);
+  const fleetOrders = listActiveFleetOrders(orders);
 
   const recentOrders = orders.slice(0, 5);
 
@@ -112,8 +114,8 @@ export function AdminDashboardScreen() {
 
       <View style={styles.midRow}>
         <AdminPanel title="Live Delivery Map" style={styles.mapPanel}>
-          {mapOrder ? (
-            <LiveDeliveryMap order={mapOrder} height={280} />
+          {(mapOrder ?? fleetOrders[0] ?? orders[0]) ? (
+            <LiveDeliveryMap order={(mapOrder ?? fleetOrders[0] ?? orders[0])!} fleetOrders={fleetOrders} height={280} />
           ) : (
             <View style={styles.mapPlaceholder}>
               <Ionicons name="map-outline" size={32} color={colors.muted} />
@@ -125,21 +127,47 @@ export function AdminDashboardScreen() {
 
       <View style={styles.bottomRow}>
         <AdminPanel title="Recent Orders" actionLabel="View all" style={styles.tablePanel}>
-          <AdminTableScroll minWidth={520}>
+          <View style={styles.table}>
             <View style={styles.tableHead}>
-              <Text style={[styles.th, styles.colId]}>Order ID</Text>
-              <Text style={[styles.th, styles.colCustomer]}>Customer</Text>
-              <Text style={[styles.th, styles.colRoute]}>Route</Text>
-              <Text style={[styles.th, styles.colDriver]}>Driver</Text>
-              <Text style={[styles.th, styles.colStatus]}>Status</Text>
+              <View style={styles.colId}>
+                <Text style={styles.th}>Order ID</Text>
+              </View>
+              <View style={styles.colCustomer}>
+                <Text style={styles.th}>Customer</Text>
+              </View>
+              <View style={styles.colRoute}>
+                <Text style={styles.th}>Route</Text>
+              </View>
+              <View style={styles.colDriver}>
+                <Text style={styles.th}>Driver</Text>
+              </View>
+              <View style={styles.colStatus}>
+                <Text style={styles.th}>Status</Text>
+              </View>
             </View>
             {recentOrders.length > 0 ? (
               recentOrders.map((order) => (
                 <View key={order.id} style={styles.tableRow}>
-                  <Text style={[styles.td, styles.colId]} numberOfLines={1}>{order.id}</Text>
-                  <Text style={[styles.td, styles.colCustomer]} numberOfLines={1}>{order.customerName}</Text>
-                  <Text style={[styles.td, styles.colRoute]} numberOfLines={1}>{order.pickupAddress} → {order.school}</Text>
-                  <Text style={[styles.td, styles.colDriver]} numberOfLines={1}>{order.driver?.name ?? '—'}</Text>
+                  <View style={styles.colId}>
+                    <Text style={[styles.td, styles.idText]} numberOfLines={1}>
+                      {formatOrderDisplayId(order.id)}
+                    </Text>
+                  </View>
+                  <View style={styles.colCustomer}>
+                    <Text style={styles.td} numberOfLines={1}>
+                      {order.customerName}
+                    </Text>
+                  </View>
+                  <View style={styles.colRoute}>
+                    <Text style={styles.td} numberOfLines={1}>
+                      {order.pickupAddress} → {order.school}
+                    </Text>
+                  </View>
+                  <View style={styles.colDriver}>
+                    <Text style={styles.td} numberOfLines={1}>
+                      {order.driver?.name ?? '—'}
+                    </Text>
+                  </View>
                   <View style={styles.colStatus}>
                     <Badge label={getAdminStatusLabel(order.status)} tone={statusTone(order.status)} />
                   </View>
@@ -148,7 +176,7 @@ export function AdminDashboardScreen() {
             ) : (
               <Text style={styles.empty}>No orders today yet.</Text>
             )}
-          </AdminTableScroll>
+          </View>
         </AdminPanel>
       </View>
     </AdminPageLayout>
@@ -191,12 +219,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   placeholderText: { fontSize: 13, color: colors.muted },
+  table: { width: '100%' },
   tableHead: {
     flexDirection: 'row',
+    alignItems: 'center',
     paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    gap: 8,
+    gap: 12,
   },
   tableRow: {
     flexDirection: 'row',
@@ -204,14 +234,15 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSubtle,
-    gap: 8,
+    gap: 12,
   },
   th: { fontSize: 11, fontWeight: '700', color: colors.muted, textTransform: 'uppercase' },
   td: { fontSize: 12, color: colors.text, fontWeight: '500' },
-  colId: { width: 72 },
-  colCustomer: { width: 88 },
-  colRoute: { flex: 1, minWidth: 100 },
-  colDriver: { width: 72 },
-  colStatus: { width: 88, alignItems: 'flex-start' },
+  idText: { fontWeight: '800', color: colors.text },
+  colId: { flex: 1.1, minWidth: 0 },
+  colCustomer: { flex: 1, minWidth: 0 },
+  colRoute: { flex: 1.8, minWidth: 0 },
+  colDriver: { flex: 0.9, minWidth: 0 },
+  colStatus: { width: 118, flexShrink: 0, alignItems: 'flex-start' },
   empty: { fontSize: 13, color: colors.muted, paddingVertical: 12 },
 });

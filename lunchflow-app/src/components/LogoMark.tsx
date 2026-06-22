@@ -12,7 +12,7 @@ export function LogoMark({ size = 72 }: { size?: number }) {
         end={{ x: 1, y: 1 }}
         style={[styles.gradient, { borderRadius: size * 0.28 }]}
       >
-        <Ionicons name="restaurant" size={size * 0.45} color={colors.white} />
+        <Ionicons name="restaurant" size={size * 0.45} color={colors.yellow} />
       </LinearGradient>
     </View>
   );

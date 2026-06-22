@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Badge } from '../Badge';
 import { colors, radius, spacing } from '../../constants/theme';
@@ -20,18 +20,13 @@ const DETAIL_TABS: { id: DetailTab; label: string }[] = [
   { id: 'orders', label: 'Orders' },
 ];
 
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
-}
-
 export function AdminCustomerDetailPanel({ customer, onClose }: Props) {
-  const [tab, setTab] = useState<DetailTab>('details');
+  const [tab, setTab] = useState<DetailTab | null>(null);
   const { isSidebarCollapsed } = useAdminLayout();
+
+  useEffect(() => {
+    setTab(null);
+  }, [customer.phone, customer.order.id]);
 
   return (
     <View style={[styles.panel, isSidebarCollapsed && styles.panelFull]}>
@@ -42,16 +37,12 @@ export function AdminCustomerDetailPanel({ customer, onClose }: Props) {
         </Pressable>
       </View>
 
-      <View style={styles.profileBlock}>
-        <View style={styles.largeAvatar}>
-          <Text style={styles.largeAvatarText}>{initials(customer.name)}</Text>
-        </View>
-        <Text style={styles.name}>{customer.name}</Text>
-        <Text style={styles.customerId}>{customer.displayId}</Text>
-        <Badge label={customer.registrationType} tone="blue" />
-      </View>
-
       <View style={styles.contactList}>
+        <View style={styles.profileSummary}>
+          <Text style={styles.name}>{customer.name}</Text>
+          <Text style={styles.customerId}>{customer.displayId}</Text>
+        </View>
+
         <View style={styles.contactRow}>
           <Ionicons name="call-outline" size={16} color={colors.orange} />
           <Text style={styles.contactText}>+91 {customer.phone}</Text>
@@ -98,7 +89,9 @@ export function AdminCustomerDetailPanel({ customer, onClose }: Props) {
       </View>
 
       <ScrollView style={styles.detailBody} showsVerticalScrollIndicator={false}>
-        {tab === 'details' ? (
+        {tab === null ? (
+          <Text style={styles.placeholder}>Select Details, Subscription, or Orders to view.</Text>
+        ) : tab === 'details' ? (
           <>
             {[
               [customer.personLabel, customer.studentName],
@@ -164,26 +157,16 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'stretch',
   },
-  panelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
+  panelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
   panelTitle: { fontSize: 15, fontWeight: '800', color: colors.text },
   closeBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  profileBlock: { alignItems: 'center', marginBottom: spacing.md },
-  largeAvatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.orangeLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  largeAvatarText: { fontSize: 24, fontWeight: '800', color: colors.orange },
-  name: { fontSize: 18, fontWeight: '800', color: colors.text },
-  customerId: { fontSize: 12, color: colors.muted, marginTop: 4, marginBottom: 8, fontWeight: '600' },
-  contactList: { gap: 10, marginBottom: spacing.md },
-  contactRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  contactList: { gap: 8, marginBottom: spacing.sm },
+  profileSummary: { gap: 4, marginBottom: 2 },
+  name: { fontSize: 16, fontWeight: '800', color: colors.text },
+  customerId: { fontSize: 11, color: colors.muted, fontWeight: '700' },
+  contactRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   contactText: { fontSize: 12, color: colors.text, fontWeight: '600', flex: 1, lineHeight: 18 },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: spacing.md },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: spacing.sm },
   statBox: {
     width: '48%',
     backgroundColor: colors.bg,
@@ -199,11 +182,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: radius.sm,
-    backgroundColor: colors.bg,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
-  detailTabActive: { backgroundColor: colors.orangeLight },
+  detailTabActive: {
+    backgroundColor: colors.orangeLight,
+    borderColor: colors.border,
+  },
   detailTabText: { fontSize: 11, fontWeight: '700', color: colors.muted },
-  detailTabTextActive: { color: colors.orange },
+  detailTabTextActive: { color: colors.orange, fontWeight: '800' },
   detailBody: { maxHeight: 220, marginBottom: spacing.sm },
   detailRow: { marginBottom: 12 },
   detailLabel: { fontSize: 11, color: colors.muted, fontWeight: '600', marginBottom: 4 },

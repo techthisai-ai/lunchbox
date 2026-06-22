@@ -1,14 +1,17 @@
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ConfirmationResult,
   RecaptchaVerifier,
   User,
   onAuthStateChanged,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
   signInWithPhoneNumber,
   signOut,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import {
   AuthUser,
   UserRole,
@@ -16,7 +19,7 @@ import {
   isDemoAdminLogin,
   normalizePhone,
 } from '../constants/auth';
-import { auth, db } from '../lib/firebase';
+import { auth, db, functions } from '../lib/firebase';
 import {
   RegistrationRequiredError,
   isCustomerRegistered,
@@ -36,6 +39,33 @@ export { RegistrationRequiredError } from './userRegistryService';
 let confirmationResult: ConfirmationResult | null = null;
 let recaptchaVerifier: RecaptchaVerifier | null = null;
 let pendingCustomerOtp: { phone: string; otp: string; expiresAt: number } | null = null;
+let lastCallableDevOtp: string | null = null;
+
+const requestLoginOtpFn = httpsCallable(functions, 'requestLoginOtp');
+const verifyLoginOtpFn = httpsCallable(functions, 'verifyLoginOtp');
+const SESSION_KEY = '@lunchflow_auth_session';
+
+export async function persistAuthSession(user: AuthUser | null): Promise<void> {
+  try {
+    if (!user) {
+      await AsyncStorage.removeItem(SESSION_KEY);
+      return;
+    }
+    await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(user));
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+export async function restoreAuthSession(): Promise<AuthUser | null> {
+  try {
+    const raw = await AsyncStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as AuthUser;
+  } catch {
+    return null;
+  }
+}
 
 function firebaseErrorMessage(error: unknown): string {
   if (error && typeof error === 'object' && 'code' in error) {
@@ -118,13 +148,20 @@ function customerAuthUser(phone: string, name: string): AuthUser {
   };
 }
 
-function driverAuthUser(driver: { id: string; name: string; phone: string; vehicle: string }): AuthUser {
+function driverAuthUser(driver: {
+  id: string;
+  name: string;
+  phone: string;
+  vehicle: string;
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
+}): AuthUser {
   return {
     id: driver.id,
     role: 'driver',
     name: driver.name,
     phone: driver.phone,
     vehicle: driver.vehicle,
+    driverApprovalStatus: driver.approvalStatus ?? 'approved',
   };
 }
 
@@ -169,6 +206,76 @@ export async function loginDriver(phone: string): Promise<AuthUser> {
   return driverAuthUser(driver);
 }
 
+export async function sendDriverOtp(phone: string): Promise<void> {
+  const normalized = normalizePhone(phone);
+  if (normalized.length !== 10) {
+    throw new Error('Enter a valid 10-digit mobile number');
+  }
+
+  const registered = await isDriverRegistered(normalized);
+  if (!registered) {
+    throw new RegistrationRequiredError('driver');
+  }
+
+  lastCallableDevOtp = null;
+  pendingCustomerOtp = null;
+
+  try {
+    const result = await requestLoginOtpFn({ phone: normalized, role: 'driver' });
+    const data = result.data as { devOtp?: string };
+    if (data.devOtp) {
+      lastCallableDevOtp = data.devOtp;
+    }
+    return;
+  } catch (error) {
+    pendingCustomerOtp = {
+      phone: normalized,
+      otp: generateOtp(),
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    };
+    lastCallableDevOtp = pendingCustomerOtp.otp;
+    if (!__DEV__) {
+      throw new Error(firebaseErrorMessage(error));
+    }
+  }
+}
+
+export async function verifyDriverOtp(otp: string, phoneHint?: string): Promise<AuthUser> {
+  if (!otp.trim()) {
+    throw new Error('Enter the OTP sent to your phone');
+  }
+
+  const normalized = normalizePhone(phoneHint ?? pendingCustomerOtp?.phone ?? '');
+  if (normalized.length !== 10) {
+    throw new Error('Enter a valid mobile number');
+  }
+
+  try {
+    const result = await verifyLoginOtpFn({ phone: normalized, otp: otp.trim(), role: 'driver' });
+    const data = result.data as {
+      customToken: string;
+      user: { id: string; role: UserRole; name: string; phone: string; vehicle?: string };
+    };
+    lastCallableDevOtp = null;
+    await signInWithCustomToken(auth, data.customToken);
+    return {
+      id: data.user.id,
+      role: 'driver',
+      name: data.user.name,
+      phone: data.user.phone,
+      vehicle: data.user.vehicle,
+    };
+  } catch (error) {
+    if (pendingCustomerOtp && otp.trim() === pendingCustomerOtp.otp) {
+      const driver = await loadDriverByPhone(normalized);
+      if (!driver) throw new RegistrationRequiredError('driver');
+      pendingCustomerOtp = null;
+      return driverAuthUser(driver);
+    }
+    throw new Error(firebaseErrorMessage(error));
+  }
+}
+
 export async function sendCustomerOtp(phone: string): Promise<void> {
   const normalized = normalizePhone(phone);
   if (normalized.length !== 10) {
@@ -181,31 +288,37 @@ export async function sendCustomerOtp(phone: string): Promise<void> {
   }
 
   confirmationResult = null;
+  lastCallableDevOtp = null;
 
   try {
-    if (Platform.OS === 'web') {
-      const verifier = getRecaptchaVerifier();
-      confirmationResult = await signInWithPhoneNumber(auth, `+91${normalized}`, verifier);
-      pendingCustomerOtp = null;
-      return;
+    const result = await requestLoginOtpFn({ phone: normalized, role: 'customer' });
+    const data = result.data as { devOtp?: string };
+    if (data.devOtp) {
+      lastCallableDevOtp = data.devOtp;
     }
-  } catch {
-    // Fall back to local OTP when Firebase phone auth is unavailable.
+    pendingCustomerOtp = null;
+    return;
+  } catch (error) {
+    pendingCustomerOtp = {
+      phone: normalized,
+      otp: generateOtp(),
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    };
+    lastCallableDevOtp = pendingCustomerOtp.otp;
+    if (!__DEV__) {
+      throw new Error(firebaseErrorMessage(error));
+    }
+    return;
   }
-
-  pendingCustomerOtp = {
-    phone: normalized,
-    otp: generateOtp(),
-    expiresAt: Date.now() + 10 * 60 * 1000,
-  };
 }
 
 export function getPendingCustomerOtpForDev(): string | null {
-  if (!__DEV__ || !pendingCustomerOtp) return null;
-  return pendingCustomerOtp.otp;
+  if (lastCallableDevOtp) return lastCallableDevOtp;
+  if (pendingCustomerOtp) return pendingCustomerOtp.otp;
+  return null;
 }
 
-export async function verifyCustomerOtp(otp: string): Promise<AuthUser> {
+export async function verifyCustomerOtp(otp: string, phoneHint?: string): Promise<AuthUser> {
   if (!otp.trim()) {
     throw new Error('Enter the OTP sent to your phone');
   }
@@ -215,6 +328,27 @@ export async function verifyCustomerOtp(otp: string): Promise<AuthUser> {
       const credential = await confirmationResult.confirm(otp.trim());
       const profile = await loadUserProfile(credential.user);
       return { ...profile, role: 'customer' };
+    } catch (error) {
+      throw new Error(firebaseErrorMessage(error));
+    }
+  }
+
+  const normalized = normalizePhone(phoneHint ?? pendingCustomerOtp?.phone ?? '');
+  if (normalized.length === 10 && !pendingCustomerOtp) {
+    try {
+      const result = await verifyLoginOtpFn({ phone: normalized, otp: otp.trim(), role: 'customer' });
+      const data = result.data as {
+        customToken: string;
+        user: { id: string; role: UserRole; name: string; phone: string };
+      };
+      lastCallableDevOtp = null;
+      await signInWithCustomToken(auth, data.customToken);
+      return {
+        id: data.user.id,
+        role: 'customer',
+        name: data.user.name,
+        phone: data.user.phone,
+      };
     } catch (error) {
       throw new Error(firebaseErrorMessage(error));
     }
@@ -279,6 +413,14 @@ export async function registerCustomer(data: CustomerRegistration): Promise<Auth
       emergencyContact: data.emergencyContact.trim(),
       createdAt: new Date().toISOString(),
     });
+    const { saveTelecallerLead } = await import('./telecallerService');
+    await saveTelecallerLead({
+      customerPhone: phone,
+      customerName: data.name.trim(),
+      telecallerId: 'unassigned',
+      status: 'new',
+      notes: 'New customer registration',
+    }).catch(() => undefined);
     const { createBooking } = await import('./orderHubService');
     await createBooking(`CUS-${phone}`, phone, {
       name: data.name.trim(),
@@ -302,6 +444,8 @@ export async function registerDriver(data: DriverRegistration): Promise<AuthUser
 export async function logoutUser(): Promise<void> {
   confirmationResult = null;
   pendingCustomerOtp = null;
+  lastCallableDevOtp = null;
+  await persistAuthSession(null);
   if (auth.currentUser) {
     await signOut(auth);
   }

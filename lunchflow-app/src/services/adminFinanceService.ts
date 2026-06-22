@@ -1,10 +1,23 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ExpenseRecord, SalaryRecord } from '../types/finance';
+import { ExpenseCategoryDef, ExpenseRecord, SalaryRecord } from '../types/finance';
 import { syncDocument } from './firestoreSync';
 import { loadRegisteredDrivers } from './userRegistryService';
 
 const SALARIES_KEY = '@lunchflow_salaries';
 const EXPENSES_KEY = '@lunchflow_expenses';
+const EXPENSE_CATEGORIES_KEY = '@lunchflow_expense_categories';
+
+const DEFAULT_EXPENSE_CATEGORIES: ExpenseCategoryDef[] = [
+  { id: 'fuel', label: 'Fuel' },
+  { id: 'packaging', label: 'Packaging' },
+  { id: 'maintenance', label: 'Maintenance' },
+  { id: 'misc', label: 'Miscellaneous' },
+];
+
+function slugifyCategoryId(label: string): string {
+  const slug = label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return slug || `cat-${Date.now()}`;
+}
 
 function currentMonth(): string {
   const now = new Date();
@@ -21,8 +34,8 @@ async function seedSalaries(): Promise<SalaryRecord[]> {
     role: 'Driver',
     month,
     amount: 18000 + index * 1500,
-    status: index % 2 === 0 ? 'paid' : 'unpaid',
-    paidAt: index % 2 === 0 ? new Date().toISOString() : undefined,
+    status: index % 2 === 0 ? ('paid' as const) : ('unpaid' as const),
+    ...(index % 2 === 0 ? { paidAt: new Date().toISOString() } : {}),
     createdAt: new Date().toISOString(),
   }));
 }
@@ -135,6 +148,30 @@ export async function markSalaryPaid(recordId: string): Promise<void> {
   if (updated) await syncDocument('salaries', recordId, updated);
 }
 
+export async function addSalaryRecord(input: {
+  employeeName: string;
+  role: string;
+  month: string;
+  amount: number;
+}): Promise<SalaryRecord> {
+  const employeeId = `EMP-${Date.now()}`;
+  const record: SalaryRecord = {
+    id: `SAL-${Date.now()}`,
+    employeeId,
+    employeeName: input.employeeName.trim(),
+    role: input.role.trim() || 'Employee',
+    month: input.month,
+    amount: input.amount,
+    status: 'unpaid',
+    createdAt: new Date().toISOString(),
+  };
+  const records = await listSalaryRecords();
+  const next = [record, ...records];
+  await AsyncStorage.setItem(SALARIES_KEY, JSON.stringify(next));
+  await syncDocument('salaries', record.id, record);
+  return record;
+}
+
 export async function syncSalariesFromDrivers(month = currentMonth()): Promise<number> {
   const drivers = await loadRegisteredDrivers();
   const records = await listSalaryRecords();
@@ -176,6 +213,35 @@ export async function addExpenseRecord(input: Omit<ExpenseRecord, 'id' | 'create
   await AsyncStorage.setItem(EXPENSES_KEY, JSON.stringify(next));
   await syncDocument('expenses', record.id, record);
   return record;
+}
+
+export async function listExpenseCategories(): Promise<ExpenseCategoryDef[]> {
+  try {
+    const raw = await AsyncStorage.getItem(EXPENSE_CATEGORIES_KEY);
+    if (raw) return JSON.parse(raw) as ExpenseCategoryDef[];
+  } catch {
+    // fall through
+  }
+  await AsyncStorage.setItem(EXPENSE_CATEGORIES_KEY, JSON.stringify(DEFAULT_EXPENSE_CATEGORIES));
+  return DEFAULT_EXPENSE_CATEGORIES;
+}
+
+export async function addExpenseCategory(label: string): Promise<ExpenseCategoryDef> {
+  const trimmed = label.trim();
+  if (!trimmed) {
+    throw new Error('Enter a category name');
+  }
+  const categories = await listExpenseCategories();
+  const normalized = trimmed.toLowerCase();
+  if (categories.some((category) => category.label.toLowerCase() === normalized)) {
+    throw new Error('Category already exists');
+  }
+  const baseId = slugifyCategoryId(trimmed);
+  const id = categories.some((category) => category.id === baseId) ? `${baseId}-${Date.now()}` : baseId;
+  const category = { id, label: trimmed };
+  const next = [...categories, category];
+  await AsyncStorage.setItem(EXPENSE_CATEGORIES_KEY, JSON.stringify(next));
+  return category;
 }
 
 export async function countActiveSubscriptions(): Promise<number> {

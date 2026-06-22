@@ -8,6 +8,7 @@ import { ScreenHeader } from '../../components/ScreenHeader';
 import { normalizePhone } from '../../constants/auth';
 import { colors, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
+import { navigateAfterDriverLogin } from '../../navigation/driverRoutes';
 import { RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DriverLogin'>;
@@ -34,7 +35,7 @@ export function DriverLoginScreen({ navigation, route }: Props) {
       setError(err);
       return;
     }
-    navigation.replace('DriverTabs', { screen: 'DriverHome' });
+    await navigateAfterDriverLogin(navigation, phone);
   };
 
   return (
@@ -58,7 +59,7 @@ export function DriverLoginScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.white },
+  container: { flex: 1, backgroundColor: colors.bg },
   form: { padding: spacing.lg },
   badge: {
     alignSelf: 'flex-start',

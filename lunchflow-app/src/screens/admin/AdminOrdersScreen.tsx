@@ -1,17 +1,17 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AdminCustomerDetailPanel } from '../../components/admin/AdminCustomerDetailPanel';
 import { AdminFilterSelect } from '../../components/admin/AdminFilterSelect';
 import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
 import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
-import { AdminNotificationBell } from '../../components/admin/AdminNotificationBell';
 import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { Badge } from '../../components/Badge';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
 import {
+  assignDriverByAdmin,
   listAllOrdersToday,
   subscribeToAllOrdersToday,
 } from '../../services/orderHubService';
@@ -32,8 +32,6 @@ import {
   getTableStatusTone,
 } from '../../utils/adminOrderHelpers';
 import { buildCustomerDetail, CustomerDetail, formatCustomerName } from '../../utils/adminCustomerHelpers';
-
-const PAGE_SIZE = 8;
 
 const TABS: { id: OrderTab; label: string }[] = [
   { id: 'all', label: 'All Orders' },
@@ -57,6 +55,13 @@ function isToday(dateStr: string): boolean {
   return dateStr === today || dateStr.startsWith(today);
 }
 
+function formatOrderDateTimeLabel(order: DeliveryOrder): string {
+  const { date, time } = formatOrderDateTime(order);
+  if (time === '—') return date;
+  if (isToday(order.date)) return time;
+  return `${date} · ${time}`;
+}
+
 function initials(name: string): string {
   return name
     .split(' ')
@@ -74,7 +79,6 @@ export function AdminOrdersScreen() {
   const [query, setQuery] = useState('');
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all');
   const [driverFilter, setDriverFilter] = useState('all');
-  const [page, setPage] = useState(1);
   const [amountsByPhone, setAmountsByPhone] = useState<Map<string, number>>(new Map());
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [customerDetail, setCustomerDetail] = useState<CustomerDetail | null>(null);
@@ -115,10 +119,6 @@ export function AdminOrdersScreen() {
     buildCustomerDetail(order, orders).then(setCustomerDetail);
   }, [selectedOrderId, orders]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [tab, query, paymentFilter, driverFilter]);
-
   const tabCounts = useMemo(() => countByTab(orders), [orders]);
   const todayOrders = useMemo(() => orders.filter((o) => isToday(o.date)), [orders]);
   const completed = useMemo(() => orders.filter((o) => o.status === 'delivered'), [orders]);
@@ -142,12 +142,13 @@ export function AdminOrdersScreen() {
     [orders, tab, query, paymentFilter, driverFilter],
   );
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const pageOrders = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-
   const handleExport = () => {
-    const rows = [
+    if (filtered.length === 0) {
+      Alert.alert('No orders', 'No orders match your current filters.');
+      return;
+    }
+
+    const csv = [
       ['Order ID', 'Customer', 'Phone', 'Pickup', 'Delivery', 'Driver', 'Status', 'Payment', 'Amount'].join(','),
       ...filtered.map((order) => {
         const payment = getPaymentInfo(order);
@@ -156,7 +157,7 @@ export function AdminOrdersScreen() {
           order.customerName,
           order.customerPhone,
           order.pickupAddress,
-          order.school,
+          order.school || order.dropAddress,
           order.driver?.name ?? '',
           getTableStatusLabel(order.status),
           payment.label,
@@ -167,20 +168,30 @@ export function AdminOrdersScreen() {
       }),
     ].join('\n');
 
-    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(rows);
-      Alert.alert('Exported', 'Orders copied to clipboard as CSV.');
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `lunchflow-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.rel = 'noopener';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
       return;
     }
+
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(csv).then(
+        () => Alert.alert('Exported', 'Orders copied to clipboard as CSV.'),
+        () => Alert.alert('Export failed', 'Could not copy orders to clipboard.'),
+      );
+      return;
+    }
+
     Alert.alert('Export', `${filtered.length} orders ready to export.`);
   };
-
-  const pageNumbers = useMemo(() => {
-    const pages: number[] = [];
-    const max = Math.min(totalPages, 5);
-    for (let i = 1; i <= max; i += 1) pages.push(i);
-    return pages;
-  }, [totalPages]);
 
   return (
     <AdminPageLayout wide>
@@ -192,17 +203,14 @@ export function AdminOrdersScreen() {
         ) : (
           <View />
         )}
-        <View style={styles.headerActions}>
-          <AdminNotificationBell />
-        </View>
       </View>
 
-      <AdminKpiRow>
-        <AdminKpiCard label="Total Orders" value={String(orders.length)} icon="layers" iconBg={colors.purpleLight} iconColor={colors.purple} />
-        <AdminKpiCard label="Today's Orders" value={String(todayOrders.length)} icon="today" iconBg={colors.blueLight} iconColor={colors.blue} />
-        <AdminKpiCard label="Completed Orders" value={String(completed.length)} icon="checkmark-circle" iconBg={colors.greenLight} iconColor={colors.greenDark} />
-        <AdminKpiCard label="Pending Orders" value={String(pending.length)} icon="time" iconBg={colors.yellowLight} iconColor={colors.dark} />
-        <AdminKpiCard label="Cancelled Orders" value={String(cancelled.length)} icon="close-circle" iconBg={colors.redLight} iconColor={colors.red} />
+      <AdminKpiRow dense>
+        <AdminKpiCard compact label="Total Orders" value={String(orders.length)} icon="layers" iconBg={colors.purpleLight} iconColor={colors.purple} />
+        <AdminKpiCard compact label="Today's Orders" value={String(todayOrders.length)} icon="today" iconBg={colors.blueLight} iconColor={colors.blue} />
+        <AdminKpiCard compact label="Completed Orders" value={String(completed.length)} icon="checkmark-circle" iconBg={colors.greenLight} iconColor={colors.greenDark} />
+        <AdminKpiCard compact label="Pending Orders" value={String(pending.length)} icon="time" iconBg={colors.yellowLight} iconColor={colors.dark} />
+        <AdminKpiCard compact label="Cancelled Orders" value={String(cancelled.length)} icon="close-circle" iconBg={colors.redLight} iconColor={colors.red} />
       </AdminKpiRow>
 
       <View style={styles.toolbar}>
@@ -242,24 +250,43 @@ export function AdminOrdersScreen() {
           </Pressable>
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator>
+        <View style={styles.tableWrap}>
           <View style={styles.table}>
             <View style={styles.tableHead}>
-              <Text style={[styles.th, styles.colId]}>Order ID</Text>
-              <Text style={[styles.th, styles.colDate]}>Date & Time</Text>
-              <Text style={[styles.th, styles.colCustomer]}>Customer</Text>
-              <Text style={[styles.th, styles.colPhone]}>Phone</Text>
-              <Text style={[styles.th, styles.colLocation]}>Pickup Location</Text>
-              <Text style={[styles.th, styles.colLocation]}>Delivery Location</Text>
-              <Text style={[styles.th, styles.colDriver]}>Driver</Text>
-              <Text style={[styles.th, styles.colStatus]}>Status</Text>
-              <Text style={[styles.th, styles.colPayment]}>Payment</Text>
-              <Text style={[styles.th, styles.colAmount]}>Amount</Text>
+              <View style={styles.colId}>
+                <Text style={styles.th}>Order ID</Text>
+              </View>
+              <View style={styles.colDate}>
+                <Text style={styles.th}>Date & Time</Text>
+              </View>
+              <View style={styles.colCustomer}>
+                <Text style={styles.th}>Customer</Text>
+              </View>
+              <View style={styles.colPhone}>
+                <Text style={styles.th}>Phone</Text>
+              </View>
+              <View style={styles.colLocation}>
+                <Text style={styles.th}>Pickup</Text>
+              </View>
+              <View style={styles.colLocation}>
+                <Text style={styles.th}>Delivery</Text>
+              </View>
+              <View style={styles.colDriver}>
+                <Text style={styles.th}>Driver</Text>
+              </View>
+              <View style={styles.colStatus}>
+                <Text style={styles.th}>Status</Text>
+              </View>
+              <View style={styles.colPayment}>
+                <Text style={styles.th}>Payment</Text>
+              </View>
+              <View style={styles.colAmount}>
+                <Text style={styles.th}>Amount</Text>
+              </View>
             </View>
 
-            {pageOrders.length > 0 ? (
-              pageOrders.map((order) => {
-                const { date, time } = formatOrderDateTime(order);
+            {filtered.length > 0 ? (
+              filtered.map((order) => {
                 const payment = getPaymentInfo(order);
                 const orderAmount = getOrderAmountForCustomer(order, amountsByPhone);
                 return (
@@ -268,41 +295,80 @@ export function AdminOrdersScreen() {
                     style={[styles.tableRow, selectedOrderId === order.id && styles.tableRowActive]}
                     onPress={() => setSelectedOrderId(order.id)}
                   >
-                    <Text style={[styles.td, styles.colId, styles.idText]}>{formatOrderDisplayId(order.id)}</Text>
+                    <View style={styles.colId}>
+                      <Text style={[styles.td, styles.idText]} numberOfLines={1}>
+                        {formatOrderDisplayId(order.id)}
+                      </Text>
+                    </View>
                     <View style={styles.colDate}>
-                      <Text style={styles.td}>{date}</Text>
-                      <Text style={styles.timeText}>{time}</Text>
+                      <Text style={styles.td} numberOfLines={1}>
+                        {formatOrderDateTimeLabel(order)}
+                      </Text>
                     </View>
                     <View style={[styles.colCustomer, styles.personCell]}>
                       <View style={styles.avatar}>
                         <Text style={styles.avatarText}>{initials(order.customerName)}</Text>
                       </View>
-                      <Text style={styles.td} numberOfLines={1}>
+                      <Text style={[styles.td, styles.personText]} numberOfLines={1}>
                         {formatCustomerName(order.customerName)}
                       </Text>
                     </View>
                     <View style={[styles.colPhone, styles.phoneCell]}>
                       <Ionicons name="call" size={12} color={colors.orange} />
-                      <Text style={styles.td}>{order.customerPhone}</Text>
+                      <Text style={[styles.td, styles.personText]} numberOfLines={1}>
+                        {order.customerPhone}
+                      </Text>
                     </View>
-                    <Text style={[styles.td, styles.colLocation]} numberOfLines={2}>
-                      {order.pickupAddress}
-                    </Text>
-                    <Text style={[styles.td, styles.colLocation]} numberOfLines={2}>
-                      {order.school || order.dropAddress}
-                    </Text>
+                    <View style={styles.colLocation}>
+                      <Text style={styles.td} numberOfLines={1}>
+                        {order.pickupAddress}
+                      </Text>
+                    </View>
+                    <View style={styles.colLocation}>
+                      <Text style={styles.td} numberOfLines={1}>
+                        {order.school || order.dropAddress}
+                      </Text>
+                    </View>
                     <View style={[styles.colDriver, styles.personCell]}>
                       {order.driver ? (
                         <>
                           <View style={[styles.avatar, styles.driverAvatar]}>
-                            <Text style={styles.driverAvatarText}>{order.driver.initials || initials(order.driver.name)}</Text>
+                            <Text style={styles.driverAvatarText}>
+                              {order.driver.initials || initials(order.driver.name)}
+                            </Text>
                           </View>
-                          <Text style={styles.td} numberOfLines={1}>
+                          <Text style={[styles.td, styles.personText]} numberOfLines={1}>
                             {order.driver.name}
                           </Text>
                         </>
                       ) : (
-                        <Text style={styles.mutedTd}>Unassigned</Text>
+                        <Pressable
+                          style={styles.unassignedCell}
+                          onPress={() => {
+                            if (!drivers.length) {
+                              Alert.alert('No drivers', 'Add a driver before assigning orders.');
+                              return;
+                            }
+                            Alert.alert(
+                              'Assign Driver',
+                              `Assign a driver to order ${order.id}`,
+                              [
+                                ...drivers.slice(0, 5).map((driver) => ({
+                                  text: driver.name,
+                                  onPress: async () => {
+                                    await assignDriverByAdmin(order.id, driver.id);
+                                    await refresh();
+                                  },
+                                })),
+                                { text: 'Cancel', style: 'cancel' },
+                              ],
+                            );
+                          }}
+                        >
+                          <Text style={[styles.mutedTd, styles.linkTd]} numberOfLines={1}>
+                            Assign driver
+                          </Text>
+                        </Pressable>
                       )}
                     </View>
                     <View style={styles.colStatus}>
@@ -311,9 +377,11 @@ export function AdminOrdersScreen() {
                     <View style={styles.colPayment}>
                       <Badge label={payment.label} tone={payment.tone} />
                     </View>
-                    <Text style={[styles.td, styles.colAmount, styles.amountText]}>
-                      ₹{orderAmount.toLocaleString('en-IN')}
-                    </Text>
+                    <View style={styles.colAmount}>
+                      <Text style={[styles.td, styles.amountText]} numberOfLines={1}>
+                        ₹{orderAmount.toLocaleString('en-IN')}
+                      </Text>
+                    </View>
                   </Pressable>
                 );
               })
@@ -322,32 +390,6 @@ export function AdminOrdersScreen() {
                 <Text style={styles.emptyText}>No orders match your filters.</Text>
               </View>
             )}
-          </View>
-        </ScrollView>
-
-        <View style={styles.pagination}>
-          <Text style={styles.pageInfo}>
-            Showing {filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to{' '}
-            {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} orders
-          </Text>
-          <View style={styles.pageControls}>
-            <Pressable style={styles.pageBtn} disabled={currentPage <= 1} onPress={() => setPage((p) => Math.max(1, p - 1))}>
-              <Ionicons name="chevron-back" size={16} color={currentPage <= 1 ? colors.border : colors.text} />
-            </Pressable>
-            {pageNumbers.map((n) => (
-              <Pressable key={n} style={[styles.pageNum, n === currentPage && styles.pageNumActive]} onPress={() => setPage(n)}>
-                <Text style={[styles.pageNumText, n === currentPage && styles.pageNumTextActive]}>{n}</Text>
-              </Pressable>
-            ))}
-            {totalPages > 5 ? <Text style={styles.pageEllipsis}>…</Text> : null}
-            {totalPages > 5 ? (
-              <Pressable style={styles.pageNum} onPress={() => setPage(totalPages)}>
-                <Text style={styles.pageNumText}>{totalPages}</Text>
-              </Pressable>
-            ) : null}
-            <Pressable style={styles.pageBtn} disabled={currentPage >= totalPages} onPress={() => setPage((p) => Math.min(totalPages, p + 1))}>
-              <Ionicons name="chevron-forward" size={16} color={currentPage >= totalPages ? colors.border : colors.text} />
-            </Pressable>
           </View>
         </View>
       </View>
@@ -370,7 +412,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   pageTitle: { fontSize: 28, fontWeight: '800', color: colors.text },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: spacing.lg },
   toolbar: {
     flexDirection: 'row',
@@ -435,90 +476,56 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   exportText: { fontSize: 12, fontWeight: '700', color: colors.text },
-  table: { minWidth: 1080, paddingHorizontal: spacing.md, paddingBottom: spacing.md },
+  tableWrap: { width: '100%' },
+  table: { width: '100%', paddingHorizontal: spacing.md, paddingBottom: spacing.md },
   tableHead: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    gap: 10,
+    gap: 8,
   },
   tableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
+    paddingVertical: 11,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSubtle,
-    gap: 10,
+    gap: 8,
   },
   tableRowActive: { backgroundColor: colors.orangeLight },
-  th: { fontSize: 11, fontWeight: '700', color: colors.muted, textTransform: 'uppercase' },
+  th: { fontSize: 10, fontWeight: '700', color: colors.muted, textTransform: 'uppercase' },
   td: { fontSize: 12, color: colors.text, fontWeight: '600' },
   mutedTd: { fontSize: 12, color: colors.muted, fontStyle: 'italic' },
-  timeText: { fontSize: 11, color: colors.muted, marginTop: 2 },
+  linkTd: { color: colors.orange, fontWeight: '700', fontStyle: 'normal' },
   idText: { fontWeight: '800', color: colors.text },
-  amountText: { fontWeight: '800' },
-  colId: { width: 110 },
-  colDate: { width: 100 },
-  colCustomer: { width: 130 },
-  colPhone: { width: 120 },
-  colLocation: { width: 150 },
-  colDriver: { width: 120 },
-  colStatus: { width: 90 },
-  colPayment: { width: 80 },
-  colAmount: { width: 80 },
-  personCell: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  phoneCell: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  amountText: { fontWeight: '800', textAlign: 'right' },
+  colId: { flex: 1.05, minWidth: 0 },
+  colDate: { flex: 0.95, minWidth: 0 },
+  colCustomer: { flex: 1.15, minWidth: 0 },
+  colPhone: { flex: 1.05, minWidth: 0 },
+  colLocation: { flex: 1.05, minWidth: 0 },
+  colDriver: { flex: 1.05, minWidth: 0 },
+  colStatus: { width: 92, flexShrink: 0, alignItems: 'flex-start' },
+  colPayment: { width: 78, flexShrink: 0, alignItems: 'flex-start' },
+  colAmount: { width: 72, flexShrink: 0, alignItems: 'flex-end' },
+  personCell: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+  personText: { flex: 1, minWidth: 0 },
+  phoneCell: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 },
+  unassignedCell: { flex: 1, minWidth: 0 },
   avatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: colors.orangeLight,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
-  avatarText: { fontSize: 11, fontWeight: '800', color: colors.orange },
+  avatarText: { fontSize: 10, fontWeight: '800', color: colors.orange },
   driverAvatar: { backgroundColor: colors.greenLight },
-  driverAvatarText: { fontSize: 10, fontWeight: '800', color: colors.greenDark },
+  driverAvatarText: { fontSize: 9, fontWeight: '800', color: colors.greenDark },
   emptyRow: { paddingVertical: 40, alignItems: 'center' },
   emptyText: { fontSize: 14, color: colors.muted, fontWeight: '600' },
-  pagination: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: 12,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  pageInfo: { fontSize: 12, color: colors.muted, fontWeight: '600' },
-  pageControls: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  pageBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.white,
-  },
-  pageNum: {
-    minWidth: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-    backgroundColor: colors.white,
-  },
-  pageNumActive: { backgroundColor: colors.orange, borderColor: colors.orange },
-  pageNumText: { fontSize: 12, fontWeight: '700', color: colors.text },
-  pageNumTextActive: { color: colors.white },
-  pageEllipsis: { fontSize: 14, color: colors.muted, paddingHorizontal: 4 },
 });

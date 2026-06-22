@@ -3,9 +3,9 @@ import { RegisteredDriver } from '../services/userRegistryService';
 
 export const DRIVER_EARNING_PER_ORDER = 80;
 
-export type DriverTab = 'all' | 'on_duty' | 'on_leave' | 'inactive';
+export type DriverTab = 'all' | 'on_duty' | 'on_leave' | 'inactive' | 'pending_approval';
 
-export type DriverUiStatus = 'On Duty' | 'On Leave' | 'Inactive' | 'Available';
+export type DriverUiStatus = 'On Duty' | 'On Leave' | 'Inactive' | 'Available' | 'Pending Approval';
 
 export type DriverRow = RegisteredDriver & {
   displayId: string;
@@ -62,6 +62,8 @@ export function formatDriverName(name: string): string {
 }
 
 export function resolveUiStatus(driver: RegisteredDriver, onLeaveIds: Set<string>): DriverUiStatus {
+  if (driver.approvalStatus === 'pending') return 'Pending Approval';
+  if (driver.approvalStatus === 'rejected') return 'Inactive';
   if (onLeaveIds.has(driver.id)) return 'On Leave';
   if (driver.status === 'Offline') return 'Inactive';
   if (driver.status === 'On Route') return 'On Duty';
@@ -69,13 +71,15 @@ export function resolveUiStatus(driver: RegisteredDriver, onLeaveIds: Set<string
 }
 
 export function getDriverTab(uiStatus: DriverUiStatus): DriverTab {
+  if (uiStatus === 'Pending Approval') return 'pending_approval';
   if (uiStatus === 'On Leave') return 'on_leave';
   if (uiStatus === 'Inactive') return 'inactive';
   if (uiStatus === 'On Duty' || uiStatus === 'Available') return 'on_duty';
   return 'all';
 }
 
-export function getStatusTone(status: DriverUiStatus): 'green' | 'blue' | 'gray' | 'orange' {
+export function getStatusTone(status: DriverUiStatus): 'green' | 'blue' | 'gray' | 'orange' | 'red' {
+  if (status === 'Pending Approval') return 'orange';
   if (status === 'On Duty') return 'green';
   if (status === 'Available') return 'blue';
   if (status === 'On Leave') return 'orange';
@@ -123,6 +127,7 @@ export function countDriversByTab(rows: DriverRow[]): Record<DriverTab, number> 
     on_duty: rows.filter((r) => r.uiStatus === 'On Duty' || r.uiStatus === 'Available').length,
     on_leave: rows.filter((r) => r.uiStatus === 'On Leave').length,
     inactive: rows.filter((r) => r.uiStatus === 'Inactive').length,
+    pending_approval: rows.filter((r) => r.uiStatus === 'Pending Approval').length,
   };
 }
 

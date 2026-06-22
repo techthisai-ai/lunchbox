@@ -30,6 +30,8 @@ export type RegisteredCustomer = CustomerRegistration & {
   registeredAt?: string;
 };
 
+export type DriverApprovalStatus = 'pending' | 'approved' | 'rejected';
+
 export type RegisteredDriver = {
   id: string;
   name: string;
@@ -37,7 +39,41 @@ export type RegisteredDriver = {
   vehicle: string;
   licenseNumber: string;
   status: 'Available' | 'On Route' | 'Offline';
+  approvalStatus: DriverApprovalStatus;
+  registeredAt?: string;
+  ratingAverage?: string;
+  ratingCount?: number;
+  completedDeliveries?: number;
 };
+
+function parseDriverRecord(
+  data: Record<string, unknown>,
+  docId: string,
+): RegisteredDriver | null {
+  const phone = normalizePhone(String(data.phone ?? ''));
+  if (phone.length !== 10) return null;
+  const status =
+    data.status === 'On Route' || data.status === 'Offline' ? data.status : 'Available';
+  const approvalStatus =
+    data.approvalStatus === 'pending' || data.approvalStatus === 'rejected'
+      ? data.approvalStatus
+      : 'approved';
+
+  return {
+    id: String(data.id ?? docId),
+    name: String(data.name ?? ''),
+    phone,
+    vehicle: String(data.vehicle ?? ''),
+    licenseNumber: String(data.licenseNumber ?? ''),
+    status,
+    approvalStatus,
+    registeredAt: data.registeredAt ? String(data.registeredAt) : data.createdAt ? String(data.createdAt) : undefined,
+    ratingAverage: data.ratingAverage != null ? String(data.ratingAverage) : undefined,
+    ratingCount: typeof data.ratingCount === 'number' ? data.ratingCount : undefined,
+    completedDeliveries:
+      typeof data.completedDeliveries === 'number' ? data.completedDeliveries : undefined,
+  };
+}
 
 export class RegistrationRequiredError extends Error {
   readonly kind: 'customer' | 'driver';
@@ -173,23 +209,18 @@ export async function loadRegisteredDrivers(): Promise<RegisteredDriver[]> {
   const byPhone = new Map<string, RegisteredDriver>();
 
   for (const driver of Object.values(local)) {
-    byPhone.set(normalizePhone(driver.phone), driver);
+    byPhone.set(normalizePhone(driver.phone), {
+      ...driver,
+      approvalStatus: driver.approvalStatus ?? 'approved',
+    });
   }
 
   try {
     const snap = await getDocs(collection(db, 'drivers'));
     for (const docSnap of snap.docs) {
-      const data = docSnap.data();
-      const phone = normalizePhone(String(data.phone ?? ''));
-      if (phone.length !== 10) continue;
-      byPhone.set(phone, {
-        id: String(data.id ?? docSnap.id),
-        name: String(data.name ?? ''),
-        phone,
-        vehicle: String(data.vehicle ?? ''),
-        licenseNumber: String(data.licenseNumber ?? ''),
-        status: data.status === 'On Route' || data.status === 'Offline' ? data.status : 'Available',
-      });
+      const parsed = parseDriverRecord(docSnap.data() as Record<string, unknown>, docSnap.id);
+      if (!parsed) continue;
+      byPhone.set(parsed.phone, parsed);
     }
   } catch {
     // Local registry is enough when remote read fails.
@@ -198,13 +229,89 @@ export async function loadRegisteredDrivers(): Promise<RegisteredDriver[]> {
   return Array.from(byPhone.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export async function loadPendingDrivers(): Promise<RegisteredDriver[]> {
+  const drivers = await loadRegisteredDrivers();
+  return drivers.filter((driver) => driver.approvalStatus === 'pending');
+}
+
 export async function loadDriverByPhone(phone: string): Promise<RegisteredDriver | null> {
   const normalized = normalizePhone(phone);
   const local = await readDriverMap();
-  return local[normalized] ?? null;
+  let driver = local[normalized]
+    ? { ...local[normalized], approvalStatus: local[normalized].approvalStatus ?? 'approved' }
+    : null;
+
+  try {
+    const snap = await getDocs(collection(db, 'drivers'));
+    for (const docSnap of snap.docs) {
+      const parsed = parseDriverRecord(docSnap.data() as Record<string, unknown>, docSnap.id);
+      if (parsed?.phone === normalized) {
+        driver = parsed;
+        break;
+      }
+    }
+  } catch {
+    // Fall back to local registry.
+  }
+
+  return driver;
 }
 
-export async function registerDriverRecord(data: DriverRegistration): Promise<RegisteredDriver> {
+export async function isDriverApproved(phone: string): Promise<boolean> {
+  const driver = await loadDriverByPhone(phone);
+  return (driver?.approvalStatus ?? 'approved') === 'approved';
+}
+
+export async function updateDriverApproval(
+  driverId: string,
+  approvalStatus: DriverApprovalStatus,
+): Promise<RegisteredDriver> {
+  const drivers = await loadRegisteredDrivers();
+  const target = drivers.find((driver) => driver.id === driverId);
+  if (!target) {
+    throw new Error('Driver not found');
+  }
+
+  const nextStatus = approvalStatus === 'approved' ? 'Available' : 'Offline';
+  const updated: RegisteredDriver = {
+    ...target,
+    approvalStatus,
+    status: nextStatus,
+  };
+
+  const local = await readDriverMap();
+  local[target.phone] = updated;
+  await AsyncStorage.setItem(DRIVERS_KEY, JSON.stringify(local));
+
+  try {
+    await setDoc(
+      doc(db, 'drivers', target.id),
+      {
+        approvalStatus,
+        status: nextStatus,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
+  } catch {
+    // Local registry remains source of truth when remote write fails.
+  }
+
+  return updated;
+}
+
+export async function approveDriver(driverId: string): Promise<RegisteredDriver> {
+  return updateDriverApproval(driverId, 'approved');
+}
+
+export async function rejectDriver(driverId: string): Promise<RegisteredDriver> {
+  return updateDriverApproval(driverId, 'rejected');
+}
+
+export async function registerDriverRecord(
+  data: DriverRegistration,
+  options?: { approvedByAdmin?: boolean },
+): Promise<RegisteredDriver> {
   const phone = normalizePhone(data.phone);
   if (phone.length !== 10) throw new Error('Enter a valid 10-digit mobile number');
   if (!data.name.trim()) throw new Error('Enter driver full name');
@@ -216,13 +323,17 @@ export async function registerDriverRecord(data: DriverRegistration): Promise<Re
     throw new Error('This mobile number is already registered as a driver');
   }
 
+  const approvalStatus: DriverApprovalStatus = options?.approvedByAdmin ? 'approved' : 'pending';
+
   const record: RegisteredDriver = {
     id: `DRV-${phone.slice(-4)}-${Date.now().toString().slice(-4)}`,
     name: data.name.trim(),
     phone,
     vehicle: data.vehicle.trim(),
     licenseNumber: data.licenseNumber.trim(),
-    status: 'Available',
+    status: approvalStatus === 'approved' ? 'Available' : 'Offline',
+    approvalStatus,
+    registeredAt: new Date().toISOString(),
   };
 
   const local = await readDriverMap();
@@ -233,11 +344,72 @@ export async function registerDriverRecord(data: DriverRegistration): Promise<Re
     await setDoc(doc(db, 'drivers', record.id), {
       ...record,
       role: 'driver',
-      createdAt: new Date().toISOString(),
+      createdAt: record.registeredAt,
     });
   } catch {
     // Local registry remains source of truth when remote write fails.
   }
 
   return record;
+}
+
+async function persistDriverRecord(driver: RegisteredDriver): Promise<void> {
+  const local = await readDriverMap();
+  local[driver.phone] = driver;
+  await AsyncStorage.setItem(DRIVERS_KEY, JSON.stringify(local));
+
+  try {
+    await setDoc(
+      doc(db, 'drivers', driver.id),
+      {
+        ratingAverage: driver.ratingAverage,
+        ratingCount: driver.ratingCount,
+        completedDeliveries: driver.completedDeliveries,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
+  } catch {
+    // Local registry remains source of truth when remote write fails.
+  }
+}
+
+export async function updateDriverProfileFields(
+  driverId: string,
+  fields: Partial<Pick<RegisteredDriver, 'ratingAverage' | 'ratingCount' | 'completedDeliveries'>>,
+): Promise<void> {
+  const drivers = await loadRegisteredDrivers();
+  const target = drivers.find((driver) => driver.id === driverId);
+  if (!target) return;
+
+  await persistDriverRecord({
+    ...target,
+    ...fields,
+  });
+}
+
+export async function incrementDriverCompletedDeliveries(driverId: string): Promise<void> {
+  const drivers = await loadRegisteredDrivers();
+  const target = drivers.find((driver) => driver.id === driverId);
+  if (!target) return;
+
+  await persistDriverRecord({
+    ...target,
+    completedDeliveries: (target.completedDeliveries ?? 0) + 1,
+  });
+}
+
+export async function getDriverProfileStats(driverId: string): Promise<{
+  ratingAverage: string;
+  reviewCount: number;
+  completedDeliveries: number;
+}> {
+  const drivers = await loadRegisteredDrivers();
+  const target = drivers.find((driver) => driver.id === driverId);
+
+  return {
+    ratingAverage: target?.ratingAverage ?? '5.0',
+    reviewCount: target?.ratingCount ?? 0,
+    completedDeliveries: target?.completedDeliveries ?? 0,
+  };
 }

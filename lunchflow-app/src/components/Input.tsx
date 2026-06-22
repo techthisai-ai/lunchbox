@@ -18,6 +18,7 @@ export function Input({ label, style, secureTextEntry, ...props }: Props) {
           placeholderTextColor={colors.muted}
           style={[styles.input, secureTextEntry && styles.inputWithToggle, style]}
           secureTextEntry={secureTextEntry ? hidden : undefined}
+          underlineColorAndroid="transparent"
           {...props}
         />
         {secureTextEntry ? (

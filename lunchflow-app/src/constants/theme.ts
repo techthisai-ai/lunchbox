@@ -1,79 +1,81 @@
 /**
  * LunchFlow Design System — 60-30-10 rule
  *
- * 60%  Off-white backgrounds (#F4F2ED)
- * 30%  Hot pink + light pink brand (#F23898, #EA6BB8)
- * 10%  Soft yellow highlights + dark purple-black (#E8D978, #3A2942)
+ * 60%  Pink — dominant backgrounds & page surfaces
+ * 30%  Light Yellow — cards, inputs, tab bars, content sections
+ * 10%  Dark Purple — buttons, icons, highlights, CTAs
  */
 
 export const palette = {
-  // 60% — backgrounds & neutrals
-  offWhite: '#F4F2ED',
-  offWhiteSoft: '#FAF8F4',
-  surface: '#FFFFFF',
-  surfaceMuted: '#EFEBE4',
-  border: '#E5E0D8',
-  borderSubtle: '#EDE9E2',
+  // 60% — pink backgrounds & dominant surfaces
+  pink60: '#FF5BAE',
+  pink60Soft: '#FFD6E8',
+  pink60Muted: '#FFB8D4',
+  pink60Border: '#FF9EC8',
 
-  // 30% — brand pinks
-  hotPink: '#F23898',
-  hotPinkDark: '#D42E85',
-  hotPinkLight: '#FDE8F3',
-  lightPink: '#EA6BB8',
-  lightPinkDark: '#D456A0',
-  lightPinkLight: '#FBEAF5',
+  // 30% — light yellow content sections
+  yellow30: '#FFF0A8',
+  yellow30Soft: '#FFFBE6',
+  yellow30Muted: '#F5E48A',
+  yellow30Border: '#E8D978',
 
-  // 10% — accents
-  softYellow: '#E8D978',
-  softYellowLight: '#F5F0C8',
-  softYellowDark: '#3A2942',
-  dark: '#3A2942',
-  darkMuted: '#5C4D66',
+  // 10% — dark purple accents, CTAs, highlights
+  purple10: '#2A1645',
+  purple10Soft: '#3D2463',
+  purple10Muted: '#5C4878',
 
-  // semantic
-  text: '#3A2942',
-  textSecondary: '#6B5D75',
-  ink: '#3A2942',
-  error: '#D42E55',
+  // text & semantic
+  onPrimary: '#FFFFFF',
+  text: '#2A1645',
+  textSecondary: '#5C4878',
+  ink: '#2A1645',
+  error: '#B91C4A',
   errorLight: '#FCE8EE',
 };
 
 /**
- * Backward-compatible tokens — existing screens use `colors.orange`, etc.
+ * Backward-compatible tokens — existing screens use `colors.orange`, `colors.white`, etc.
  */
 export const colors = {
-  // primary brand (legacy: orange → hot pink)
-  orange: palette.hotPink,
-  orangeDark: palette.hotPinkDark,
-  orangeLight: palette.hotPinkLight,
+  // 10% — primary accent / CTA (legacy: orange)
+  orange: palette.purple10,
+  orangeDark: palette.purple10,
+  orangeLight: palette.yellow30Soft,
 
-  // secondary brand (legacy: green → light pink)
-  green: palette.lightPink,
-  greenDark: palette.lightPinkDark,
-  greenLight: palette.lightPinkLight,
+  // 30% — secondary surfaces (legacy: green)
+  green: palette.yellow30Border,
+  greenDark: palette.purple10,
+  greenLight: palette.yellow30Soft,
 
-  // admin / premium dark (legacy: blue → dark purple-black)
-  blue: palette.dark,
-  blueDark: palette.dark,
-  blueLight: '#EDE8F0',
+  // admin / info (legacy: blue)
+  blue: palette.purple10Soft,
+  blueDark: palette.purple10,
+  blueLight: palette.yellow30Soft,
 
-  // surfaces & text
-  white: palette.surface,
-  bg: palette.offWhite,
-  surfaceMuted: palette.surfaceMuted,
+  // 60% — page backgrounds
+  bg: palette.pink60Soft,
+  surfaceMuted: palette.pink60Muted,
+
+  // 30% — cards, panels, inputs, tab bars
+  surface: palette.yellow30Soft,
+  card: palette.yellow30Soft,
+  white: palette.yellow30Soft,
+
+  // text
   text: palette.text,
   muted: palette.textSecondary,
-  border: palette.border,
-  borderSubtle: palette.borderSubtle,
+  border: palette.pink60Border,
+  borderSubtle: palette.pink60Muted,
+  onPrimary: palette.onPrimary,
 
-  // accent tokens
-  purple: palette.dark,
-  purpleDark: palette.dark,
-  purpleLight: '#EDE8F0',
-  yellow: palette.softYellow,
-  yellowLight: palette.softYellowLight,
-  yellowDark: palette.softYellowDark,
-  dark: palette.dark,
+  // legacy accent aliases
+  purple: palette.purple10,
+  purpleDark: palette.purple10,
+  purpleLight: palette.yellow30Soft,
+  yellow: palette.yellow30,
+  yellowLight: palette.yellow30Soft,
+  yellowDark: palette.purple10,
+  dark: palette.purple10,
 
   // semantic
   red: palette.error,
@@ -81,10 +83,11 @@ export const colors = {
 };
 
 export const gradients = {
-  brand: [palette.hotPink, palette.lightPink] as const,
-  primary: [palette.hotPink, palette.hotPinkDark] as const,
-  secondary: [palette.lightPink, palette.lightPinkDark] as const,
-  premium: [palette.dark, '#2A1D32'] as const,
+  brand: [palette.purple10, palette.purple10Soft] as const,
+  primary: [palette.purple10, '#1E0F33'] as const,
+  secondary: [palette.yellow30, palette.yellow30Muted] as const,
+  premium: [palette.purple10, palette.purple10Soft] as const,
+  surface: [palette.pink60Soft, palette.pink60Muted] as const,
 };
 
 export const typography = {

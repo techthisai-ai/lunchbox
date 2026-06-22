@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
   outline: { backgroundColor: colors.white, borderWidth: 2, borderColor: colors.orange },
   danger: { backgroundColor: colors.white, borderWidth: 2, borderColor: colors.red },
   pressed: { opacity: 0.92, transform: [{ scale: 0.98 }] },
-  text: { color: colors.white, fontSize: 16, fontWeight: '700' },
+  text: { color: colors.onPrimary, fontSize: 16, fontWeight: '700' },
   outlineText: { color: colors.orange },
   highlightText: { color: colors.dark },
   dangerText: { color: colors.red },

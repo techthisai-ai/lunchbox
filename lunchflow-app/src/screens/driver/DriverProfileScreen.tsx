@@ -1,5 +1,7 @@
+import { useFocusEffect } from '@react-navigation/native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
@@ -8,17 +10,53 @@ import { getInitials } from '../../constants/auth';
 import { colors, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { RootStackParamList } from '../../navigation/types';
+import { listDriverCompletedToday } from '../../services/orderHubService';
+import { getDriverRatingSummary } from '../../services/ratingService';
+import { getDriverProfileStats } from '../../services/userRegistryService';
+import { DRIVER_EARNING_PER_ORDER } from '../../utils/adminDriverHelpers';
 
 export function DriverProfileScreen() {
   const { user, logout } = useAuth();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const [earningsToday, setEarningsToday] = useState(0);
+  const [ratingAverage, setRatingAverage] = useState('5.0');
+  const [reviewCount, setReviewCount] = useState(0);
+  const [completedDeliveries, setCompletedDeliveries] = useState(0);
 
-  const handleLogout = () => {
-    logout();
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.id) {
+        setEarningsToday(0);
+        setRatingAverage('5.0');
+        setReviewCount(0);
+        setCompletedDeliveries(0);
+        return;
+      }
+
+      Promise.all([
+        listDriverCompletedToday(user.id),
+        getDriverProfileStats(user.id),
+        getDriverRatingSummary(user.id),
+      ]).then(([todayOrders, profileStats, ratingSummary]) => {
+        setEarningsToday(todayOrders.length * DRIVER_EARNING_PER_ORDER);
+        setRatingAverage(ratingSummary.average);
+        setReviewCount(ratingSummary.reviewCount);
+        setCompletedDeliveries(profileStats.completedDeliveries);
+      });
+    }, [user?.id]),
+  );
+
+  const handleLogout = async () => {
+    await logout();
     navigation.dispatch(
       CommonActions.reset({ index: 0, routes: [{ name: 'Splash' }] }),
     );
   };
+
+  const ratingLine =
+    reviewCount > 0
+      ? `★ ${ratingAverage} · ${reviewCount} review${reviewCount === 1 ? '' : 's'} · ${completedDeliveries} deliveries`
+      : `★ ${ratingAverage} · No reviews yet · ${completedDeliveries} deliveries`;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -39,11 +77,13 @@ export function DriverProfileScreen() {
         </Card>
         <Card flat>
           <Text style={styles.label}>Rating</Text>
-          <Text style={styles.value}>★ 4.9 · 842 deliveries</Text>
+          <Text style={styles.value}>{ratingLine}</Text>
         </Card>
         <Card flat>
           <Text style={styles.label}>Today's Earnings</Text>
-          <Text style={[styles.value, { color: colors.green }]}>₹850</Text>
+          <Text style={[styles.value, earningsToday > 0 && styles.earningsValue]}>
+            ₹{earningsToday.toLocaleString('en-IN')}
+          </Text>
         </Card>
         <Button title="Logout" variant="danger" onPress={handleLogout} style={{ marginTop: spacing.lg }} />
       </ScrollView>
@@ -72,4 +112,5 @@ const styles = StyleSheet.create({
   scroll: { padding: spacing.md },
   label: { fontSize: 12, color: colors.muted, fontWeight: '600' },
   value: { fontSize: 16, fontWeight: '700', marginTop: 4 },
+  earningsValue: { color: colors.green },
 });

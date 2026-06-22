@@ -6,12 +6,13 @@ import { Button } from './Button';
 type Props = {
   visible: boolean;
   orderLabel: string;
+  driverName?: string;
   submitting?: boolean;
   onSubmit: (stars: number, review: string) => Promise<string | null>;
   onSkip: () => void;
 };
 
-export function RatingDialog({ visible, orderLabel, submitting, onSubmit, onSkip }: Props) {
+export function RatingDialog({ visible, orderLabel, driverName, submitting, onSubmit, onSkip }: Props) {
   const [stars, setStars] = useState(5);
   const [review, setReview] = useState('');
   const [error, setError] = useState('');
@@ -33,8 +34,10 @@ export function RatingDialog({ visible, orderLabel, submitting, onSubmit, onSkip
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onSkip}>
       <View style={styles.overlay}>
         <View style={styles.card}>
-          <Text style={styles.title}>Rate your delivery</Text>
-          <Text style={styles.subtitle}>{orderLabel}</Text>
+          <Text style={styles.title}>Rate your driver</Text>
+          <Text style={styles.subtitle}>
+            {driverName ? `${driverName} · ${orderLabel}` : orderLabel}
+          </Text>
           <View style={styles.stars}>
             {[1, 2, 3, 4, 5].map((value) => (
               <Pressable key={value} onPress={() => setStars(value)}>
@@ -51,7 +54,7 @@ export function RatingDialog({ visible, orderLabel, submitting, onSubmit, onSkip
             multiline
           />
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Button title="Submit Rating" onPress={handleSubmit} />
+          <Button title={submitting ? 'Submitting...' : 'Submit Review'} onPress={handleSubmit} />
           <Pressable onPress={onSkip} style={styles.skip}>
             <Text style={styles.skipText}>Skip</Text>
           </Pressable>

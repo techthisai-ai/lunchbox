@@ -12,7 +12,12 @@ export type SalaryRecord = {
   createdAt: string;
 };
 
-export type ExpenseCategory = 'fuel' | 'packaging' | 'maintenance' | 'misc';
+export type ExpenseCategory = string;
+
+export type ExpenseCategoryDef = {
+  id: string;
+  label: string;
+};
 
 export type PaymentMethod = 'cash' | 'upi' | 'card';
 

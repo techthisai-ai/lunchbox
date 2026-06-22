@@ -1,17 +1,17 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AdminAddSalaryModal } from '../../components/admin/AdminAddSalaryModal';
 import { AdminFilterSelect } from '../../components/admin/AdminFilterSelect';
+import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
+import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
 import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
 import { Badge } from '../../components/Badge';
 import { colors, radius, spacing } from '../../constants/theme';
-import { useAdminLayout } from '../../hooks/useAdminLayout';
-import { listSalaryRecords, markSalaryPaid, syncSalariesFromDrivers } from '../../services/adminFinanceService';
+import { listSalaryRecords } from '../../services/adminFinanceService';
 import { SalaryRecord } from '../../types/finance';
-
-const PAGE_SIZE = 8;
 
 const STATUS_OPTIONS = [
   { id: 'all' as const, label: 'All Status' },
@@ -44,38 +44,13 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
-type SalaryKpiCardProps = {
-  label: string;
-  value: string;
-  subtext: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  iconBg: string;
-  iconColor: string;
-};
-
-function SalaryKpiCard({ label, value, subtext, icon, iconBg, iconColor, minWidth }: SalaryKpiCardProps & { minWidth?: number }) {
-  return (
-    <View style={[styles.kpiCard, minWidth != null ? { minWidth } : null]}>
-      <View style={[styles.kpiIcon, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={18} color={iconColor} />
-      </View>
-      <View style={styles.kpiBody}>
-        <Text style={styles.kpiLabel}>{label}</Text>
-        <Text style={styles.kpiValue}>{value}</Text>
-        <Text style={styles.kpiSubtext}>{subtext}</Text>
-      </View>
-    </View>
-  );
-}
-
 export function AdminSalaryScreen() {
   const [records, setRecords] = useState<SalaryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [monthFilter, setMonthFilter] = useState(currentMonth());
   const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'unpaid'>('all');
-  const [page, setPage] = useState(1);
-  const { showMobileHeader, pageTitleSize, kpiCardMinWidth } = useAdminLayout();
+  const [addSalaryOpen, setAddSalaryOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -91,10 +66,6 @@ export function AdminSalaryScreen() {
       refresh();
     }, [refresh]),
   );
-
-  useEffect(() => {
-    setPage(1);
-  }, [query, monthFilter, statusFilter]);
 
   const monthOptions = useMemo(() => {
     const months = new Set(records.map((record) => record.month));
@@ -128,92 +99,28 @@ export function AdminSalaryScreen() {
   const pendingCount = monthRecords.filter((record) => record.status === 'unpaid').length;
   const employeeCount = new Set(monthRecords.map((record) => record.employeeId)).size;
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const pageRows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-
-  const pageNumbers = useMemo(() => {
-    const pages: number[] = [];
-    const max = Math.min(totalPages, 4);
-    for (let i = 1; i <= max; i += 1) pages.push(i);
-    return pages;
-  }, [totalPages]);
-
-  const handleMarkPaid = async (id: string) => {
-    await markSalaryPaid(id);
-    await refresh();
-  };
-
-  const handleAddSalary = async () => {
-    const added = await syncSalariesFromDrivers(monthFilter);
-    if (added === 0) {
-      Alert.alert('Add Salary', 'All registered employees already have salary records for this month.');
-      return;
-    }
-    await refresh();
-  };
-
-  const handleRowAction = (record: SalaryRecord) => {
-    const actions = [
-      ...(record.status === 'unpaid'
-        ? [{ text: 'Mark as Paid', onPress: () => handleMarkPaid(record.id) }]
-        : []),
-      { text: 'Cancel', style: 'cancel' as const },
-    ];
-    Alert.alert(record.employeeName, `${record.role} · ${formatMonthLabel(record.month)}`, actions);
-  };
-
   return (
     <AdminPageLayout wide>
+      <AdminAddSalaryModal
+        visible={addSalaryOpen}
+        onClose={() => setAddSalaryOpen(false)}
+        onAdded={refresh}
+        defaultMonth={monthFilter}
+      />
+
       <View style={styles.header}>
-        <View style={styles.headerText}>
-          {!showMobileHeader ? <Text style={[styles.pageTitle, { fontSize: pageTitleSize }]}>Salary</Text> : null}
-          {!showMobileHeader ? <Text style={styles.subtitle}>View and manage all employee salary payments.</Text> : null}
-        </View>
-        <Pressable style={styles.addBtn} onPress={handleAddSalary}>
+        <Pressable style={styles.addBtn} onPress={() => setAddSalaryOpen(true)}>
           <Ionicons name="add" size={18} color={colors.white} />
           <Text style={styles.addBtnText}>Add Salary</Text>
         </Pressable>
       </View>
 
-      <View style={styles.kpiRow}>
-        <SalaryKpiCard
-          label="Total Salary Paid"
-          value={`₹${totalPaid.toLocaleString('en-IN')}`}
-          subtext="This Month"
-          icon="wallet"
-          iconBg={colors.orangeLight}
-          iconColor={colors.orange}
-          minWidth={kpiCardMinWidth}
-        />
-        <SalaryKpiCard
-          label="Total Employees"
-          value={String(employeeCount)}
-          subtext="Active Employees"
-          icon="people"
-          iconBg={colors.purpleLight}
-          iconColor={colors.purple}
-          minWidth={kpiCardMinWidth}
-        />
-        <SalaryKpiCard
-          label="Paid Employees"
-          value={String(paidCount)}
-          subtext="This Month"
-          icon="checkmark-circle"
-          iconBg={colors.greenLight}
-          iconColor={colors.greenDark}
-          minWidth={kpiCardMinWidth}
-        />
-        <SalaryKpiCard
-          label="Pending Payments"
-          value={String(pendingCount)}
-          subtext="This Month"
-          icon="time"
-          iconBg={colors.yellowLight}
-          iconColor={colors.dark}
-          minWidth={kpiCardMinWidth}
-        />
-      </View>
+      <AdminKpiRow dense>
+        <AdminKpiCard compact label="Total Salary Paid" value={`₹${totalPaid.toLocaleString('en-IN')}`} icon="wallet" iconBg={colors.orangeLight} iconColor={colors.orange} />
+        <AdminKpiCard compact label="Total Employees" value={String(employeeCount)} icon="people" iconBg={colors.purpleLight} iconColor={colors.purple} />
+        <AdminKpiCard compact label="Paid Employees" value={String(paidCount)} icon="checkmark-circle" iconBg={colors.greenLight} iconColor={colors.greenDark} />
+        <AdminKpiCard compact label="Pending Payments" value={String(pendingCount)} icon="time" iconBg={colors.yellowLight} iconColor={colors.dark} />
+      </AdminKpiRow>
 
       <View style={styles.tableCard}>
         <View style={styles.toolbar}>
@@ -232,10 +139,6 @@ export function AdminSalaryScreen() {
             <AdminFilterSelect value={monthFilter} options={monthOptions} onChange={setMonthFilter} minWidth={130} />
           </View>
           <AdminFilterSelect value={statusFilter} options={STATUS_OPTIONS} onChange={setStatusFilter} minWidth={120} />
-          <Pressable style={styles.filterBtn}>
-            <Ionicons name="funnel-outline" size={16} color={colors.text} />
-            <Text style={styles.filterBtnText}>Filter</Text>
-          </Pressable>
         </View>
 
         {loading ? (
@@ -253,11 +156,10 @@ export function AdminSalaryScreen() {
                 <Text style={[styles.th, styles.colAmount]}>Amount</Text>
                 <Text style={[styles.th, styles.colDate]}>Payment Date</Text>
                 <Text style={[styles.th, styles.colStatus]}>Status</Text>
-                <Text style={[styles.th, styles.colActions]}>Actions</Text>
               </View>
 
-              {pageRows.length > 0 ? (
-                pageRows.map((record) => (
+              {filtered.length > 0 ? (
+                filtered.map((record) => (
                   <View key={record.id} style={styles.tableRow}>
                     <View style={[styles.colName, styles.personCell]}>
                       <View style={styles.avatar}>
@@ -285,11 +187,6 @@ export function AdminSalaryScreen() {
                         tone={record.status === 'paid' ? 'green' : 'orange'}
                       />
                     </View>
-                    <View style={styles.colActions}>
-                      <Pressable style={styles.actionBtn} onPress={() => handleRowAction(record)}>
-                        <Ionicons name="ellipsis-vertical" size={16} color={colors.muted} />
-                      </Pressable>
-                    </View>
                   </View>
                 ))
               ) : (
@@ -302,30 +199,6 @@ export function AdminSalaryScreen() {
             </AdminTableScroll>
           </View>
         )}
-
-        <View style={styles.pagination}>
-          <Text style={styles.pageInfo}>
-            Showing {filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to{' '}
-            {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} entries
-          </Text>
-          <View style={styles.pageControls}>
-            <Pressable style={styles.pageBtn} disabled={currentPage <= 1} onPress={() => setPage((p) => Math.max(1, p - 1))}>
-              <Ionicons name="chevron-back" size={16} color={currentPage <= 1 ? colors.border : colors.text} />
-            </Pressable>
-            {pageNumbers.map((n) => (
-              <Pressable key={n} style={[styles.pageNum, n === currentPage && styles.pageNumActive]} onPress={() => setPage(n)}>
-                <Text style={[styles.pageNumText, n === currentPage && styles.pageNumTextActive]}>{n}</Text>
-              </Pressable>
-            ))}
-            <Pressable
-              style={styles.pageBtn}
-              disabled={currentPage >= totalPages}
-              onPress={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
-              <Ionicons name="chevron-forward" size={16} color={currentPage >= totalPages ? colors.border : colors.text} />
-            </Pressable>
-          </View>
-        </View>
       </View>
     </AdminPageLayout>
   );
@@ -334,15 +207,9 @@ export function AdminSalaryScreen() {
 const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    flexWrap: 'wrap',
-    gap: 16,
-    marginBottom: spacing.lg,
+    justifyContent: 'flex-end',
+    marginBottom: spacing.md,
   },
-  headerText: { flex: 1, minWidth: 220 },
-  pageTitle: { fontSize: 28, fontWeight: '800', color: colors.text },
-  subtitle: { fontSize: 14, color: colors.muted, marginTop: 6, fontWeight: '600', lineHeight: 20 },
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -352,32 +219,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     height: 40,
   },
-  addBtnText: { fontSize: 13, fontWeight: '800', color: colors.white },
-  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: spacing.lg },
-  kpiCard: {
-    flex: 1,
-    minWidth: 200,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    backgroundColor: colors.white,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-  },
-  kpiIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  kpiBody: { flex: 1, minWidth: 0 },
-  kpiLabel: { fontSize: 12, color: colors.muted, fontWeight: '600' },
-  kpiValue: { fontSize: 22, fontWeight: '800', color: colors.text, marginTop: 4 },
-  kpiSubtext: { fontSize: 11, color: colors.muted, fontWeight: '600', marginTop: 4 },
+  addBtnText: { fontSize: 13, fontWeight: '800', color: colors.onPrimary },
   tableCard: {
     backgroundColor: colors.white,
     borderRadius: radius.md,
@@ -413,18 +255,6 @@ const styles = StyleSheet.create({
     gap: 8,
     minWidth: 170,
   },
-  filterBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: 14,
-    height: 40,
-  },
-  filterBtnText: { fontSize: 13, fontWeight: '700', color: colors.text },
   tableWrap: { width: '100%', paddingHorizontal: spacing.md, paddingTop: spacing.md },
   table: { width: '100%' },
   tableHead: {
@@ -456,7 +286,6 @@ const styles = StyleSheet.create({
   colAmount: { width: 96, flexShrink: 0 },
   colDate: { flex: 1, minWidth: 110 },
   colStatus: { width: 92, flexShrink: 0 },
-  colActions: { width: 56, flexShrink: 0, alignItems: 'center' },
   personCell: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
   avatar: {
     width: 32,
@@ -467,52 +296,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarText: { fontSize: 11, fontWeight: '800', color: colors.orange },
-  actionBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.bg,
-  },
   emptyRow: { paddingVertical: 48, alignItems: 'center', paddingHorizontal: spacing.md },
   emptyTitle: { fontSize: 16, fontWeight: '800', color: colors.text, marginBottom: 6 },
   emptyText: { fontSize: 13, color: colors.muted, fontWeight: '600', textAlign: 'center' },
-  pagination: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: 12,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  pageInfo: { fontSize: 12, color: colors.muted, fontWeight: '600' },
-  pageControls: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  pageBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.white,
-  },
-  pageNum: {
-    minWidth: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-    backgroundColor: colors.white,
-  },
-  pageNumActive: { backgroundColor: colors.orange, borderColor: colors.orange },
-  pageNumText: { fontSize: 12, fontWeight: '700', color: colors.text },
-  pageNumTextActive: { color: colors.white },
 });

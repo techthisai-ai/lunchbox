@@ -54,10 +54,6 @@ export function DriverDeliveriesScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>My Deliveries</Text>
-        <Text style={styles.sub}>Today's route & history</Text>
-      </View>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.section}>Active Delivery</Text>
         {active ? (
@@ -102,10 +98,7 @@ export function DriverDeliveriesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  header: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
-  title: { fontSize: 22, fontWeight: '800' },
-  sub: { fontSize: 13, color: colors.muted, marginTop: 2 },
-  scroll: { padding: spacing.md, paddingBottom: 24 },
+  scroll: { padding: spacing.md, paddingTop: spacing.md, paddingBottom: 24 },
   section: { fontSize: 16, fontWeight: '800', marginBottom: 12, marginTop: 4 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   orderId: { fontWeight: '800', fontSize: 14 },

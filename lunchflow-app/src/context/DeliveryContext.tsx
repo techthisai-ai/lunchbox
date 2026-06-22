@@ -9,7 +9,7 @@ import {
   ReactNode,
 } from 'react';
 import { addDeliveryToHistory } from '../services/deliveryHistoryService';
-import { sendCustomerSmsAndWhatsApp } from '../services/messagingService';
+import { hasCustomerRatedOrder } from '../services/ratingService';
 import {
   createBooking,
   getCustomerOrderToday,
@@ -56,9 +56,11 @@ function ordersEqual(a: DeliveryOrder | null, b: DeliveryOrder | null): boolean 
     a.pickupOtp === b.pickupOtp &&
     a.driverLocation?.lat === b.driverLocation?.lat &&
     a.driverLocation?.lng === b.driverLocation?.lng &&
+    a.driverLocation?.updatedAt === b.driverLocation?.updatedAt &&
     a.driver?.id === b.driver?.id &&
     a.driver?.etaMinutes === b.driver?.etaMinutes &&
-    a.estimatedArrival === b.estimatedArrival
+    a.estimatedArrival === b.estimatedArrival &&
+    a.estimatedArrivalAtIso === b.estimatedArrivalAtIso
   );
 }
 
@@ -72,6 +74,7 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
   const hasLoadedRef = useRef(false);
   const refreshInFlightRef = useRef(false);
   const historySavedRef = useRef<string | null>(null);
+  const ratingPromptedRef = useRef<string | null>(null);
   const phoneRef = useRef('');
   const customerIdRef = useRef('');
   const userNameRef = useRef<string | undefined>(undefined);
@@ -91,11 +94,21 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
     setOrder((prev) => (ordersEqual(prev, next) ? prev : next));
   }, []);
 
-  const maybeSaveHistory = useCallback(async (remote: DeliveryOrder | null) => {
+  const handleDeliveredOrder = useCallback(async (remote: DeliveryOrder | null) => {
     if (!remote || remote.status !== 'delivered' || !phoneRef.current) return;
-    if (historySavedRef.current === remote.id) return;
-    historySavedRef.current = remote.id;
-    await addDeliveryToHistory(phoneRef.current, remote);
+
+    if (historySavedRef.current !== remote.id) {
+      historySavedRef.current = remote.id;
+      await addDeliveryToHistory(phoneRef.current, remote);
+    }
+
+    if (ratingPromptedRef.current === remote.id) return;
+    if (await hasCustomerRatedOrder(phoneRef.current, remote.id)) {
+      ratingPromptedRef.current = remote.id;
+      return;
+    }
+
+    ratingPromptedRef.current = remote.id;
     promptRatingForOrder(remote, phoneRef.current);
   }, [promptRatingForOrder]);
 
@@ -124,13 +137,13 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
         });
       }
       syncOrder(remote);
-      await maybeSaveHistory(remote);
+      await handleDeliveredOrder(remote);
     } finally {
       refreshInFlightRef.current = false;
       setLoading(false);
       hasLoadedRef.current = true;
     }
-  }, [isCustomer, syncOrder, maybeSaveHistory]);
+  }, [isCustomer, syncOrder, handleDeliveredOrder]);
 
   useEffect(() => {
     if (!isCustomer || !phone) return undefined;
@@ -138,11 +151,11 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
 
     return subscribeToOrder(order.id, (remote) => {
       syncOrder(remote);
-      void maybeSaveHistory(remote);
+      void handleDeliveredOrder(remote);
       setLoading(false);
       hasLoadedRef.current = true;
     });
-  }, [phone, order?.id, isCustomer, syncOrder, maybeSaveHistory]);
+  }, [phone, order?.id, isCustomer, syncOrder, handleDeliveredOrder]);
 
   useEffect(() => {
     historySavedRef.current = null;
@@ -185,11 +198,6 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
       const profile = await loadCustomerProfile(phone);
       const booked = await createBooking(customerId, phone, { ...profile, name: user?.name ?? profile.name });
       syncOrder(booked);
-      await sendCustomerSmsAndWhatsApp(
-        phone,
-        `LunchFlow: Pickup & delivery booked for ${booked.studentName}.`,
-        `Your daily lunchbox delivery to ${booked.school} is booked for today.`,
-      );
       return null;
     } catch {
       return 'Could not book pickup. Please try again';

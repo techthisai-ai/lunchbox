@@ -45,6 +45,6 @@ export function PersonalDetailsScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.white },
+  container: { flex: 1, backgroundColor: colors.bg },
   form: { padding: spacing.lg, paddingBottom: 32 },
 });

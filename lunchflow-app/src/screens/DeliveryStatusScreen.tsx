@@ -49,7 +49,7 @@ export function DeliveryStatusScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.white },
+  container: { flex: 1, backgroundColor: colors.bg },
   scroll: { padding: spacing.md, paddingBottom: 32 },
   statusBanner: { backgroundColor: colors.orangeLight, borderWidth: 1, borderColor: colors.borderSubtle, alignItems: 'center' },
   muted: { fontSize: 13, color: colors.muted },

@@ -7,6 +7,7 @@ export type AuthUser = {
   email?: string;
   phone?: string;
   vehicle?: string;
+  driverApprovalStatus?: 'pending' | 'approved' | 'rejected';
 };
 
 export function normalizePhone(phone: string): string {

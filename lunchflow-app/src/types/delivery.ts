@@ -46,6 +46,7 @@ export type DeliveryDriver = {
   rating: string;
   initials: string;
   etaMinutes: number | null;
+  phone?: string;
 };
 
 export type GeoPoint = {
@@ -84,6 +85,7 @@ export type DeliveryOrder = {
   pickupAddress: string;
   dropAddress: string;
   estimatedArrival: string | null;
+  estimatedArrivalAtIso?: string | null;
   bookedAt: string | null;
   foodReadyAt: string | null;
   pickupVerifiedAt: string | null;
@@ -102,6 +104,9 @@ export type DeliveryOrder = {
   pickupExpiresAtIso?: string | null;
   pickupClosedAt?: string | null;
   deliveryProof?: DeliveryProofMeta | null;
+  assignedDriverPhone?: string;
+  deliverySlotId?: string;
+  deliverySlotLabel?: string;
 };
 
 export type DeliveryProfile = {

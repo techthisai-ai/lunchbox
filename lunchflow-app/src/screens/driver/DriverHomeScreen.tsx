@@ -1,6 +1,9 @@
-import { useFocusEffect } from '@react-navigation/native';
+import { CompositeNavigationProp, useFocusEffect, useNavigation } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
@@ -8,6 +11,8 @@ import { Card } from '../../components/Card';
 import { PickupVerifyDialog } from '../../components/PickupVerifyDialog';
 import { colors, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
+import { navigateAfterDriverLogin } from '../../navigation/driverRoutes';
+import { DriverTabParamList, RootStackParamList } from '../../navigation/types';
 import {
   acceptPickup,
   listDriverActiveOrders,
@@ -18,16 +23,23 @@ import {
   markPickedUp,
   subscribeToDriverOrdersToday,
   subscribeToPendingPickups,
-  syncDriverLocationForOrder,
   verifyPickup,
 } from '../../services/orderHubService';
 import { listDriverBatches } from '../../services/batchDeliveryService';
+import { refreshDriverLocationForOrders, stopDriverLocationTracking } from '../../services/driverLocationService';
+import { openMapsNavigation } from '../../services/mapsNavigation';
 import { DeliveryBatch } from '../../types/batch';
 import { subscribeToOrderChanges } from '../../services/orderSync';
 import { DeliveryOrder, getDropAddress } from '../../types/delivery';
 
+type DriverHomeNavigation = CompositeNavigationProp<
+  BottomTabNavigationProp<DriverTabParamList, 'DriverHome'>,
+  NativeStackNavigationProp<RootStackParamList>
+>;
+
 export function DriverHomeScreen() {
   const { user } = useAuth();
+  const navigation = useNavigation<DriverHomeNavigation>();
   const [pending, setPending] = useState<DeliveryOrder[]>([]);
   const [active, setActive] = useState<DeliveryOrder[]>([]);
   const [inTransit, setInTransit] = useState<DeliveryOrder[]>([]);
@@ -49,6 +61,15 @@ export function DriverHomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (!user?.phone) return;
+      if (user.driverApprovalStatus && user.driverApprovalStatus !== 'approved') {
+        navigateAfterDriverLogin(navigation, user.phone);
+      }
+    }, [navigation, user?.driverApprovalStatus, user?.phone]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
       refresh();
       const interval = setInterval(refresh, 3000);
       return () => clearInterval(interval);
@@ -65,12 +86,18 @@ export function DriverHomeScreen() {
 
   useEffect(() => {
     if (!user?.id) return undefined;
+    const moving = [...active, ...inTransit];
+    const orderIds = moving.map((o) => o.id);
+    refreshDriverLocationForOrders(user.id, orderIds);
+    return () => {
+      stopDriverLocationTracking();
+    };
+  }, [user?.id, active, inTransit]);
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
     const interval = setInterval(async () => {
       const mine = await listDriverActiveOrders(user.id);
-      const moving = mine.filter(
-        (o) => o.driver && !['delivered', 'booked', 'awaiting_driver'].includes(o.status),
-      );
-      await Promise.all(moving.map((o) => syncDriverLocationForOrder(o.id)));
       syncActiveOrders(mine);
     }, 4000);
     return () => clearInterval(interval);
@@ -80,7 +107,11 @@ export function DriverHomeScreen() {
     if (!user?.id || !user.name) return;
     setActionError('');
     try {
-      await acceptPickup(orderId, { id: user.id, name: user.name, vehicle: user.vehicle });
+      const accepted = await acceptPickup(orderId, { id: user.id, name: user.name, vehicle: user.vehicle, phone: user.phone });
+      const destination = accepted.pickupLocation;
+      if (destination) {
+        await openMapsNavigation(destination);
+      }
       await refresh();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Could not accept pickup');
@@ -144,9 +175,19 @@ export function DriverHomeScreen() {
         onCancel={() => setVerifyOrder(null)}
       />
       <View style={styles.header}>
-        <Text style={styles.greeting}>Hello, Driver</Text>
-        <Text style={styles.name}>{user?.name}</Text>
-        <Text style={styles.vehicle}>{user?.vehicle || '—'}</Text>
+        <View style={styles.headerText}>
+          <Text style={styles.name} numberOfLines={1}>
+            {user?.name || '—'}
+          </Text>
+        </View>
+        <Pressable
+          style={styles.notifBtn}
+          onPress={() => navigation.navigate('DriverNotifications')}
+          accessibilityRole="button"
+          accessibilityLabel="Notifications"
+        >
+          <Ionicons name="notifications-outline" size={22} color={colors.text} />
+        </Pressable>
       </View>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Card style={styles.statusCard}>
@@ -168,7 +209,7 @@ export function DriverHomeScreen() {
         <Text style={styles.section}>New Pickup Requests</Text>
         {pending.length === 0 ? (
           <Card flat>
-            <Text style={styles.muted}>No new pickup requests. Customer must tap Food Ready first.</Text>
+            <Text style={styles.muted}>No new pickup requests.</Text>
           </Card>
         ) : (
           pending.map((r) => (
@@ -244,10 +285,28 @@ export function DriverHomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  header: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
-  greeting: { fontSize: 13, color: colors.muted },
-  name: { fontSize: 22, fontWeight: '800' },
-  vehicle: { fontSize: 12, color: colors.green, fontWeight: '600', marginTop: 4 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  headerText: { flex: 1, minWidth: 0, marginRight: 12 },
+  name: { fontSize: 22, fontWeight: '800', color: colors.text },
+  notifBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   scroll: { padding: spacing.md, paddingBottom: 24 },
   statusCard: { alignItems: 'flex-start', gap: 8 },
   statusLabel: { fontSize: 13, color: colors.muted, fontWeight: '600' },

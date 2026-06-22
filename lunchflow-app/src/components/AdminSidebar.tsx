@@ -1,12 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, radius, spacing } from '../constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { colors, palette, radius, shadow, spacing } from '../constants/theme';
+import { LogoMark } from './LogoMark';
 
 export type AdminPage =
   | 'dashboard'
   | 'orders'
   | 'customers'
   | 'drivers'
+  | 'telecallers'
+  | 'slots'
   | 'reports'
   | 'salary'
   | 'expenses';
@@ -16,6 +20,8 @@ export const ADMIN_PAGE_LABELS: Record<AdminPage, string> = {
   orders: 'Orders',
   customers: 'Customers',
   drivers: 'Drivers',
+  telecallers: 'Telecallers',
+  slots: 'Slots & Pricing',
   reports: 'Reports',
   salary: 'Salary',
   expenses: 'Expenses',
@@ -24,18 +30,31 @@ export const ADMIN_PAGE_LABELS: Record<AdminPage, string> = {
 type NavItem = {
   id: AdminPage;
   label: string;
-  icon: keyof typeof Ionicons.glyphMap;
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
-  { id: 'orders', label: 'Orders', icon: 'receipt' },
-  { id: 'customers', label: 'Customers', icon: 'people' },
-  { id: 'drivers', label: 'Drivers', icon: 'bicycle' },
-  { id: 'reports', label: 'Reports', icon: 'bar-chart' },
-  { id: 'salary', label: 'Salary', icon: 'wallet' },
-  { id: 'expenses', label: 'Expenses', icon: 'cash' },
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'orders', label: 'Orders' },
+  { id: 'customers', label: 'Customers' },
+  { id: 'drivers', label: 'Drivers' },
+  { id: 'telecallers', label: 'Telecallers' },
+  { id: 'slots', label: 'Slots & Pricing' },
+  { id: 'salary', label: 'Salary' },
+  { id: 'expenses', label: 'Expenses' },
+  { id: 'reports', label: 'Reports' },
 ];
+
+const SIDEBAR = {
+  bg: palette.purple10,
+  bgSoft: palette.purple10Soft,
+  border: 'rgba(255, 255, 255, 0.12)',
+  text: colors.onPrimary,
+  textMuted: 'rgba(255, 255, 255, 0.62)',
+  hover: 'rgba(255, 255, 255, 0.08)',
+  surface: 'rgba(255, 255, 255, 0.1)',
+  activeBg: palette.yellow30,
+  activeText: palette.purple10,
+};
 
 type Props = {
   active: AdminPage;
@@ -45,14 +64,31 @@ type Props = {
   variant?: 'fixed' | 'overlay';
 };
 
+function getInitial(name?: string) {
+  return (name?.trim().charAt(0) || 'A').toUpperCase();
+}
+
 export function AdminSidebar({ active, adminName, onNavigate, onLogout, variant = 'fixed' }: Props) {
+  const displayName = adminName?.trim() || 'Admin User';
+
   return (
-    <View style={[styles.sidebar, variant === 'overlay' && styles.sidebarOverlay]}>
-      <View style={styles.brand}>
-        <Text style={styles.brandTitle}>
-          Lunch<Text style={styles.brandAccent}>Flow</Text>
-        </Text>
-        <Text style={styles.brandSub}>Admin Portal</Text>
+    <LinearGradient
+      colors={[SIDEBAR.bg, SIDEBAR.bgSoft, '#1E0F33']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
+      style={[styles.sidebar, variant === 'overlay' && styles.sidebarOverlay]}
+    >
+      <View style={styles.brandCard}>
+        <LogoMark size={38} />
+        <View style={styles.brandText}>
+          <Text style={styles.brandTitle}>
+            Lunch<Text style={styles.brandAccent}>Flow</Text>
+          </Text>
+          <View style={styles.brandBadge}>
+            <Ionicons name="shield-checkmark" size={9} color={SIDEBAR.activeText} />
+            <Text style={styles.brandSub}>Admin Portal</Text>
+          </View>
+        </View>
       </View>
 
       <View style={styles.nav}>
@@ -61,35 +97,63 @@ export function AdminSidebar({ active, adminName, onNavigate, onLogout, variant 
           return (
             <Pressable
               key={item.id}
-              style={[styles.navItem, selected && styles.navItemActive]}
+              style={({ pressed, hovered }) => [
+                styles.navItem,
+                selected && styles.navItemActive,
+                !selected && (pressed || (Platform.OS === 'web' && hovered)) && styles.navItemHover,
+              ]}
               onPress={() => onNavigate(item.id)}
             >
-              <Ionicons name={item.icon} size={20} color={selected ? colors.orange : colors.muted} />
-              <Text style={[styles.navLabel, selected && styles.navLabelActive]}>{item.label}</Text>
+              <Text style={[styles.navLabel, selected && styles.navLabelActive]} numberOfLines={1}>
+                {item.label}
+              </Text>
             </Pressable>
           );
         })}
       </View>
 
       <View style={styles.footer}>
-        {adminName ? <Text style={styles.adminName}>{adminName}</Text> : null}
-        <Pressable style={styles.logoutBtn} onPress={onLogout}>
-          <Ionicons name="log-out-outline" size={18} color={colors.red} />
+        <View style={styles.userCard}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{getInitial(adminName)}</Text>
+          </View>
+          <View style={styles.userMeta}>
+            <Text style={styles.adminName} numberOfLines={1}>
+              {displayName}
+            </Text>
+            <Text style={styles.adminRole}>Administrator</Text>
+          </View>
+        </View>
+
+        <Pressable
+          style={({ pressed, hovered }) => [
+            styles.logoutBtn,
+            (pressed || (Platform.OS === 'web' && hovered)) && styles.logoutBtnHover,
+          ]}
+          onPress={onLogout}
+        >
+          <Ionicons name="log-out-outline" size={16} color="#FF8FAB" />
           <Text style={styles.logoutText}>Logout</Text>
         </Pressable>
       </View>
-    </View>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   sidebar: {
-    width: 260,
-    backgroundColor: colors.dark,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.md,
+    width: 252,
+    flexDirection: 'column',
     borderRightWidth: 1,
-    borderRightColor: 'rgba(255,255,255,0.08)',
+    borderRightColor: SIDEBAR.border,
+    alignSelf: 'stretch',
+    flexShrink: 0,
+    ...(Platform.OS === 'web'
+      ? {
+          height: '100%' as unknown as number,
+          minHeight: '100vh' as unknown as number,
+        }
+      : {}),
   },
   sidebarOverlay: {
     position: 'absolute',
@@ -99,36 +163,158 @@ const styles = StyleSheet.create({
     height: '100%',
     zIndex: 2,
     borderRightWidth: 0,
-    shadowColor: '#000',
-    shadowOffset: { width: 4, height: 0 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 8,
+    ...shadow.elevated,
   },
-  brand: { paddingHorizontal: spacing.sm, marginBottom: spacing.xl },
-  brandTitle: { fontSize: 22, fontWeight: '800', color: colors.white },
-  brandAccent: { color: colors.orange },
-  brandSub: { fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 4, fontWeight: '600' },
-  nav: { flex: 1, gap: 6 },
-  navItem: {
+  brandCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    gap: 8,
+    marginHorizontal: spacing.sm,
+    marginTop: spacing.sm,
+    marginBottom: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: SIDEBAR.surface,
     borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: SIDEBAR.border,
+    flexShrink: 0,
   },
-  navItemActive: { backgroundColor: 'rgba(242, 56, 152, 0.18)' },
-  navLabel: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.72)' },
-  navLabelActive: { color: colors.white, fontWeight: '700' },
+  brandText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  brandTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: SIDEBAR.text,
+    letterSpacing: -0.3,
+  },
+  brandAccent: {
+    color: palette.yellow30,
+  },
+  brandBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 4,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+    backgroundColor: SIDEBAR.activeBg,
+  },
+  brandSub: {
+    fontSize: 8,
+    color: SIDEBAR.activeText,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  nav: {
+    flex: 1,
+    minHeight: 0,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    justifyContent: 'space-evenly',
+    gap: 6,
+  },
+  navItem: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: SIDEBAR.border,
+    backgroundColor: SIDEBAR.surface,
+  },
+  navItemHover: {
+    backgroundColor: SIDEBAR.hover,
+    borderColor: SIDEBAR.border,
+  },
+  navItemActive: {
+    backgroundColor: SIDEBAR.activeBg,
+    borderColor: 'rgba(255, 240, 168, 0.45)',
+  },
+  navLabel: {
+    width: '100%',
+    fontSize: 14,
+    fontWeight: '700',
+    color: SIDEBAR.text,
+    textAlign: 'center',
+  },
+  navLabelActive: {
+    color: SIDEBAR.activeText,
+    fontWeight: '800',
+  },
   footer: {
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
-    paddingTop: spacing.md,
+    borderTopColor: SIDEBAR.border,
     paddingHorizontal: spacing.sm,
-    gap: 10,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+    gap: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    flexShrink: 0,
   },
-  adminName: { fontSize: 13, fontWeight: '700', color: colors.white },
-  logoutBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
-  logoutText: { fontSize: 13, fontWeight: '700', color: colors.red },
+  userCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: SIDEBAR.surface,
+    borderWidth: 1,
+    borderColor: SIDEBAR.border,
+  },
+  avatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: SIDEBAR.activeBg,
+  },
+  avatarText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: SIDEBAR.activeText,
+  },
+  userMeta: {
+    flex: 1,
+    minWidth: 0,
+  },
+  adminName: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: SIDEBAR.text,
+  },
+  adminRole: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: SIDEBAR.textMuted,
+    marginTop: 1,
+  },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(185, 28, 74, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 143, 171, 0.35)',
+  },
+  logoutBtnHover: {
+    backgroundColor: 'rgba(185, 28, 74, 0.28)',
+  },
+  logoutText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FF8FAB',
+  },
 });

@@ -108,7 +108,7 @@ export function NotificationsScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.white },
+  container: { flex: 1, backgroundColor: colors.bg },
   markRead: { fontSize: 13, color: colors.orange, fontWeight: '700' },
   scroll: { paddingTop: spacing.md, paddingBottom: 32, flexGrow: 1 },
   card: { backgroundColor: colors.white, borderRadius: radius.md, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border },

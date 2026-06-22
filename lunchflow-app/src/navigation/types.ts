@@ -4,12 +4,15 @@ export type RootStackParamList = {
   Splash: undefined;
   RoleSelect: undefined;
   Login: { phone?: string } | undefined;
+  OtpVerify: { phone: string; role?: 'customer' | 'driver' };
   Register: { phone?: string } | undefined;
   DriverLogin: { phone?: string } | undefined;
   DriverRegister: { phone?: string } | undefined;
   SubscriptionOnboarding: undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList>;
   DriverTabs: NavigatorScreenParams<DriverTabParamList>;
+  DriverPendingApproval: undefined;
+  DriverNotifications: undefined;
 };
 
 export type MainTabParamList = {
@@ -56,6 +59,8 @@ export type ProfileStackParamList = {
   PersonalDetails: undefined;
   SavedAddresses: undefined;
   Settings: undefined;
+  Language: undefined;
+  PrivacySecurity: undefined;
   Wallet: undefined;
   Subscription: undefined;
   Referral: undefined;

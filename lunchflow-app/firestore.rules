@@ -1,18 +1,99 @@
-rules_version='2'
+rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      // This rule allows anyone with your database reference to view, edit,
-      // and delete all data in your database. It is useful for getting
-      // started, but it is configured to expire after 30 days because it
-      // leaves your app open to attackers. At that time, all client
-      // requests to your database will be denied.
-      //
-      // Make sure to write security rules for your app before that time, or
-      // else all client requests to your database will be denied until you
-      // update your rules.
-      allow read, write: if request.time < timestamp.date(2026, 7, 12);
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.role == 'admin';
+    }
+
+    function isCustomerPhone(phone) {
+      return isSignedIn() && request.auth.token.phone == phone;
+    }
+
+    function isDriverPhone(phone) {
+      return isSignedIn() && request.auth.token.role == 'driver' && request.auth.token.phone == phone;
+    }
+
+    match /users/{phone} {
+      allow read: if isSignedIn();
+      allow create, update: if isCustomerPhone(phone) || isDriverPhone(phone) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /profiles/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+    }
+
+    match /drivers/{driverId} {
+      allow read: if isSignedIn() || true;
+      allow create, update: if isAdmin() || isDriverPhone(resource.data.phone);
+      allow delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow read: if true;
+      allow create: if isSignedIn() || request.resource.data.customerPhone is string;
+      allow update: if isSignedIn() || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /otpSessions/{phone} {
+      allow read, write: if false;
+    }
+
+    match /deliverySlots/{slotId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /pricing/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /telecallers/{telecallerId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /telecallerLeads/{leadId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if false;
+    }
+
+    match /message_logs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /notificationDeliveries/{deliveryId} {
+      allow read, write: if false;
+    }
+
+    match /users/{phone}/notifications/{notificationId} {
+      allow read: if isCustomerPhone(phone) || isDriverPhone(phone) || isAdmin();
+      allow write: if false;
+    }
+
+    match /geocodeCache/{addressKey} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /ratings/{ratingId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
     }
   }
 }

@@ -1,6 +1,6 @@
 import { DeliveryOrder } from '../types/delivery';
 import { countActiveSubscriptions, listExpenseRecords, listSalaryRecords } from './adminFinanceService';
-import { listAllOrdersToday } from './orderHubService';
+import { listAllOrdersToday, listOrdersByDateRange } from './orderHubService';
 import { loadSubscriptionHistory, resolveCustomerSubscriptionAmount } from './subscriptionService';
 
 export type DailySalesReport = {
@@ -42,7 +42,9 @@ export async function buildDailySalesReport(date = new Date().toISOString().slic
 }
 
 export async function buildMonthlyRevenueReport(month = new Date().toISOString().slice(0, 7)): Promise<MonthlyRevenueReport> {
-  const orders = await listAllOrdersToday();
+  const startDate = `${month}-01`;
+  const endDate = `${month}-31`;
+  const orders = await listOrdersByDateRange(startDate, endDate);
   const monthOrders = orders.filter((o) => o.date.startsWith(month));
   const delivered = monthOrders.filter((o) => o.status === 'delivered');
   const revenueParts = await Promise.all(delivered.map((order) => parseOrderRevenue(order)));

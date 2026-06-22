@@ -52,7 +52,7 @@ export function AdminAddDriverModal({ visible, onClose, onAdded }: Props) {
         phone,
         vehicle,
         licenseNumber,
-      });
+      }, { approvedByAdmin: true });
       onAdded();
       onClose();
     } catch (err) {

@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Linking, Platform } from 'react-native';
+import { httpsCallable } from 'firebase/functions';
 import { colors } from '../constants/theme';
+import { functions } from '../lib/firebase';
 
 export type OnlinePaymentOption = {
   id: string;
@@ -56,6 +58,9 @@ export const ONLINE_PAYMENT_OPTIONS: OnlinePaymentOption[] = [
 
 const MERCHANT_VPA = 'lunchflow@upi';
 const MERCHANT_NAME = 'LunchFlow';
+
+const createPaymentOrderFn = httpsCallable(functions, 'createPaymentOrder');
+const verifyPaymentOrderFn = httpsCallable(functions, 'verifyPaymentOrder');
 
 function formatAmountForUpi(amount: number): string {
   return amount.toFixed(2);
@@ -221,13 +226,23 @@ export async function processOnlinePayment(
   amount: number,
   description: string,
   method = 'UPI',
+  planId?: string,
 ): Promise<WalletState> {
   if (!phone || amount <= 0) return loadWallet(phone);
+
+  let paymentId = `local-${Date.now()}`;
+  try {
+    const created = await createPaymentOrderFn({ phone, amount, method, planId: planId ?? '' });
+    paymentId = String((created.data as { paymentId?: string }).paymentId ?? paymentId);
+    await verifyPaymentOrderFn({ paymentId, phone, providerRef: method });
+  } catch {
+    // Continue with local receipt if Cloud Functions are unavailable.
+  }
 
   const wallet = await loadWallet(phone);
   const now = new Date();
   const tx: WalletTransaction = {
-    id: `tx-${now.getTime()}`,
+    id: paymentId,
     date: formatTxDate(now),
     desc: description,
     amt: `-${formatAmount(amount)}`,
@@ -235,11 +250,12 @@ export async function processOnlinePayment(
     method,
     receiptText: [
       'LunchFlow Payment Receipt',
+      `Payment ID: ${paymentId}`,
       `Description: ${description}`,
       `Amount: ${formatAmount(amount)}`,
       `Method: ${method}`,
       `Date: ${now.toLocaleString('en-IN')}`,
-      'Status: Paid',
+      'Status: Paid (server verified when available)',
     ].join('\n'),
   };
 

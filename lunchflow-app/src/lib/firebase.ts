@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, Auth } from 'firebase/auth';
 import { getFirestore, Firestore } from 'firebase/firestore';
+import { getFunctions, Functions } from 'firebase/functions';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBMf_YlehISPQsIJvD-N3HlygVQyTkZrnM',
@@ -20,6 +21,7 @@ function getOrCreateApp(): FirebaseApp {
 export const app: FirebaseApp = getOrCreateApp();
 export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
+export const functions: Functions = getFunctions(app, 'asia-south1');
 
 /** Analytics only runs on web (not supported in React Native). */
 export async function initAnalytics() {

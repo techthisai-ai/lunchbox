@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
   scroll: { padding: spacing.md, paddingBottom: 32 },
   balance: { borderRadius: 16, padding: spacing.xl, marginBottom: spacing.md },
   balanceLabel: { fontSize: 13, color: 'rgba(255,255,255,0.9)' },
-  amount: { fontSize: 32, fontWeight: '800', color: colors.white, marginTop: 4 },
+  amount: { fontSize: 32, fontWeight: '800', color: colors.onPrimary, marginTop: 4 },
   credit: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
   section: { fontSize: 16, fontWeight: '800', marginBottom: 12, marginTop: 4 },
   payRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border },

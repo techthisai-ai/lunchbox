@@ -1,7 +1,7 @@
 import { AdminPage } from '../components/AdminSidebar';
 import { buildSalaryReport } from './reportsService';
 import { listAllOrdersToday } from './orderHubService';
-import { loadRegisteredDrivers } from './userRegistryService';
+import { loadPendingDrivers, loadRegisteredDrivers } from './userRegistryService';
 
 export type AdminNotification = {
   id: string;
@@ -12,15 +12,26 @@ export type AdminNotification = {
 };
 
 export async function buildAdminNotifications(): Promise<AdminNotification[]> {
-  const [orders, salaryReport, drivers] = await Promise.all([
+  const [orders, salaryReport, drivers, pendingDrivers] = await Promise.all([
     listAllOrdersToday(),
     buildSalaryReport(),
     loadRegisteredDrivers(),
+    loadPendingDrivers(),
   ]);
 
   const notifications: AdminNotification[] = [];
   const today = new Date().toISOString().slice(0, 10);
   const todayOrders = orders.filter((order) => order.date === today || order.date.startsWith(today));
+
+  if (pendingDrivers.length > 0) {
+    notifications.push({
+      id: 'pending-driver-approvals',
+      icon: 'people',
+      title: `${pendingDrivers.length} driver${pendingDrivers.length > 1 ? 's' : ''} awaiting approval`,
+      msg: 'Review and approve new driver registrations.',
+      page: 'drivers',
+    });
+  }
 
   const unassigned = todayOrders.filter(
     (order) => !order.driver && order.status !== 'delivered' && order.status !== 'pickup_closed',

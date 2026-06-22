@@ -69,7 +69,7 @@ const styles = StyleSheet.create({
   scroll: { padding: spacing.md, paddingBottom: 32 },
   banner: { borderRadius: 16, padding: spacing.xl, alignItems: 'center', marginBottom: spacing.md },
   bannerSub: { fontSize: 13, color: 'rgba(255,255,255,0.9)' },
-  bannerTitle: { fontSize: 22, fontWeight: '800', color: colors.white, marginTop: 4 },
+  bannerTitle: { fontSize: 22, fontWeight: '800', color: colors.onPrimary, marginTop: 4 },
   codeBox: {
     borderWidth: 2,
     borderStyle: 'dashed',
@@ -81,7 +81,7 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
   },
-  code: { fontSize: 20, fontWeight: '800', color: colors.white, letterSpacing: 3 },
+  code: { fontSize: 20, fontWeight: '800', color: colors.onPrimary, letterSpacing: 3 },
   inviteBtn: { backgroundColor: colors.white, width: '100%' },
   stats: { flexDirection: 'row', gap: 10, marginBottom: spacing.md },
   stat: {

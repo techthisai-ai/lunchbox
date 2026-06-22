@@ -16,11 +16,13 @@ export function Card({ children, flat, style, title, badge, headerRight }: Props
     <View style={[styles.card, flat && styles.flat, style]}>
       {(title || badge || headerRight) && (
         <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            {title ? <Text style={styles.title}>{title}</Text> : null}
-            {badge}
-          </View>
-          {headerRight}
+          {title ? <Text style={styles.title}>{title}</Text> : <View style={styles.titleSpacer} />}
+          {(badge || headerRight) && (
+            <View style={styles.headerRight}>
+              {badge}
+              {headerRight}
+            </View>
+          )}
         </View>
       )}
       {children}
@@ -48,7 +50,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.sm,
+    gap: 12,
   },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-  title: { fontSize: 15, fontWeight: '700', color: colors.text },
+  title: { flex: 1, fontSize: 15, fontWeight: '700', color: colors.text },
+  titleSpacer: { flex: 1 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
 });

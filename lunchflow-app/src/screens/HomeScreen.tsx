@@ -9,12 +9,12 @@ import { Avatar } from '../components/Avatar';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
-import { getInitials } from '../constants/auth';
 import { colors, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useDelivery } from '../context/DeliveryContext';
 import { useFoodReadyOverlay } from '../context/FoodReadyOverlayContext';
 import { useResponsive } from '../hooks/useResponsive';
+import { useLiveEta } from '../hooks/useLiveEta';
 import { HomeStackParamList } from '../navigation/types';
 import { DeliveryHistoryEntry, syncDeliveryHistory } from '../services/deliveryHistoryService';
 import { listCustomerOrders } from '../services/orderHubService';
@@ -23,6 +23,7 @@ import { loadActiveSubscription, checkSubscriptionRenewalReminders } from '../se
 import { SubscriptionPlan } from '../constants/subscriptions';
 import { DeliveryProfile, FoodReadyDetails, getDropAddress, normalizeDeliveryType } from '../types/delivery';
 import { getSubscriptionRenewalLabel } from '../utils/date';
+import { callDriver } from '../utils/phoneCall';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'HomeMain'>;
 
@@ -40,14 +41,13 @@ export function HomeScreen({ navigation }: Props) {
   const { order, submitting, markFoodReady, refreshDelivery } = useDelivery();
   const { openFoodReadyDialog } = useFoodReadyOverlay();
   const { foodReadySize, horizontalPadding } = useResponsive();
+  const liveEtaMinutes = useLiveEta(order);
   const [errorMessage, setErrorMessage] = useState('');
   const [recentHistory, setRecentHistory] = useState<DeliveryHistoryEntry[]>([]);
   const [activePlan, setActivePlan] = useState<SubscriptionPlan | null>(null);
   const displayName = user?.name || 'Guest';
-  const hasActiveDelivery = Boolean(order && order.status !== 'booked' && order.status !== 'delivered');
   const isInTransit = order?.status === 'in_transit' || order?.status === 'at_drop' || order?.status === 'picked_up';
   const hasDriver = Boolean(order?.driver);
-  const showDriverStatus = Boolean(order && order.status !== 'booked' && order.status !== 'delivered');
   const loadHistory = useCallback(async () => {
     if (!user?.phone) {
       setRecentHistory([]);
@@ -120,15 +120,30 @@ export function HomeScreen({ navigation }: Props) {
     });
   };
 
+  const isOrderCancelled = order?.status === 'pickup_closed';
   const statusLabel = order ? getStatusLabel(order.status) : 'Pending';
   const statusTone = order ? getStatusBadgeTone(order.status) : 'orange';
   const deliveryLine = order
     ? `${order.studentName} · ${order.school}`
     : 'Book pickup & delivery to get started';
-  const etaDisplay =
-    order?.estimatedArrival ??
-    (order?.status === 'awaiting_driver' ? 'Finding driver...' : order?.status === 'booked' ? 'Mark food ready' : '—');
-  const etaLabel = order?.estimatedArrival ? 'Estimated arrival' : !order ? 'Waiting for booking' : null;
+  const etaDisplay = isOrderCancelled
+    ? 'Cancelled'
+    : liveEtaMinutes != null && order?.driver
+      ? `${liveEtaMinutes} min`
+      : order?.estimatedArrival ??
+        (order?.status === 'awaiting_driver' ? 'Finding driver...' : order?.status === 'booked' ? 'Mark food ready' : '—');
+  const etaLabel = isOrderCancelled
+    ? null
+    : liveEtaMinutes != null && order?.driver
+      ? 'Estimated arrival'
+      : order?.estimatedArrival
+        ? 'Estimated arrival'
+        : !order
+          ? 'Waiting for booking'
+          : null;
+  const showDriverStatus = Boolean(
+    order && order.status !== 'booked' && order.status !== 'delivered' && !isOrderCancelled,
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -142,7 +157,6 @@ export function HomeScreen({ navigation }: Props) {
           <Pressable style={styles.notifBtn} onPress={() => navigation.navigate('Notifications')}>
             <Ionicons name="notifications-outline" size={22} color={colors.text} />
           </Pressable>
-          <Avatar initials={getInitials(displayName)} />
         </View>
       </View>
       <ScrollView
@@ -156,7 +170,7 @@ export function HomeScreen({ navigation }: Props) {
             <Badge label={statusLabel} tone={statusTone} />
           </View>
           <Text style={styles.muted}>{deliveryLine}</Text>
-          <Text style={styles.eta} numberOfLines={2}>
+          <Text style={[styles.eta, isOrderCancelled && styles.cancelledEta]} numberOfLines={2}>
             {etaDisplay}
           </Text>
           {etaLabel ? <Text style={styles.etaLabel}>{etaLabel}</Text> : null}
@@ -164,6 +178,7 @@ export function HomeScreen({ navigation }: Props) {
 
         {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
 
+        {!isOrderCancelled ? (
         <Pressable
           style={[
             styles.foodReady,
@@ -182,6 +197,7 @@ export function HomeScreen({ navigation }: Props) {
           <Text style={styles.foodReadyLabel}>Food Ready</Text>
           <Text style={styles.foodReadySub}>Tap when lunch is packed</Text>
         </Pressable>
+        ) : null}
 
         {showDriverStatus ? (
           <Card
@@ -196,16 +212,29 @@ export function HomeScreen({ navigation }: Props) {
             <View style={styles.driverRow}>
               <Avatar initials={order?.driver?.initials ?? '—'} large />
               <View style={styles.driverInfo}>
-                <Text style={styles.driverName} numberOfLines={1}>
-                  {order?.driver?.name ?? 'Driver not assigned yet'}
-                </Text>
-                <Text style={styles.muted} numberOfLines={2}>
-                  {order?.driver
-                    ? `${order.driver.vehicle} · ★ ${order.driver.rating}`
-                    : 'Waiting for a driver to accept your pickup'}
-                </Text>
+                {order?.driver ? (
+                  <>
+                    <Text style={styles.driverName} numberOfLines={1}>
+                      {order.driver.name}
+                    </Text>
+                    <Text style={styles.muted} numberOfLines={2}>
+                      {`${order.driver.vehicle} · ★ ${order.driver.rating}`}
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={styles.driverName} numberOfLines={2}>
+                    Driver not assigned yet
+                  </Text>
+                )}
               </View>
-              <Button title="Call" variant="outline" small onPress={() => {}} />
+              <Button
+                title="Call"
+                variant="outline"
+                small
+                onPress={() => {
+                  if (order) void callDriver(order);
+                }}
+              />
             </View>
             {order && order.status !== 'booked' && order.status !== 'delivered' ? (
               <Button
@@ -235,6 +264,10 @@ export function HomeScreen({ navigation }: Props) {
                   setErrorMessage('');
                   if (!order || order.status === 'booked') {
                     setErrorMessage('Mark food ready first to start tracking.');
+                    return;
+                  }
+                  if (order.status === 'pickup_closed') {
+                    setErrorMessage('This delivery was cancelled.');
                     return;
                   }
                   if (!order.driver) {
@@ -295,7 +328,7 @@ function DeliveryRow({
           </Text>
         </View>
         <View style={styles.deliveryMeta}>
-          <Badge label={status} tone={status === 'Delivered' ? 'green' : 'orange'} />
+          <Badge label={status} tone={status === 'Delivered' ? 'green' : status === 'Cancelled' ? 'red' : 'orange'} />
           <Text style={[styles.muted, { marginTop: 4, fontSize: 11 }]}>{time}</Text>
         </View>
       </View>
@@ -336,6 +369,7 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 15, fontWeight: '700', flex: 1, marginRight: 8 },
   muted: { fontSize: 12, color: colors.muted },
   eta: { fontSize: 28, fontWeight: '800', color: colors.orange, textAlign: 'center', marginTop: 8 },
+  cancelledEta: { color: colors.text, fontSize: 24 },
   etaLabel: { textAlign: 'center', fontSize: 12, color: colors.muted },
   foodReady: {
     backgroundColor: colors.orange,
@@ -351,8 +385,8 @@ const styles = StyleSheet.create({
   },
   foodReadyDisabled: { opacity: 0.7 },
   error: { color: colors.red, fontSize: 13, textAlign: 'center', marginBottom: 8 },
-  foodReadyLabel: { color: colors.white, fontSize: 16, fontWeight: '800', marginTop: 8 },
-  foodReadySub: { color: colors.white, fontSize: 11, opacity: 0.85, marginTop: 4, textAlign: 'center', paddingHorizontal: 12 },
+  foodReadyLabel: { color: colors.onPrimary, fontSize: 16, fontWeight: '800', marginTop: 8 },
+  foodReadySub: { color: colors.onPrimary, fontSize: 11, opacity: 0.85, marginTop: 4, textAlign: 'center', paddingHorizontal: 12 },
   driverRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   driverInfo: { flex: 1, minWidth: 0 },
   driverName: { fontWeight: '700', fontSize: 15 },

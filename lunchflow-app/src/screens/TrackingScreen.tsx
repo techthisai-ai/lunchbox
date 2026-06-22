@@ -1,5 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useCallback } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Avatar } from '../components/Avatar';
@@ -9,15 +10,33 @@ import { LiveDeliveryMap } from '../components/LiveDeliveryMap';
 import { Timeline } from '../components/Timeline';
 import { colors, spacing } from '../constants/theme';
 import { useDelivery } from '../context/DeliveryContext';
+import { useLiveEta } from '../hooks/useLiveEta';
 import { useResponsive } from '../hooks/useResponsive';
-import { getStatusLabel, getTrackingTimeline } from '../services/orderHubService';
+import { getStatusLabel, getTrackingTimeline, syncDriverLocationForOrder } from '../services/orderHubService';
 import { TrackStackParamList } from '../navigation/types';
+import { callDriver } from '../utils/phoneCall';
+import { getEtaDestinationLabel } from '../utils/deliveryEta';
 
 type Props = NativeStackScreenProps<TrackStackParamList, 'Tracking'>;
 
 export function TrackingScreen({ navigation }: Props) {
-  const { order } = useDelivery();
+  const { order, refreshDelivery } = useDelivery();
   const { horizontalPadding } = useResponsive();
+  const liveEtaMinutes = useLiveEta(order);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!order?.id || !order.driver) return undefined;
+
+      const syncLiveTracking = () => {
+        void syncDriverLocationForOrder(order.id).then(() => refreshDelivery());
+      };
+
+      syncLiveTracking();
+      const interval = setInterval(syncLiveTracking, 10000);
+      return () => clearInterval(interval);
+    }, [order?.id, order?.driver, refreshDelivery]),
+  );
 
   if (!order || order.status === 'booked') {
     return (
@@ -41,7 +60,8 @@ export function TrackingScreen({ navigation }: Props) {
   }
 
   const isInTransit = ['in_transit', 'at_drop', 'picked_up'].includes(order.status);
-  const etaMinutes = order.driver.etaMinutes ?? (isInTransit ? 14 : 8);
+  const etaMinutes = liveEtaMinutes ?? (isInTransit ? 14 : 8);
+  const etaLabel = getEtaDestinationLabel(order);
 
   return (
     <View style={styles.container}>
@@ -59,7 +79,7 @@ export function TrackingScreen({ navigation }: Props) {
       >
         <View style={styles.etaRow}>
           <View>
-            <Text style={styles.mutedLeft}>ETA to {order.school}</Text>
+            <Text style={styles.mutedLeft}>ETA to {etaLabel}</Text>
             <Text style={styles.eta}>{etaMinutes} min</Text>
           </View>
           <Badge label={getStatusLabel(order.status)} tone="orange" />
@@ -70,7 +90,7 @@ export function TrackingScreen({ navigation }: Props) {
             <Text style={styles.driverName}>{order.driver.name}</Text>
             <Text style={styles.mutedLeft}>★ {order.driver.rating} · {order.driver.vehicle}</Text>
           </View>
-          <Button title="Call" variant="green" small onPress={() => {}} />
+          <Button title="Call" variant="green" small onPress={() => void callDriver(order)} />
         </View>
 
         <Text style={styles.timelineTitle}>Delivery Timeline</Text>
@@ -85,8 +105,8 @@ export function TrackingScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.white },
-  empty: { flex: 1, backgroundColor: colors.white, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
+  container: { flex: 1, backgroundColor: colors.bg },
+  empty: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
   emptyTitle: { fontSize: 18, fontWeight: '800', marginBottom: 8 },
   mapSection: { height: 320, position: 'relative' },
   liveBadge: {
@@ -103,7 +123,7 @@ const styles = StyleSheet.create({
   },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.green },
   liveText: { fontSize: 11, fontWeight: '700', color: colors.text },
-  overlayScroll: { flex: 1, backgroundColor: colors.white },
+  overlayScroll: { flex: 1, backgroundColor: colors.bg },
   overlay: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,

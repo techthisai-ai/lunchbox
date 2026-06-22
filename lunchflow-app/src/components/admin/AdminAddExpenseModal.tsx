@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { addExpenseRecord } from '../../services/adminFinanceService';
-import { ExpenseCategory, PaymentMethod } from '../../types/finance';
+import { addExpenseRecord, listExpenseCategories } from '../../services/adminFinanceService';
+import { ExpenseCategoryDef, PaymentMethod } from '../../types/finance';
 import { Button } from '../Button';
 import { Input } from '../Input';
 import { SelectField } from '../SelectField';
@@ -13,13 +13,6 @@ type Props = {
   onClose: () => void;
   onAdded: () => void;
 };
-
-const CATEGORY_OPTIONS: { id: ExpenseCategory; label: string }[] = [
-  { id: 'fuel', label: 'Fuel' },
-  { id: 'packaging', label: 'Packaging' },
-  { id: 'maintenance', label: 'Maintenance' },
-  { id: 'misc', label: 'Miscellaneous' },
-];
 
 const PAYMENT_OPTIONS: { id: PaymentMethod; label: string }[] = [
   { id: 'cash', label: 'Cash' },
@@ -33,7 +26,8 @@ function todayKey(): string {
 
 export function AdminAddExpenseModal({ visible, onClose, onAdded }: Props) {
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState<ExpenseCategory>('fuel');
+  const [category, setCategory] = useState('');
+  const [categories, setCategories] = useState<ExpenseCategoryDef[]>([]);
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
@@ -43,13 +37,17 @@ export function AdminAddExpenseModal({ visible, onClose, onAdded }: Props) {
   useEffect(() => {
     if (!visible) {
       setTitle('');
-      setCategory('fuel');
       setAmount('');
       setNotes('');
       setPaymentMethod('cash');
       setError('');
       setSaving(false);
+      return;
     }
+    listExpenseCategories().then((items) => {
+      setCategories(items);
+      setCategory((current) => current || items[0]?.id || 'fuel');
+    });
   }, [visible]);
 
   const handleClose = () => {
@@ -66,6 +64,10 @@ export function AdminAddExpenseModal({ visible, onClose, onAdded }: Props) {
     }
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       setError('Enter a valid amount');
+      return;
+    }
+    if (!category) {
+      setError('Select a category');
       return;
     }
 
@@ -105,7 +107,12 @@ export function AdminAddExpenseModal({ visible, onClose, onAdded }: Props) {
 
           <ScrollView style={styles.formScroll} contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
             <Input label="Expense Name" value={title} onChangeText={setTitle} placeholder="e.g. Diesel refill" />
-            <SelectField label="Category" value={category} options={CATEGORY_OPTIONS} onChange={setCategory} />
+            <SelectField
+              label="Category"
+              value={category}
+              options={categories.map((item) => ({ id: item.id, label: item.label }))}
+              onChange={setCategory}
+            />
             <Input
               label="Amount"
               value={amount}

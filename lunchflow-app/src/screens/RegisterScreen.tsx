@@ -126,7 +126,7 @@ export function RegisterScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.white },
+  container: { flex: 1, backgroundColor: colors.bg },
   form: { padding: 16, paddingBottom: 40 },
   error: { color: colors.red, fontSize: 13, marginBottom: 12 },
 });

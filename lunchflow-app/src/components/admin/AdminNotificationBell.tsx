@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 4,
   },
-  badgeText: { color: colors.white, fontSize: 9, fontWeight: '800' },
+  badgeText: { color: colors.onPrimary, fontSize: 9, fontWeight: '800' },
   modalRoot: { flex: 1 },
   backdrop: {
     ...StyleSheet.absoluteFill,

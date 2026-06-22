@@ -16,9 +16,11 @@ import {
   getDropAddress,
   normalizeDeliveryType,
 } from '../types/delivery';
-import { loadCustomerRegistration, loadRegisteredDrivers } from './userRegistryService';
-import { geocodeAddress, interpolatePoint, driverProgressForStatus } from './mapGeocoding';
-import { sendCustomerSmsAndWhatsApp, sendDriverAssignmentNotification } from './messagingService';
+import { loadCustomerRegistration, loadRegisteredDrivers, incrementDriverCompletedDeliveries } from './userRegistryService';
+import { getDriverRatingSummary } from './ratingService';
+import { geocodeAddress, geocodeAddressAsync, interpolatePoint, driverProgressForStatus, isRecentGpsLocation, estimateTravelMinutes } from './mapGeocoding';
+import { getEtaDestination } from '../utils/deliveryEta';
+import { pickAvailableSlot, reserveDeliverySlot } from './deliverySlotService';
 import { emitOrderChange } from './orderSync';
 import { PICKUP_READY_TIMEOUT_MINUTES } from '../constants/business';
 import { buildSchoolBatches, markBatchDelivered as closeBatchRecord } from './batchDeliveryService';
@@ -44,6 +46,19 @@ function addMinutesIso(minutes: number): string {
   const date = new Date();
   date.setMinutes(date.getMinutes() + minutes);
   return date.toISOString();
+}
+
+function applyEta(
+  order: DeliveryOrder,
+  etaMinutes: number,
+): Pick<DeliveryOrder, 'driver' | 'estimatedArrival' | 'estimatedArrivalAtIso'> {
+  const eta = Math.max(0, etaMinutes);
+  const arrivalAt = new Date(Date.now() + eta * 60_000);
+  return {
+    driver: order.driver ? { ...order.driver, etaMinutes: eta } : null,
+    estimatedArrival: formatTime(arrivalAt),
+    estimatedArrivalAtIso: arrivalAt.toISOString(),
+  };
 }
 
 function orderStorageKey(orderId: string): string {
@@ -150,6 +165,9 @@ function withLocations(order: DeliveryOrder): DeliveryOrder {
 
 function computeDriverLocation(order: DeliveryOrder): DriverLocation | null {
   if (!order.driver) return null;
+  if (order.driverLocation && isRecentGpsLocation(order.driverLocation.updatedAt)) {
+    return order.driverLocation;
+  }
   const pickup = order.pickupLocation ?? resolveOrderLocations(order).pickupLocation;
   const drop = order.dropLocation ?? resolveOrderLocations(order).dropLocation;
   const progress = driverProgressForStatus(order.status);
@@ -163,10 +181,17 @@ function computeDriverLocation(order: DeliveryOrder): DriverLocation | null {
 export async function updateDriverLocation(orderId: string, location: GeoPoint): Promise<DeliveryOrder> {
   const order = await loadOrder(orderId);
   if (!order) throw new Error('Order not found');
-  const updated: DeliveryOrder = {
-    ...order,
-    driverLocation: { ...location, updatedAt: new Date().toISOString() },
-  };
+
+  const driverLocation: DriverLocation = { ...location, updatedAt: new Date().toISOString() };
+  const withLocation = { ...order, driverLocation };
+  const destination = getEtaDestination(withLocation);
+
+  let updated: DeliveryOrder = { ...order, driverLocation };
+  if (destination && order.driver) {
+    const etaMinutes = estimateTravelMinutes(location, destination);
+    updated = { ...updated, ...applyEta(withLocation, etaMinutes) };
+  }
+
   await persistOrder(updated);
   return updated;
 }
@@ -174,10 +199,43 @@ export async function updateDriverLocation(orderId: string, location: GeoPoint):
 export async function syncDriverLocationForOrder(orderId: string): Promise<DeliveryOrder> {
   const order = await loadOrder(orderId);
   if (!order || !order.driver) return order!;
+  if (order.driverLocation && isRecentGpsLocation(order.driverLocation.updatedAt)) {
+    return order;
+  }
   const driverLocation = computeDriverLocation(order);
   const updated = { ...order, driverLocation };
   await persistOrder(updated);
   return updated;
+}
+
+export async function listOrdersByDateRange(startDate: string, endDate: string): Promise<DeliveryOrder[]> {
+  await syncFromFirestore();
+  const results: DeliveryOrder[] = [];
+  try {
+    const q = query(collection(db, 'orders'), where('date', '>=', startDate), where('date', '<=', endDate));
+    const snap = await getDocs(q);
+    for (const docSnap of snap.docs) {
+      const order = withLocations({ ...(docSnap.data() as DeliveryOrder), id: docSnap.id });
+      await saveOrderLocal(order);
+      results.push(order);
+    }
+    if (results.length > 0) {
+      return results.sort((a, b) => (b.bookedAt ?? '').localeCompare(a.bookedAt ?? ''));
+    }
+  } catch {
+    // Fall back to local cache below.
+  }
+
+  const local = await loadAllOrdersLocal();
+  return local
+    .filter((o) => o.date >= startDate && o.date <= endDate)
+    .sort((a, b) => (b.bookedAt ?? '').localeCompare(a.bookedAt ?? ''));
+}
+
+export function listActiveFleetOrders(orders: DeliveryOrder[]): DeliveryOrder[] {
+  return orders.filter(
+    (o) => o.driver && !['delivered', 'booked', 'pickup_closed', 'awaiting_driver'].includes(o.status),
+  );
 }
 
 export function subscribeToOrder(orderId: string, onOrder: (order: DeliveryOrder | null) => void): () => void {
@@ -356,11 +414,11 @@ export async function createBooking(
 
   const now = new Date();
   const id = generateOrderId();
-  const locations = resolveOrderLocations({
-    pickupAddress: profile.address,
-    dropAddress: profile.school,
-    school: profile.school,
-  });
+  const slot = await pickAvailableSlot();
+  const locations = {
+    pickupLocation: await geocodeAddressAsync(profile.address, DEMO_PICKUP),
+    dropLocation: await geocodeAddressAsync(profile.school, DEMO_DROP),
+  };
   const order: DeliveryOrder = {
     id,
     customerId,
@@ -372,6 +430,8 @@ export async function createBooking(
     deliveryType: profile.deliveryType ?? 'school',
     pickupAddress: profile.address,
     dropAddress: profile.school,
+    deliverySlotId: slot.id,
+    deliverySlotLabel: slot.label,
     estimatedArrival: null,
     bookedAt: formatTime(now),
     foodReadyAt: null,
@@ -389,6 +449,7 @@ export async function createBooking(
   };
 
   await persistOrder(order);
+  await reserveDeliverySlot(slot.id);
   return order;
 }
 
@@ -434,11 +495,6 @@ export async function markFoodReady(phone: string, details?: FoodReadyDetails): 
   };
 
   await persistOrder(updated);
-  await sendCustomerSmsAndWhatsApp(
-    phone,
-    `LunchFlow: Food ready confirmed for ${updated.studentName}. Driver will be assigned shortly.`,
-    `Your lunchbox for ${updated.studentName} is marked ready. We are finding a delivery partner.`,
-  );
   return updated;
 }
 
@@ -473,7 +529,13 @@ export async function listDriverActiveOrders(driverId: string): Promise<Delivery
 export async function listDriverCompletedToday(driverId: string): Promise<DeliveryOrder[]> {
   await syncFromFirestore();
   const orders = await loadAllOrdersLocal();
-  return orders.filter((o) => o.driver?.id === driverId && o.status === 'delivered');
+  const today = new Date().toISOString().slice(0, 10);
+  return orders.filter(
+    (o) =>
+      o.driver?.id === driverId &&
+      o.status === 'delivered' &&
+      (o.date === today || o.date.startsWith(today)),
+  );
 }
 
 export async function listAllOrdersToday(): Promise<DeliveryOrder[]> {
@@ -500,11 +562,6 @@ export async function processExpiredPickupOrders(): Promise<DeliveryOrder[]> {
       pickupClosedAt: formatTime(new Date()),
     };
     await persistOrder(updated);
-    await sendCustomerSmsAndWhatsApp(
-      order.customerPhone,
-      `LunchFlow: Pickup window expired for order ${order.id}.`,
-      `Your pickup order was auto-closed after ${PICKUP_READY_TIMEOUT_MINUTES} minutes without completion.`,
-    );
     closed.push(updated);
   }
 
@@ -514,7 +571,7 @@ export async function processExpiredPickupOrders(): Promise<DeliveryOrder[]> {
 export async function listAvailableDrivers() {
   const registered = await loadRegisteredDrivers();
   return registered
-    .filter((driver) => driver.status !== 'Offline')
+    .filter((driver) => driver.approvalStatus === 'approved' && driver.status !== 'Offline')
     .map((driver) => ({
       id: driver.id,
       name: driver.name,
@@ -564,37 +621,51 @@ export async function assignDriverByAdmin(orderId: string, driverId: string): Pr
     id: driver.id,
     name: driver.name,
     vehicle: driver.vehicle,
+    phone: driver.phone,
   });
 
-  await sendDriverAssignmentNotification(driver.phone, order);
   return order;
 }
 
-function buildDriverInfo(driver: {
-  id: string;
-  name: string;
-  vehicle?: string;
-  phone?: string;
-}): DeliveryDriver {
+function buildDriverInfo(
+  driver: {
+    id: string;
+    name: string;
+    vehicle?: string;
+    phone?: string;
+  },
+  rating = '5.0',
+): DeliveryDriver {
   return {
     id: driver.id,
     name: driver.name,
     vehicle: driver.vehicle ?? 'DL 4C AB 1234',
-    rating: '4.9',
+    rating,
     initials: getInitials(driver.name),
     etaMinutes: 8,
+    phone: driver.phone ? normalizePhone(driver.phone) : undefined,
   };
 }
 
 export async function acceptPickup(
   orderId: string,
-  driver: { id: string; name: string; vehicle?: string },
+  driver: { id: string; name: string; vehicle?: string; phone?: string },
 ): Promise<DeliveryOrder> {
   const order = await loadOrder(orderId);
   if (!order) throw new Error('Order not found');
   if (order.status !== 'awaiting_driver') throw new Error('Order is no longer available');
 
-  const driverInfo = buildDriverInfo(driver);
+  const driverRecord = driver.phone ? { phone: driver.phone } : await resolveDriverById(driver.id);
+  const driverPhone = driverRecord?.phone;
+  const ratingSummary = await getDriverRatingSummary(driver.id);
+
+  const driverInfo = buildDriverInfo(
+    {
+      ...driver,
+      phone: driverPhone ?? driver.phone,
+    },
+    ratingSummary.average,
+  );
   const activeForDriver = await listDriverActiveOrders(driver.id);
   const allActive = [...activeForDriver, { ...order, driver: driverInfo, status: 'driver_assigned' as DeliveryStatus }];
   const routePlan = planRoute(allActive);
@@ -602,14 +673,14 @@ export async function acceptPickup(
   const updated: DeliveryOrder = {
     ...order,
     status: 'driver_assigned',
-    driver: driverInfo,
+    assignedDriverPhone: driverPhone,
     routePlan,
-    estimatedArrival: addMinutes(routePlan.etaMinutes),
     driverLocation: computeDriverLocation({
       ...order,
       status: 'driver_assigned',
       driver: driverInfo,
     }),
+    ...applyEta({ ...order, driver: driverInfo }, routePlan.etaMinutes),
   };
 
   await persistOrder(updated);
@@ -619,12 +690,6 @@ export async function acceptPickup(
       await persistOrder({ ...activeOrder, routePlan });
     }
   }
-
-  await sendCustomerSmsAndWhatsApp(
-    order.customerPhone,
-    `LunchFlow: ${driver.name} assigned for pickup. ETA ${driverInfo.etaMinutes} min.`,
-    `Driver ${driver.name} (${driverInfo.vehicle}) is coming to pick up your lunchbox.`,
-  );
 
   return updated;
 }
@@ -639,12 +704,6 @@ export async function markAtPickup(orderId: string): Promise<DeliveryOrder> {
     driverLocation: computeDriverLocation({ ...order, status: 'at_pickup' }),
   };
   await persistOrder(updated);
-
-  await sendCustomerSmsAndWhatsApp(
-    order.customerPhone,
-    `LunchFlow: Driver ${order.driver?.name ?? 'partner'} arrived at your pickup location.`,
-    `Your delivery partner has reached ${order.pickupAddress} for pickup verification.`,
-  );
 
   return updated;
 }
@@ -678,12 +737,6 @@ export async function verifyPickup(orderId: string, code: string): Promise<Deliv
   };
   await persistOrder(updated);
 
-  await sendCustomerSmsAndWhatsApp(
-    order.customerPhone,
-    `LunchFlow: Pickup verified for ${order.studentName}.`,
-    `Pickup confirmed with OTP/QR. Your lunchbox will be collected now.`,
-  );
-
   return updated;
 }
 
@@ -699,17 +752,10 @@ export async function markPickedUp(orderId: string): Promise<DeliveryOrder> {
     ...order,
     status: 'in_transit',
     pickedUpAt: formatTime(new Date()),
-    driver: order.driver ? { ...order.driver, etaMinutes: 14 } : null,
-    estimatedArrival: addMinutes(14),
     driverLocation: computeDriverLocation({ ...order, status: 'in_transit', driver: order.driver }),
+    ...applyEta(order, 14),
   };
   await persistOrder(updated);
-
-  await sendCustomerSmsAndWhatsApp(
-    order.customerPhone,
-    `LunchFlow: Picked up at ${updated.pickedUpAt}. Heading to ${order.school}.`,
-    `Your lunchbox has been picked up and is on the way to ${order.school}.`,
-  );
 
   return updated;
 }
@@ -725,12 +771,6 @@ export async function markAtDrop(orderId: string): Promise<DeliveryOrder> {
   };
   await persistOrder(updated);
 
-  await sendCustomerSmsAndWhatsApp(
-    order.customerPhone,
-    `LunchFlow: Driver arrived at ${order.school}.`,
-    `Your lunchbox has reached the delivery location: ${getDropAddress(order)}.`,
-  );
-
   return updated;
 }
 
@@ -742,8 +782,8 @@ export async function markDelivered(orderId: string, options?: { silent?: boolea
     ...order,
     status: 'delivered',
     deliveredAt: formatTime(new Date()),
-    driver: order.driver ? { ...order.driver, etaMinutes: 0 } : null,
     driverLocation: computeDriverLocation({ ...order, status: 'delivered', driver: order.driver }),
+    ...applyEta(order, 0),
     deliveryProof: {
       ...(order.deliveryProof ?? {}),
       otpVerified: Boolean(order.pickupVerifiedAt),
@@ -752,11 +792,9 @@ export async function markDelivered(orderId: string, options?: { silent?: boolea
   };
   await persistOrder(updated);
 
-  await sendCustomerSmsAndWhatsApp(
-    order.customerPhone,
-    `LunchFlow: Delivered to ${order.school} at ${updated.deliveredAt}.`,
-    `Lunchbox delivered successfully to ${order.school}. Thank you for using LunchFlow!`,
-  );
+  if (order.driver?.id) {
+    await incrementDriverCompletedDeliveries(order.driver.id);
+  }
 
   if (!options?.silent) {
     await logDeliveryConfirmation({
@@ -815,13 +853,14 @@ export function getStatusLabel(status: DeliveryStatus): string {
     in_transit: 'In Transit',
     at_drop: 'At School',
     delivered: 'Delivered',
-    pickup_closed: 'Pickup Closed',
+    pickup_closed: 'Cancelled',
   };
   return labels[status];
 }
 
-export function getStatusBadgeTone(status: DeliveryStatus): 'orange' | 'green' | 'blue' {
+export function getStatusBadgeTone(status: DeliveryStatus): 'orange' | 'green' | 'blue' | 'red' {
   if (status === 'delivered') return 'green';
+  if (status === 'pickup_closed') return 'red';
   if (status === 'booked' || status === 'awaiting_driver' || status === 'food_ready') return 'orange';
   return 'orange';
 }
@@ -831,7 +870,7 @@ export function getAdminStatusLabel(status: DeliveryStatus): string {
   if (status === 'pickup_verified') return 'Verified';
   if (status === 'at_pickup') return 'At Pickup';
   if (status === 'at_drop') return 'At Drop';
-  if (status === 'pickup_closed') return 'Pickup Closed';
+  if (status === 'pickup_closed') return 'Cancelled';
   return getStatusLabel(status);
 }
 

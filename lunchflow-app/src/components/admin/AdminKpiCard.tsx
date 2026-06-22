@@ -29,18 +29,36 @@ export function AdminKpiCard({
   linkLabel,
   subtext,
 }: Props) {
-  return (
-    <View style={[styles.card, compact && styles.cardCompact]}>
-      <View style={[styles.iconWrap, compact && styles.iconWrapCompact, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={compact ? 14 : 16} color={iconColor} />
+  if (compact) {
+    return (
+      <View style={styles.cardCompact}>
+        <View style={[styles.iconWrapCompact, { backgroundColor: iconBg }]}>
+          <Ionicons name={icon} size={16} color={iconColor} />
+        </View>
+        <View style={styles.compactBody}>
+          <Text style={styles.labelCompact} numberOfLines={2}>
+            {label}
+          </Text>
+          <Text
+            style={[styles.valueCompact, valueColor ? { color: valueColor } : null]}
+            numberOfLines={1}
+          >
+            {value}
+          </Text>
+        </View>
       </View>
-      <Text style={[styles.label, compact && styles.labelCompact]} numberOfLines={1}>
+    );
+  }
+
+  return (
+    <View style={styles.card}>
+      <View style={[styles.iconWrap, { backgroundColor: iconBg }]}>
+        <Ionicons name={icon} size={16} color={iconColor} />
+      </View>
+      <Text style={styles.label} numberOfLines={1}>
         {label}
       </Text>
-      <Text
-        style={[styles.value, compact && styles.valueCompact, valueColor ? { color: valueColor } : null]}
-        numberOfLines={1}
-      >
+      <Text style={[styles.value, valueColor ? { color: valueColor } : null]} numberOfLines={1}>
         {value}
       </Text>
       {trend ? (
@@ -80,9 +98,20 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     width: '100%',
-    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.white,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 8,
     paddingHorizontal: 8,
-    minHeight: 84,
+    minHeight: 60,
+  },
+  compactBody: {
+    flex: 1,
+    minWidth: 0,
   },
   iconWrap: {
     width: 32,
@@ -93,10 +122,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   iconWrapCompact: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    marginBottom: 6,
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   label: {
     fontSize: 11,
@@ -104,7 +135,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
-  labelCompact: { fontSize: 10 },
+  labelCompact: {
+    fontSize: 10,
+    lineHeight: 13,
+    color: colors.muted,
+    fontWeight: '600',
+  },
   value: {
     fontSize: 22,
     fontWeight: '800',
@@ -112,7 +148,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: 'center',
   },
-  valueCompact: { fontSize: 18, marginTop: 2 },
+  valueCompact: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.text,
+    marginTop: 1,
+  },
   footer: {
     fontSize: 10,
     color: colors.greenDark,

@@ -8,6 +8,7 @@ import { DeliveryOrder, GeoPoint } from '../types/delivery';
 type Props = {
   order: DeliveryOrder;
   height?: number;
+  fleetOrders?: DeliveryOrder[];
 };
 
 type LeafletMap = {
@@ -96,7 +97,7 @@ function FallbackMap({ order, height = 280 }: Props) {
   );
 }
 
-function WebLiveMap({ order, height = 280 }: Props) {
+function WebLiveMap({ order, height = 280, fleetOrders = [] }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const layersRef = useRef<{
@@ -105,6 +106,7 @@ function WebLiveMap({ order, height = 280 }: Props) {
     driver: LeafletLayer;
     route: LeafletLayer;
   } | null>(null);
+  const fleetLayerRef = useRef<LeafletLayer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -182,6 +184,32 @@ function WebLiveMap({ order, height = 280 }: Props) {
       layersRef.current = null;
     };
   }, [order.id]);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    loadLeaflet().then((L) => {
+      if (!mapRef.current) return;
+      fleetLayerRef.current.forEach((layer) => {
+        const removable = layer as LeafletLayer & { remove?: () => void };
+        removable.remove?.();
+      });
+      fleetLayerRef.current = [];
+
+      fleetOrders.forEach((fleetOrder) => {
+        const point = fleetOrder.driverLocation ?? fleetOrder.pickupLocation;
+        if (!point || !mapRef.current) return;
+        const marker = L.circleMarker(toLatLng(point), {
+          radius: 7,
+          color: '#ffffff',
+          weight: 2,
+          fillColor: colors.purple,
+          fillOpacity: 0.9,
+        }).addTo(mapRef.current);
+        fleetLayerRef.current.push(marker);
+      });
+    });
+  }, [fleetOrders]);
 
   useEffect(() => {
     if (!mapRef.current || !layersRef.current) return;

@@ -16,14 +16,41 @@ import { getDeliveryTypeLabel, getDropAddress, normalizeDeliveryType } from '../
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'FoodReady'>;
 
+function AddressRow({
+  icon,
+  iconBg,
+  iconColor,
+  label,
+  address,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  iconBg: string;
+  iconColor: string;
+  label: string;
+  address: string;
+}) {
+  return (
+    <View style={styles.addressRow}>
+      <View style={[styles.iconWrap, { backgroundColor: iconBg }]}>
+        <Ionicons name={icon} size={18} color={iconColor} />
+      </View>
+      <View style={styles.addressInfo}>
+        <Text style={styles.addressLabel}>{label}</Text>
+        <Text style={styles.addressText}>{address}</Text>
+      </View>
+    </View>
+  );
+}
+
 export function FoodReadyScreen({ navigation }: Props) {
   const { order, submitting, markFoodReady, refreshDelivery } = useDelivery();
   const { openFoodReadyDialog } = useFoodReadyOverlay();
-  const { horizontalPadding, foodReadySize } = useResponsive();
+  const { horizontalPadding, foodReadySize, contentMaxWidth } = useResponsive();
   const displayOrder = order;
   const ringSize = Math.min(foodReadySize * 0.66, 120);
   const hasDriver = Boolean(displayOrder?.driver);
   const isWaiting = displayOrder?.status === 'awaiting_driver';
+  const etaLabel = displayOrder?.driver?.etaMinutes ? `${displayOrder.driver.etaMinutes} min` : '—';
 
   useEffect(() => {
     void refreshDelivery();
@@ -39,10 +66,10 @@ export function FoodReadyScreen({ navigation }: Props) {
             <Ionicons name="arrow-back" size={20} color={colors.text} />
           </Pressable>
         </View>
-        <View style={styles.content}>
+        <View style={[styles.emptyState, { paddingHorizontal: horizontalPadding }]}>
           <Text style={styles.title}>No pickup request yet</Text>
           <Text style={styles.subtitle}>Mark food ready from the home screen first.</Text>
-          <Button title="Back to Home" variant="outline" onPress={() => navigation.goBack()} style={{ marginTop: spacing.lg }} />
+          <Button title="Back to Home" variant="outline" onPress={() => navigation.goBack()} style={styles.fullWidthBtn} />
         </View>
       </SafeAreaView>
     );
@@ -56,104 +83,127 @@ export function FoodReadyScreen({ navigation }: Props) {
         </Pressable>
       </View>
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding }]}
+        contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.ring, { width: ringSize, height: ringSize, borderRadius: ringSize / 2 }]}>
-          {isWaiting && !hasDriver ? (
-            <ActivityIndicator size="large" color={colors.green} />
-          ) : (
-            <Ionicons name="checkmark" size={48} color={colors.green} />
-          )}
+        <View style={[styles.body, { maxWidth: contentMaxWidth }]}>
+          <View style={styles.hero}>
+            <View style={[styles.ring, { width: ringSize, height: ringSize, borderRadius: ringSize / 2 }]}>
+              {isWaiting && !hasDriver ? (
+                <ActivityIndicator size="large" color={colors.orange} />
+              ) : (
+                <Ionicons name="checkmark" size={48} color={colors.orange} />
+              )}
+            </View>
+            <Text style={styles.title}>Pickup Request Created!</Text>
+            <Text style={styles.subtitle}>Your lunchbox is ready for pickup</Text>
+          </View>
+
+          <Card
+            style={styles.card}
+            title="Delivery Details"
+            badge={<Badge label={getDeliveryTypeLabel(displayOrder.deliveryType)} tone="orange" />}
+          >
+            <AddressRow
+              icon="home-outline"
+              iconBg={colors.orangeLight}
+              iconColor={colors.orange}
+              label="Pickup"
+              address={displayOrder.pickupAddress}
+            />
+            <View style={styles.divider} />
+            <AddressRow
+              icon="location-outline"
+              iconBg={colors.greenLight}
+              iconColor={colors.greenDark}
+              label={`Drop · ${displayOrder.studentName}`}
+              address={getDropAddress(displayOrder)}
+            />
+          </Card>
+
+          <Card
+            style={styles.card}
+            title="Driver Assigned"
+            badge={<Badge label={hasDriver ? 'Confirmed' : 'Pending'} tone={hasDriver ? 'green' : 'orange'} />}
+          >
+            <View style={styles.driverRow}>
+              {hasDriver ? (
+                <Avatar initials={displayOrder.driver?.initials ?? '—'} />
+              ) : (
+                <View style={styles.searchAvatar}>
+                  <Ionicons name="search" size={20} color={colors.orange} />
+                </View>
+              )}
+              <View style={styles.driverInfo}>
+                {displayOrder.driver ? (
+                  <>
+                    <Text style={styles.driverName}>{displayOrder.driver.name}</Text>
+                    {displayOrder.driver.etaMinutes ? (
+                      <Text style={styles.driverSub}>
+                        {`Arriving in ${displayOrder.driver.etaMinutes} minutes`}
+                      </Text>
+                    ) : null}
+                  </>
+                ) : null}
+              </View>
+            </View>
+            <View style={styles.statsRow}>
+              <View style={styles.statBlock}>
+                <Text style={styles.statLabel}>Pickup ETA</Text>
+                <Text style={styles.statValue}>{etaLabel}</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statBlock}>
+                <Text style={styles.statLabel}>Driver Status</Text>
+                <Text style={[styles.statValue, styles.statValueSmall]}>
+                  {hasDriver ? 'Assigned' : 'Pending'}
+                </Text>
+              </View>
+            </View>
+          </Card>
+
+          <View style={styles.actions}>
+            {isWaiting && !hasDriver ? (
+              <Button
+                title="Edit Delivery Details"
+                variant="outline"
+                onPress={() => {
+                  if (!displayOrder) return;
+                  openFoodReadyDialog({
+                    initialValues: {
+                      name: displayOrder.customerName,
+                      deliveryType: normalizeDeliveryType(displayOrder.deliveryType),
+                      pickupAddress: displayOrder.pickupAddress,
+                      dropAddress: getDropAddress(displayOrder),
+                      person: displayOrder.studentName,
+                    },
+                    submitting,
+                    onConfirm: async (details) => {
+                      await markFoodReady(details);
+                      await refreshDelivery();
+                    },
+                  });
+                }}
+                style={styles.fullWidthBtn}
+              />
+            ) : null}
+
+            <Button
+              title="Track Live Delivery"
+              onPress={() => navigation.getParent()?.navigate('Track', { screen: 'Tracking' })}
+              style={styles.fullWidthBtn}
+              variant={hasDriver ? 'primary' : 'outline'}
+            />
+            <Button title="Back to Home" variant="outline" onPress={() => navigation.goBack()} style={styles.fullWidthBtn} />
+          </View>
         </View>
-        <Text style={styles.title}>Pickup Request Created!</Text>
-        <Text style={styles.subtitle}>Your lunchbox is ready for pickup</Text>
-
-        <Card
-          title="Delivery Details"
-          badge={<Badge label={getDeliveryTypeLabel(displayOrder.deliveryType)} tone="orange" />}
-        >
-          <View style={styles.addressRow}>
-            <Ionicons name="home-outline" size={18} color={colors.orange} />
-            <View style={styles.addressInfo}>
-              <Text style={styles.addressLabel}>Pickup</Text>
-              <Text style={styles.addressText}>{displayOrder.pickupAddress}</Text>
-            </View>
-          </View>
-          <View style={[styles.addressRow, { marginTop: 12 }]}>
-            <Ionicons name="location-outline" size={18} color={colors.green} />
-            <View style={styles.addressInfo}>
-              <Text style={styles.addressLabel}>Drop · {displayOrder.studentName}</Text>
-              <Text style={styles.addressText}>{getDropAddress(displayOrder)}</Text>
-            </View>
-          </View>
-        </Card>
-
-        <Card
-          title="Driver Assigned"
-          badge={<Badge label={hasDriver ? 'Confirmed' : 'Pending'} tone={hasDriver ? 'green' : 'orange'} />}
-        >
-          <View style={styles.driverRow}>
-            <Avatar initials={displayOrder.driver?.initials ?? '…'} />
-            <View>
-              <Text style={styles.driverName}>
-                {displayOrder.driver?.name ?? 'Finding a driver near you...'}
-              </Text>
-              <Text style={styles.muted}>
-                {displayOrder.driver?.etaMinutes
-                  ? `Arriving in ${displayOrder.driver.etaMinutes} minutes`
-                  : 'Waiting for a driver to accept your request'}
-              </Text>
-            </View>
-          </View>
-        </Card>
-
-        <Card flat>
-          <Text style={styles.muted}>Pickup ETA</Text>
-          <Text style={styles.eta}>
-            {displayOrder.driver?.etaMinutes ? `${displayOrder.driver.etaMinutes} min` : '—'}
-          </Text>
-        </Card>
-
-        {isWaiting && !hasDriver ? (
-          <Button
-            title="Edit Delivery Details"
-            variant="outline"
-            onPress={() => {
-              if (!displayOrder) return;
-              openFoodReadyDialog({
-                initialValues: {
-                  name: displayOrder.customerName,
-                  deliveryType: normalizeDeliveryType(displayOrder.deliveryType),
-                  pickupAddress: displayOrder.pickupAddress,
-                  dropAddress: getDropAddress(displayOrder),
-                  person: displayOrder.studentName,
-                },
-                submitting,
-                onConfirm: async (details) => {
-                  await markFoodReady(details);
-                  await refreshDelivery();
-                },
-              });
-            }}
-            style={{ marginTop: spacing.lg }}
-          />
-        ) : null}
-
-        <Button
-          title="Track Live Delivery"
-          onPress={() => navigation.getParent()?.navigate('Track', { screen: 'Tracking' })}
-          style={{ marginTop: isWaiting && !hasDriver ? 12 : spacing.lg }}
-          variant={hasDriver ? 'primary' : 'outline'}
-        />
-        <Button title="Back to Home" variant="outline" onPress={() => navigation.goBack()} style={{ marginTop: 12, marginBottom: spacing.lg }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.white },
+  container: { flex: 1, backgroundColor: colors.bg },
   header: { paddingTop: spacing.sm, paddingBottom: spacing.sm },
   backBtn: {
     width: 36,
@@ -165,23 +215,133 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignSelf: 'flex-start',
   },
-  content: { padding: spacing.lg, paddingTop: spacing.md, alignItems: 'center', paddingBottom: spacing.xl },
-  ring: {
-    backgroundColor: colors.greenLight,
-    borderWidth: 4,
-    borderColor: colors.green,
+  scroll: {
+    paddingBottom: spacing.xl,
     alignItems: 'center',
-    justifyContent: 'center',
+  },
+  body: {
+    width: '100%',
+    alignSelf: 'center',
+  },
+  hero: {
+    alignItems: 'center',
     marginBottom: spacing.lg,
   },
-  title: { fontSize: 22, fontWeight: '800', marginBottom: 8 },
-  subtitle: { color: colors.muted, fontSize: 14, marginBottom: spacing.xl, textAlign: 'center' },
-  addressRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  addressInfo: { flex: 1 },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: spacing.xl,
+  },
+  ring: {
+    backgroundColor: colors.orangeLight,
+    borderWidth: 4,
+    borderColor: colors.orange,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.text,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  subtitle: {
+    color: colors.muted,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  card: {
+    width: '100%',
+    marginBottom: spacing.md,
+  },
+  addressRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  iconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  addressInfo: { flex: 1, minWidth: 0 },
   addressLabel: { fontSize: 12, fontWeight: '700', color: colors.text },
-  addressText: { fontSize: 13, color: colors.muted, marginTop: 4, lineHeight: 18 },
-  driverRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  driverName: { fontWeight: '700' },
-  muted: { fontSize: 12, color: colors.muted },
-  eta: { fontSize: 36, fontWeight: '800', color: colors.orange, textAlign: 'center', marginTop: 4 },
+  addressText: { fontSize: 13, color: colors.muted, marginTop: 4, lineHeight: 20 },
+  divider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.md,
+  },
+  driverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  searchAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.orangeLight,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  driverInfo: { flex: 1, minWidth: 0 },
+  driverName: { fontWeight: '700', fontSize: 15, color: colors.text, lineHeight: 20 },
+  driverSub: { fontSize: 12, color: colors.muted, marginTop: 4, lineHeight: 18 },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  statBlock: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+  },
+  statDivider: {
+    width: 1,
+    backgroundColor: colors.border,
+    marginVertical: 4,
+  },
+  statLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  statValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: colors.orange,
+    marginTop: 6,
+    lineHeight: 32,
+  },
+  statValueSmall: {
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  actions: {
+    width: '100%',
+    gap: 12,
+    marginTop: spacing.sm,
+  },
+  fullWidthBtn: {
+    width: '100%',
+  },
 });

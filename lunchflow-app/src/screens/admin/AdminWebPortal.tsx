@@ -1,5 +1,5 @@
 import { ComponentType, useCallback, useState } from 'react';
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { ADMIN_PAGE_LABELS, AdminPage, AdminSidebar } from '../../components/AdminSidebar';
 import { AdminMobileHeader } from '../../components/admin/AdminMobileHeader';
 import { colors } from '../../constants/theme';
@@ -13,6 +13,8 @@ import { AdminExpensesScreen } from './AdminExpensesScreen';
 import { AdminOrdersScreen } from './AdminOrdersScreen';
 import { AdminReportsScreen } from './AdminReportsScreen';
 import { AdminSalaryScreen } from './AdminSalaryScreen';
+import { AdminSlotsScreen } from './AdminSlotsScreen';
+import { AdminTelecallersScreen } from './AdminTelecallersScreen';
 
 type Props = {
   onLogout: () => void;
@@ -23,6 +25,8 @@ const PAGES: Record<AdminPage, ComponentType<object>> = {
   orders: AdminOrdersScreen,
   customers: AdminCustomersScreen,
   drivers: AdminDriversScreen,
+  telecallers: AdminTelecallersScreen,
+  slots: AdminSlotsScreen,
   reports: AdminReportsScreen,
   salary: AdminSalaryScreen,
   expenses: AdminExpensesScreen,
@@ -87,11 +91,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: colors.bg,
     minHeight: '100%' as unknown as number,
+    ...(Platform.OS === 'web'
+      ? {
+          height: '100vh' as unknown as number,
+          overflow: 'hidden' as const,
+        }
+      : {}),
   },
   main: {
     flex: 1,
     minWidth: 0,
     overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? {
+          height: '100%' as unknown as number,
+        }
+      : {}),
   },
   drawerRoot: {
     flex: 1,

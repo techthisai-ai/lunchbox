@@ -10,11 +10,15 @@ import { DriverHomeScreen } from '../screens/driver/DriverHomeScreen';
 import { DriverLoginScreen } from '../screens/driver/DriverLoginScreen';
 import { DriverRegisterScreen } from '../screens/driver/DriverRegisterScreen';
 import { DriverProfileScreen } from '../screens/driver/DriverProfileScreen';
+import { DriverNotificationsScreen } from '../screens/driver/DriverNotificationsScreen';
+import { DriverPendingApprovalScreen } from '../screens/driver/DriverPendingApprovalScreen';
 import { DeliveryStatusScreen } from '../screens/DeliveryStatusScreen';
 import { FoodReadyScreen } from '../screens/FoodReadyScreen';
 import { HistoryScreen } from '../screens/HistoryScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { LoginScreen } from '../screens/LoginScreen';
+import { LanguageScreen } from '../screens/LanguageScreen';
+import { PrivacySecurityScreen } from '../screens/PrivacySecurityScreen';
 import { NotificationsScreen } from '../screens/NotificationsScreen';
 import { PersonalDetailsScreen } from '../screens/PersonalDetailsScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
@@ -22,8 +26,8 @@ import { SavedAddressesScreen } from '../screens/SavedAddressesScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { QRTrackingScreen } from '../screens/QRTrackingScreen';
 import { ReferralScreen } from '../screens/ReferralScreen';
+import { OtpVerifyScreen } from '../screens/OtpVerifyScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
-import { RoleSelectScreen } from '../screens/RoleSelectScreen';
 import { SplashScreen } from '../screens/SplashScreen';
 import { SubscriptionScreen } from '../screens/SubscriptionScreen';
 import { SupportScreen } from '../screens/SupportScreen';
@@ -117,6 +121,8 @@ function ProfileStackNavigator() {
       <ProfileStack.Screen name="PersonalDetails" component={PersonalDetailsScreen} />
       <ProfileStack.Screen name="SavedAddresses" component={SavedAddressesScreen} />
       <ProfileStack.Screen name="Settings" component={SettingsScreen} />
+      <ProfileStack.Screen name="Language" component={LanguageScreen} />
+      <ProfileStack.Screen name="PrivacySecurity" component={PrivacySecurityScreen} />
       <ProfileStack.Screen name="Wallet" component={WalletScreen} />
       <ProfileStack.Screen name="Subscription" component={SubscriptionScreen} />
       <ProfileStack.Screen name="Referral" component={ReferralScreen} />
@@ -195,8 +201,8 @@ export function RootNavigator() {
       }}
     >
       <RootStack.Screen name="Splash" component={SplashScreen} options={{ animation: 'fade' }} />
-      <RootStack.Screen name="RoleSelect" component={RoleSelectScreen} />
-      <RootStack.Screen name="Login" component={LoginScreen} />
+      <RootStack.Screen name="Login" component={LoginScreen} options={{ animation: 'fade' }} />
+      <RootStack.Screen name="OtpVerify" component={OtpVerifyScreen} />
       <RootStack.Screen name="Register" component={RegisterScreen} />
       <RootStack.Screen name="DriverLogin" component={DriverLoginScreen} />
       <RootStack.Screen name="DriverRegister" component={DriverRegisterScreen} />
@@ -207,6 +213,8 @@ export function RootNavigator() {
       />
       <RootStack.Screen name="MainTabs" component={CustomerTabs} options={{ animation: 'fade_from_bottom' }} />
       <RootStack.Screen name="DriverTabs" component={DriverTabsNavigator} options={{ animation: 'fade_from_bottom' }} />
+      <RootStack.Screen name="DriverPendingApproval" component={DriverPendingApprovalScreen} options={{ animation: 'fade' }} />
+      <RootStack.Screen name="DriverNotifications" component={DriverNotificationsScreen} />
     </RootStack.Navigator>
   );
 }
