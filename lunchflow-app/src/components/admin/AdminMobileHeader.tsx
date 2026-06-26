@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing } from '../../constants/theme';
 
 type Props = {
@@ -8,8 +9,10 @@ type Props = {
 };
 
 export function AdminMobileHeader({ title, onMenuPress }: Props) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={styles.header}>
+    <View style={[styles.header, { paddingTop: Math.max(insets.top, 8) }]}>
       <Pressable style={styles.menuBtn} onPress={onMenuPress} accessibilityRole="button" accessibilityLabel="Open menu">
         <Ionicons name="menu" size={22} color={colors.text} />
       </Pressable>

@@ -19,7 +19,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'OtpVerify'>;
 const OTP_RESEND_SECONDS = 30;
 
 export function OtpVerifyScreen({ navigation, route }: Props) {
-  const { loginAsCustomer, loginAsDriverOtp, sendCustomerOtp, sendDriverOtp, getDevOtpHint } = useAuth();
+  const { loginAsCustomer, loginAsDriverOtp, sendCustomerOtp, sendDriverOtp } = useAuth();
   const { horizontalPadding } = useResponsive();
   const phone = normalizePhone(route.params.phone);
   const role = route.params.role ?? 'customer';
@@ -27,25 +27,12 @@ export function OtpVerifyScreen({ navigation, route }: Props) {
   const [error, setError] = useState('');
   const [resendSeconds, setResendSeconds] = useState(OTP_RESEND_SECONDS);
   const [submitting, setSubmitting] = useState(false);
-  const [demoOtp, setDemoOtp] = useState<string | null>(getDevOtpHint());
 
   useEffect(() => {
     if (resendSeconds <= 0) return;
     const timer = setTimeout(() => setResendSeconds((s) => s - 1), 1000);
     return () => clearTimeout(timer);
   }, [resendSeconds]);
-
-  useEffect(() => {
-    const hint = getDevOtpHint();
-    if (hint) setDemoOtp(hint);
-  }, [getDevOtpHint]);
-
-  const applyDemoOtp = () => {
-    const hint = getDevOtpHint() ?? demoOtp;
-    if (!hint) return;
-    setOtp(hint);
-    setError('');
-  };
 
   const handleVerify = async () => {
     if (!otp.trim()) {
@@ -90,8 +77,6 @@ export function OtpVerifyScreen({ navigation, route }: Props) {
       return;
     }
     setResendSeconds(OTP_RESEND_SECONDS);
-    const hint = getDevOtpHint();
-    if (hint) setDemoOtp(hint);
   };
 
   return (
@@ -120,13 +105,6 @@ export function OtpVerifyScreen({ navigation, route }: Props) {
               autoComplete="one-time-code"
               textContentType="oneTimeCode"
             />
-
-            {demoOtp ? (
-              <Pressable style={styles.demoChip} onPress={applyDemoOtp}>
-                <Ionicons name="flash" size={14} color={colors.orange} />
-                <Text style={styles.demoChipText}>Tap for demo OTP: {demoOtp}</Text>
-              </Pressable>
-            ) : null}
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -198,20 +176,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   otpInputFilled: { letterSpacing: 8 },
-  demoChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: spacing.sm,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: radius.sm,
-    borderWidth: 1.5,
-    borderColor: colors.orange,
-    backgroundColor: colors.yellowLight,
-  },
-  demoChipText: { fontSize: 12, fontWeight: '700', color: colors.orange },
   error: { color: colors.red, fontSize: 13, marginTop: spacing.sm, textAlign: 'center' },
   resendWrap: { marginTop: spacing.md },
   resend: { fontSize: 12, color: colors.muted, textAlign: 'center' },

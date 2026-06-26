@@ -11,7 +11,10 @@ import { colors, radius, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { RootStackParamList } from '../navigation/types';
-import { openAdminWebPortal } from '../utils/adminWeb';
+import { navigateAfterCustomerLogin } from '../navigation/customerRoutes';
+import { navigateAfterDriverLogin } from '../navigation/driverRoutes';
+import { goToAdminPortal } from '../navigation/adminRoutes';
+import { isCustomerRegistered, isDriverRegistered } from '../services/userRegistryService';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
@@ -28,17 +31,17 @@ const ROLES: {
 ];
 
 export function LoginScreen({ navigation, route }: Props) {
-  const { sendCustomerOtp, sendDriverOtp, loginAsAdmin } = useAuth();
+  const { loginAsCustomerPhone, loginAsDriver, loginAsAdmin } = useAuth();
   const { horizontalPadding } = useResponsive();
   const [phone, setPhone] = useState(route.params?.phone ?? '');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [selectedRole, setSelectedRole] = useState<LoginRole>('customer');
+  const [selectedRole, setSelectedRole] = useState<LoginRole>(route.params?.role ?? 'customer');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const isAdmin = selectedRole === 'admin';
-  const buttonTitle = isAdmin ? 'Login as Admin' : 'Send OTP';
+  const buttonTitle = isAdmin ? 'Login as Admin' : 'Login';
 
   const handleContinue = async () => {
     setError('');
@@ -51,7 +54,7 @@ export function LoginScreen({ navigation, route }: Props) {
           setError(err);
           return;
         }
-        openAdminWebPortal();
+        goToAdminPortal(navigation);
       } finally {
         setSubmitting(false);
       }
@@ -67,30 +70,33 @@ export function LoginScreen({ navigation, route }: Props) {
     setSubmitting(true);
     try {
       if (selectedRole === 'driver') {
-        const err = await sendDriverOtp(phone);
-        if (err === 'DRIVER_REGISTER_REQUIRED') {
+        const registered = await isDriverRegistered(normalized);
+        if (!registered) {
           navigation.replace('DriverRegister', { phone: normalized });
           return;
         }
+        const err = await loginAsDriver(phone);
         if (err) {
           setError(err);
           return;
         }
-        navigation.navigate('OtpVerify', { phone: normalized, role: 'driver' });
+        await navigateAfterDriverLogin(navigation, normalized);
         return;
       }
 
-      const err = await sendCustomerOtp(phone);
-      if (err === 'REGISTER_REQUIRED') {
+      const registered = await isCustomerRegistered(normalized);
+      if (!registered) {
         navigation.replace('Register', { phone: normalized });
         return;
       }
+
+      const err = await loginAsCustomerPhone(phone);
       if (err) {
         setError(err);
         return;
       }
 
-      navigation.navigate('OtpVerify', { phone: normalized, role: 'customer' });
+      await navigateAfterCustomerLogin(navigation, normalized);
     } finally {
       setSubmitting(false);
     }

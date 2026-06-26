@@ -19,7 +19,7 @@ service cloud.firestore {
     }
 
     match /users/{phone} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create, update: if isCustomerPhone(phone) || isDriverPhone(phone) || isAdmin();
       allow delete: if isAdmin();
     }

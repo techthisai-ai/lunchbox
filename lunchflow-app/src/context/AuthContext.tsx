@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, ReactNode } fr
 import { AuthUser, DEMO_ADMIN, UserRole } from '../constants/auth';
 import {
   loginAdmin as loginAdminService,
+  loginCustomer as loginCustomerService,
   loginDriver as loginDriverService,
   logoutUser,
   registerCustomer as registerCustomerService,
@@ -11,7 +12,6 @@ import {
   subscribeToAuthState,
   verifyCustomerOtp,
   verifyDriverOtp,
-  getPendingCustomerOtpForDev,
   persistAuthSession,
   restoreAuthSession,
   CustomerRegistration,
@@ -24,6 +24,7 @@ type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
   loginAsAdmin: (email: string, password: string) => Promise<string | null>;
+  loginAsCustomerPhone: (phone: string) => Promise<string | null>;
   loginAsDriver: (phone: string) => Promise<string | null>;
   sendCustomerOtp: (phone: string) => Promise<string | null>;
   sendDriverOtp: (phone: string) => Promise<string | null>;
@@ -33,7 +34,6 @@ type AuthContextValue = {
   registerDriver: (data: DriverRegistration) => Promise<string | null>;
   logout: () => Promise<void>;
   role: UserRole | null;
-  getDevOtpHint: () => string | null;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -43,6 +43,11 @@ function registrationRequiredCode(error: unknown): string | null {
     return error.kind === 'customer' ? 'REGISTER_REQUIRED' : 'DRIVER_REGISTER_REQUIRED';
   }
   return null;
+}
+
+function registerPushInBackground(phone?: string, name?: string) {
+  if (!phone) return;
+  registerForPushNotifications(phone, name).catch(() => {});
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -88,14 +93,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       role: user?.role ?? null,
-      getDevOtpHint: () => getPendingCustomerOtpForDev(),
       loginAsAdmin: async (email, password) => {
         if (!email.trim() || !password) return 'Enter email and password';
         try {
           const profile = await loginAdminService(email, password);
           setUser(profile);
+          await persistAuthSession(profile);
           return null;
         } catch (error) {
+          return error instanceof Error ? error.message : 'Login failed';
+        }
+      },
+      loginAsCustomerPhone: async (phone) => {
+        if (!phone.trim()) return 'Enter mobile number';
+        try {
+          const profile = await loginCustomerService(phone);
+          setUser(profile);
+          registerPushInBackground(profile.phone, profile.name);
+          return null;
+        } catch (error) {
+          const code = registrationRequiredCode(error);
+          if (code) return code;
           return error instanceof Error ? error.message : 'Login failed';
         }
       },
@@ -104,7 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const profile = await loginDriverService(phone);
           setUser(profile);
-          await registerForPushNotifications(profile.phone ?? '', profile.name);
+          registerPushInBackground(profile.phone, profile.name);
           return null;
         } catch (error) {
           const code = registrationRequiredCode(error);
@@ -138,7 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const profile = await verifyCustomerOtp(otp, phone);
           setUser(profile);
-          await registerForPushNotifications(profile.phone ?? '', profile.name);
+          registerPushInBackground(profile.phone, profile.name);
           return { error: null, user: profile };
         } catch (error) {
           return { error: error instanceof Error ? error.message : 'Login failed' };
@@ -148,7 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const profile = await verifyDriverOtp(otp, phone);
           setUser(profile);
-          await registerForPushNotifications(profile.phone ?? '', profile.name);
+          registerPushInBackground(profile.phone, profile.name);
           return { error: null, user: profile };
         } catch (error) {
           return { error: error instanceof Error ? error.message : 'Login failed' };
@@ -158,7 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const profile = await registerCustomerService(data);
           setUser(profile);
-          await registerForPushNotifications(profile.phone ?? '', profile.name);
+          registerPushInBackground(profile.phone, profile.name);
           return null;
         } catch (error) {
           return error instanceof Error ? error.message : 'Registration failed';

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "799862263361",
+    "project_id": "lunchbox-b660d",
+    "storage_bucket": "lunchbox-b660d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:799862263361:android:c54bece7eb54f7d5f5c0c0",
+        "android_client_info": {
+          "package_name": "com.thisai.lunchbox"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCl3Jab_BsuKVzKypKT42cp9qkIHdaHFNM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

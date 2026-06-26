@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LogoMark } from '../components/LogoMark';
-import { colors, spacing } from '../constants/theme';
+import * as ExpoSplashScreen from 'expo-splash-screen';
+import { spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { goToAdminPortal } from '../navigation/adminRoutes';
 import { navigateAfterCustomerLogin } from '../navigation/customerRoutes';
 import { navigateAfterDriverLogin } from '../navigation/driverRoutes';
 import { RootStackParamList } from '../navigation/types';
@@ -12,10 +13,16 @@ import { RootStackParamList } from '../navigation/types';
 type Props = NativeStackScreenProps<RootStackParamList, 'Splash'>;
 
 const SPLASH_MS = 2500;
+const SPLASH_BG = '#FEFBF3';
+const logo = require('../../assets/logo.png');
 
 export function SplashScreen({ navigation }: Props) {
   const { user, loading } = useAuth();
   const [minTimeDone, setMinTimeDone] = useState(false);
+
+  useEffect(() => {
+    ExpoSplashScreen.hideAsync().catch(() => {});
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => setMinTimeDone(true), SPLASH_MS);
@@ -29,6 +36,11 @@ export function SplashScreen({ navigation }: Props) {
 
     (async () => {
       if (cancelled) return;
+
+      if (user?.role === 'admin') {
+        goToAdminPortal(navigation);
+        return;
+      }
 
       if (user?.role === 'customer' && user.phone) {
         await navigateAfterCustomerLogin(navigation, user.phone);
@@ -51,12 +63,8 @@ export function SplashScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <LogoMark size={72} />
-        <Text style={styles.title}>
-          Lunch<Text style={styles.accent}>Flow</Text>
-        </Text>
-        <Text style={styles.subtitle}>Fresh lunchboxes, on time</Text>
-        <ActivityIndicator size="large" color={colors.orange} style={styles.loader} />
+        <Image source={logo} style={styles.logo} resizeMode="contain" accessibilityLabel="Lunch Box logo" />
+        <ActivityIndicator size="large" color="#1E3A6E" style={styles.loader} />
         <Text style={styles.loadingText}>Loading...</Text>
       </View>
     </SafeAreaView>
@@ -64,16 +72,14 @@ export function SplashScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
+  container: { flex: 1, backgroundColor: SPLASH_BG },
   content: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: spacing.xl,
   },
-  title: { fontSize: 32, fontWeight: '800', marginTop: spacing.lg, letterSpacing: -0.5 },
-  accent: { color: colors.orange },
-  subtitle: { fontSize: 14, color: colors.muted, marginTop: 8, fontWeight: '600' },
+  logo: { width: 280, height: 280 },
   loader: { marginTop: spacing.xl },
-  loadingText: { marginTop: spacing.md, fontSize: 13, color: colors.muted, fontWeight: '600' },
+  loadingText: { marginTop: spacing.md, fontSize: 13, color: '#5C6B7A', fontWeight: '600' },
 });

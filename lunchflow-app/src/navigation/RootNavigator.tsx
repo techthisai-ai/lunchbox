@@ -16,6 +16,7 @@ import { DeliveryStatusScreen } from '../screens/DeliveryStatusScreen';
 import { FoodReadyScreen } from '../screens/FoodReadyScreen';
 import { HistoryScreen } from '../screens/HistoryScreen';
 import { HomeScreen } from '../screens/HomeScreen';
+import { AdminPortalScreen } from '../screens/admin/AdminPortalScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { LanguageScreen } from '../screens/LanguageScreen';
 import { PrivacySecurityScreen } from '../screens/PrivacySecurityScreen';
@@ -215,6 +216,11 @@ export function RootNavigator() {
       <RootStack.Screen name="DriverTabs" component={DriverTabsNavigator} options={{ animation: 'fade_from_bottom' }} />
       <RootStack.Screen name="DriverPendingApproval" component={DriverPendingApprovalScreen} options={{ animation: 'fade' }} />
       <RootStack.Screen name="DriverNotifications" component={DriverNotificationsScreen} />
+      <RootStack.Screen
+        name="AdminPortal"
+        component={AdminPortalScreen}
+        options={{ animation: 'fade_from_bottom', gestureEnabled: false }}
+      />
     </RootStack.Navigator>
   );
 }

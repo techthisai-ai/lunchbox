@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AdminAddDriverModal } from '../../components/admin/AdminAddDriverModal';
 import { AdminDriverDetailPanel } from '../../components/admin/AdminDriverDetailPanel';
+import { AdminMobileOverlay } from '../../components/admin/AdminMobileOverlay';
 import { AdminFilterSelect } from '../../components/admin/AdminFilterSelect';
 import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
 import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
@@ -250,14 +251,16 @@ export function AdminDriversScreen() {
           )}
         </View>
 
-        {selected ? (
-          <AdminDriverDetailPanel
-            driver={selected}
-            onMarkLeave={() => handleMarkLeave(selected.id)}
-            onClose={() => setSelectedId(null)}
-            onApprovalChanged={refresh}
-          />
-        ) : null}
+        <AdminMobileOverlay visible={!!selected} onClose={() => setSelectedId(null)}>
+          {selected ? (
+            <AdminDriverDetailPanel
+              driver={selected}
+              onMarkLeave={() => handleMarkLeave(selected.id)}
+              onClose={() => setSelectedId(null)}
+              onApprovalChanged={refresh}
+            />
+          ) : null}
+        </AdminMobileOverlay>
       </View>
     </AdminPageLayout>
   );

@@ -5,7 +5,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { LogoMark } from '../components/LogoMark';
 import { colors, radius, spacing } from '../constants/theme';
 import { RootStackParamList } from '../navigation/types';
-import { openAdminWebPortal } from '../utils/adminWeb';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RoleSelect'>;
 
@@ -42,11 +41,11 @@ export function RoleSelectScreen({ navigation }: Props) {
     {
       id: 'admin',
       title: 'Admin',
-      subtitle: 'Open web admin portal',
+      subtitle: 'Manage orders, drivers & reports',
       icon: 'shield-checkmark',
       color: colors.blue,
       bg: colors.blueLight,
-      action: openAdminWebPortal,
+      action: () => navigation.navigate('Login', { role: 'admin' }),
     },
   ];
 
@@ -73,7 +72,7 @@ export function RoleSelectScreen({ navigation }: Props) {
               <Text style={styles.cardTitle}>{role.title}</Text>
               <Text style={styles.cardSub}>{role.subtitle}</Text>
             </View>
-            <Ionicons name={role.id === 'admin' ? 'open-outline' : 'chevron-forward'} size={20} color={colors.muted} />
+            <Ionicons name="chevron-forward" size={20} color={colors.muted} />
           </Pressable>
         ))}
       </View>

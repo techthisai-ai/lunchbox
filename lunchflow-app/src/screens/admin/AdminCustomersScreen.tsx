@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AdminCustomerDetailPanel } from '../../components/admin/AdminCustomerDetailPanel';
+import { AdminMobileOverlay } from '../../components/admin/AdminMobileOverlay';
 import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
 import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
 import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
@@ -228,9 +229,11 @@ export function AdminCustomersScreen() {
           )}
         </View>
 
-        {customerDetail ? (
-          <AdminCustomerDetailPanel customer={customerDetail} onClose={() => setSelectedPhone(null)} />
-        ) : null}
+        <AdminMobileOverlay visible={!!customerDetail} onClose={() => setSelectedPhone(null)}>
+          {customerDetail ? (
+            <AdminCustomerDetailPanel customer={customerDetail} onClose={() => setSelectedPhone(null)} />
+          ) : null}
+        </AdminMobileOverlay>
       </View>
     </AdminPageLayout>
   );

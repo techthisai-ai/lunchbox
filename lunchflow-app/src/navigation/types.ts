@@ -3,7 +3,7 @@ import { NavigatorScreenParams } from '@react-navigation/native';
 export type RootStackParamList = {
   Splash: undefined;
   RoleSelect: undefined;
-  Login: { phone?: string } | undefined;
+  Login: { phone?: string; role?: 'customer' | 'driver' | 'admin' } | undefined;
   OtpVerify: { phone: string; role?: 'customer' | 'driver' };
   Register: { phone?: string } | undefined;
   DriverLogin: { phone?: string } | undefined;
@@ -13,6 +13,7 @@ export type RootStackParamList = {
   DriverTabs: NavigatorScreenParams<DriverTabParamList>;
   DriverPendingApproval: undefined;
   DriverNotifications: undefined;
+  AdminPortal: undefined;
 };
 
 export type MainTabParamList = {

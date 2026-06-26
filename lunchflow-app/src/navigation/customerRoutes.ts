@@ -23,15 +23,9 @@ export function goToSubscriptionOnboarding(navigation: CustomerRootNavigation) {
   });
 }
 
-/** After login: home if subscribed, otherwise subscription onboarding. */
-export async function navigateAfterCustomerLogin(navigation: CustomerRootNavigation, phone: string) {
-  const normalized = normalizePhone(phone);
-  const subscribed = await hasActiveSubscription(normalized);
-  if (subscribed) {
-    goToCustomerHome(navigation);
-    return;
-  }
-  goToSubscriptionOnboarding(navigation);
+/** After login: go to customer home. */
+export async function navigateAfterCustomerLogin(navigation: CustomerRootNavigation, _phone: string) {
+  goToCustomerHome(navigation);
 }
 
 /** After registration: subscription unless an active plan already exists. */

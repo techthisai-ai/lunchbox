@@ -1,5 +1,6 @@
 import { ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
 
@@ -10,6 +11,7 @@ type Props = {
 
 export function AdminPageLayout({ children, wide }: Props) {
   const { pagePadding, showMobileHeader } = useAdminLayout();
+  const insets = useSafeAreaInsets();
 
   return (
     <View style={styles.page}>
@@ -17,7 +19,11 @@ export function AdminPageLayout({ children, wide }: Props) {
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingHorizontal: pagePadding, paddingTop: showMobileHeader ? spacing.md : spacing.lg },
+          {
+            paddingHorizontal: pagePadding,
+            paddingTop: showMobileHeader ? spacing.md : spacing.lg,
+            paddingBottom: spacing.xl + insets.bottom,
+          },
         ]}
         showsVerticalScrollIndicator={false}
       >

@@ -38,8 +38,6 @@ export { RegistrationRequiredError } from './userRegistryService';
 
 let confirmationResult: ConfirmationResult | null = null;
 let recaptchaVerifier: RecaptchaVerifier | null = null;
-let pendingCustomerOtp: { phone: string; otp: string; expiresAt: number } | null = null;
-let lastCallableDevOtp: string | null = null;
 
 const requestLoginOtpFn = httpsCallable(functions, 'requestLoginOtp');
 const verifyLoginOtpFn = httpsCallable(functions, 'verifyLoginOtp');
@@ -70,6 +68,20 @@ export async function restoreAuthSession(): Promise<AuthUser | null> {
 function firebaseErrorMessage(error: unknown): string {
   if (error && typeof error === 'object' && 'code' in error) {
     const code = String((error as { code: string }).code);
+    const message = 'message' in error ? String((error as { message: string }).message) : '';
+
+    if (code.startsWith('functions/')) {
+      if (message && message !== 'internal' && !message.startsWith('functions/')) {
+        return message;
+      }
+      if (code === 'functions/internal') return 'Could not send OTP. Please try again later.';
+      if (code === 'functions/not-found') return 'Mobile number not registered. Please sign up first.';
+      if (code === 'functions/permission-denied') return 'Invalid OTP. Please try again.';
+      if (code === 'functions/deadline-exceeded') return 'OTP expired. Request a new OTP.';
+      if (code === 'functions/invalid-argument') return 'Enter a valid mobile number and OTP.';
+      if (code === 'functions/resource-exhausted') return 'Too many attempts. Request a new OTP.';
+    }
+
     if (code === 'auth/invalid-credential' || code === 'auth/wrong-password') {
       return 'Invalid email or password';
     }
@@ -85,10 +97,6 @@ function firebaseErrorMessage(error: unknown): string {
   }
   if (error instanceof Error) return error.message;
   return 'Something went wrong. Please try again';
-}
-
-function generateOtp(): string {
-  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 async function loadUserProfile(firebaseUser: User): Promise<AuthUser> {
@@ -206,6 +214,22 @@ export async function loginDriver(phone: string): Promise<AuthUser> {
   return driverAuthUser(driver);
 }
 
+export async function loginCustomer(phone: string): Promise<AuthUser> {
+  const normalized = normalizePhone(phone);
+  if (normalized.length !== 10) {
+    throw new Error('Enter a valid 10-digit mobile number');
+  }
+
+  const registered = await isCustomerRegistered(normalized);
+  if (!registered) {
+    throw new RegistrationRequiredError('customer');
+  }
+
+  const registration = await loadCustomerRegistration(normalized);
+  const name = registration?.name?.trim() || 'Customer';
+  return customerAuthUser(normalized, name);
+}
+
 export async function sendDriverOtp(phone: string): Promise<void> {
   const normalized = normalizePhone(phone);
   if (normalized.length !== 10) {
@@ -217,27 +241,7 @@ export async function sendDriverOtp(phone: string): Promise<void> {
     throw new RegistrationRequiredError('driver');
   }
 
-  lastCallableDevOtp = null;
-  pendingCustomerOtp = null;
-
-  try {
-    const result = await requestLoginOtpFn({ phone: normalized, role: 'driver' });
-    const data = result.data as { devOtp?: string };
-    if (data.devOtp) {
-      lastCallableDevOtp = data.devOtp;
-    }
-    return;
-  } catch (error) {
-    pendingCustomerOtp = {
-      phone: normalized,
-      otp: generateOtp(),
-      expiresAt: Date.now() + 10 * 60 * 1000,
-    };
-    lastCallableDevOtp = pendingCustomerOtp.otp;
-    if (!__DEV__) {
-      throw new Error(firebaseErrorMessage(error));
-    }
-  }
+  await requestLoginOtpFn({ phone: normalized, role: 'driver' });
 }
 
 export async function verifyDriverOtp(otp: string, phoneHint?: string): Promise<AuthUser> {
@@ -245,7 +249,7 @@ export async function verifyDriverOtp(otp: string, phoneHint?: string): Promise<
     throw new Error('Enter the OTP sent to your phone');
   }
 
-  const normalized = normalizePhone(phoneHint ?? pendingCustomerOtp?.phone ?? '');
+  const normalized = normalizePhone(phoneHint ?? '');
   if (normalized.length !== 10) {
     throw new Error('Enter a valid mobile number');
   }
@@ -256,7 +260,6 @@ export async function verifyDriverOtp(otp: string, phoneHint?: string): Promise<
       customToken: string;
       user: { id: string; role: UserRole; name: string; phone: string; vehicle?: string };
     };
-    lastCallableDevOtp = null;
     await signInWithCustomToken(auth, data.customToken);
     return {
       id: data.user.id,
@@ -266,12 +269,6 @@ export async function verifyDriverOtp(otp: string, phoneHint?: string): Promise<
       vehicle: data.user.vehicle,
     };
   } catch (error) {
-    if (pendingCustomerOtp && otp.trim() === pendingCustomerOtp.otp) {
-      const driver = await loadDriverByPhone(normalized);
-      if (!driver) throw new RegistrationRequiredError('driver');
-      pendingCustomerOtp = null;
-      return driverAuthUser(driver);
-    }
     throw new Error(firebaseErrorMessage(error));
   }
 }
@@ -288,34 +285,7 @@ export async function sendCustomerOtp(phone: string): Promise<void> {
   }
 
   confirmationResult = null;
-  lastCallableDevOtp = null;
-
-  try {
-    const result = await requestLoginOtpFn({ phone: normalized, role: 'customer' });
-    const data = result.data as { devOtp?: string };
-    if (data.devOtp) {
-      lastCallableDevOtp = data.devOtp;
-    }
-    pendingCustomerOtp = null;
-    return;
-  } catch (error) {
-    pendingCustomerOtp = {
-      phone: normalized,
-      otp: generateOtp(),
-      expiresAt: Date.now() + 10 * 60 * 1000,
-    };
-    lastCallableDevOtp = pendingCustomerOtp.otp;
-    if (!__DEV__) {
-      throw new Error(firebaseErrorMessage(error));
-    }
-    return;
-  }
-}
-
-export function getPendingCustomerOtpForDev(): string | null {
-  if (lastCallableDevOtp) return lastCallableDevOtp;
-  if (pendingCustomerOtp) return pendingCustomerOtp.otp;
-  return null;
+  await requestLoginOtpFn({ phone: normalized, role: 'customer' });
 }
 
 export async function verifyCustomerOtp(otp: string, phoneHint?: string): Promise<AuthUser> {
@@ -333,44 +303,27 @@ export async function verifyCustomerOtp(otp: string, phoneHint?: string): Promis
     }
   }
 
-  const normalized = normalizePhone(phoneHint ?? pendingCustomerOtp?.phone ?? '');
-  if (normalized.length === 10 && !pendingCustomerOtp) {
-    try {
-      const result = await verifyLoginOtpFn({ phone: normalized, otp: otp.trim(), role: 'customer' });
-      const data = result.data as {
-        customToken: string;
-        user: { id: string; role: UserRole; name: string; phone: string };
-      };
-      lastCallableDevOtp = null;
-      await signInWithCustomToken(auth, data.customToken);
-      return {
-        id: data.user.id,
-        role: 'customer',
-        name: data.user.name,
-        phone: data.user.phone,
-      };
-    } catch (error) {
-      throw new Error(firebaseErrorMessage(error));
-    }
+  const normalized = normalizePhone(phoneHint ?? '');
+  if (normalized.length !== 10) {
+    throw new Error('Enter a valid mobile number');
   }
 
-  if (pendingCustomerOtp) {
-    if (Date.now() > pendingCustomerOtp.expiresAt) {
-      pendingCustomerOtp = null;
-      throw new Error('OTP expired. Tap Login to receive a new OTP.');
-    }
-    if (otp.trim() !== pendingCustomerOtp.otp) {
-      throw new Error('Invalid OTP. Please try again');
-    }
-
-    const phone = pendingCustomerOtp.phone;
-    pendingCustomerOtp = null;
-    const registration = await loadCustomerRegistration(phone);
-    const name = registration?.name?.trim() || 'Customer';
-    return customerAuthUser(phone, name);
+  try {
+    const result = await verifyLoginOtpFn({ phone: normalized, otp: otp.trim(), role: 'customer' });
+    const data = result.data as {
+      customToken: string;
+      user: { id: string; role: UserRole; name: string; phone: string };
+    };
+    await signInWithCustomToken(auth, data.customToken);
+    return {
+      id: data.user.id,
+      role: 'customer',
+      name: data.user.name,
+      phone: data.user.phone,
+    };
+  } catch (error) {
+    throw new Error(firebaseErrorMessage(error));
   }
-
-  throw new Error('Tap Login to receive an OTP on your mobile number first');
 }
 
 export async function registerCustomer(data: CustomerRegistration): Promise<AuthUser> {
@@ -443,8 +396,6 @@ export async function registerDriver(data: DriverRegistration): Promise<AuthUser
 
 export async function logoutUser(): Promise<void> {
   confirmationResult = null;
-  pendingCustomerOtp = null;
-  lastCallableDevOtp = null;
   await persistAuthSession(null);
   if (auth.currentUser) {
     await signOut(auth);

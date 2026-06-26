@@ -3,6 +3,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AdminCustomerDetailPanel } from '../../components/admin/AdminCustomerDetailPanel';
+import { AdminMobileOverlay } from '../../components/admin/AdminMobileOverlay';
+import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
 import { AdminFilterSelect } from '../../components/admin/AdminFilterSelect';
 import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
 import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
@@ -250,6 +252,7 @@ export function AdminOrdersScreen() {
           </Pressable>
         </View>
 
+        <AdminTableScroll minWidth={980}>
         <View style={styles.tableWrap}>
           <View style={styles.table}>
             <View style={styles.tableHead}>
@@ -392,11 +395,14 @@ export function AdminOrdersScreen() {
             )}
           </View>
         </View>
+        </AdminTableScroll>
       </View>
 
-      {customerDetail ? (
-        <AdminCustomerDetailPanel customer={customerDetail} onClose={() => setSelectedOrderId(null)} />
-      ) : null}
+      <AdminMobileOverlay visible={!!customerDetail} onClose={() => setSelectedOrderId(null)}>
+        {customerDetail ? (
+          <AdminCustomerDetailPanel customer={customerDetail} onClose={() => setSelectedOrderId(null)} />
+        ) : null}
+      </AdminMobileOverlay>
       </View>
     </AdminPageLayout>
   );

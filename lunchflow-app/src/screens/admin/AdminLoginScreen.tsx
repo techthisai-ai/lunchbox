@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,10 +9,16 @@ import { useAuth } from '../../context/AuthContext';
 import { AdminWebStackParamList } from '../../navigation/AdminWebNavigator';
 
 export function AdminLoginScreen({ navigation }: NativeStackScreenProps<AdminWebStackParamList, 'AdminLogin'>) {
-  const { loginAsAdmin } = useAuth();
+  const { user, loginAsAdmin } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (user?.role === 'admin') {
+      navigation.replace('AdminPortal');
+    }
+  }, [navigation, user?.role]);
 
   const handleLogin = async () => {
     const err = await loginAsAdmin(email, password);

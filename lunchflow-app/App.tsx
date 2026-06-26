@@ -1,4 +1,5 @@
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import * as ExpoSplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View } from 'react-native';
 import { MobileShell } from './src/components/MobileShell';
@@ -12,6 +13,8 @@ import './src/lib/firebase';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AdminWebApp } from './src/AdminWebApp';
 import { isAdminWebEntry } from './src/utils/adminWeb';
+
+ExpoSplashScreen.preventAutoHideAsync().catch(() => {});
 
 const navTheme = {
   ...DefaultTheme,

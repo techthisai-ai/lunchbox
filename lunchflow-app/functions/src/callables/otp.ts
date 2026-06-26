@@ -62,7 +62,6 @@ export const requestLoginOtp = onCall({ region: 'asia-south1' }, async (request)
     success: true,
     provider: smsResult.provider,
     expiresInSeconds: OTP_TTL_MS / 1000,
-    devOtp: smsResult.provider === 'console' ? otp : undefined,
   };
 });
 
