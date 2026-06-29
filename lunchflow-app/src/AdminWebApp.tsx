@@ -38,5 +38,5 @@ export function AdminWebApp() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1, height: '100%' as unknown as number },
 });

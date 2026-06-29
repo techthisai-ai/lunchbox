@@ -61,7 +61,6 @@ export function LanguageScreen({ navigation }: Props) {
             </Pressable>
           );
         })}
-        <Text style={styles.note}>More languages will be added in a future update.</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -86,5 +85,4 @@ const styles = StyleSheet.create({
   optionText: { flex: 1 },
   label: { fontWeight: '700', fontSize: 15, color: colors.text },
   nativeLabel: { fontSize: 12, color: colors.muted, marginTop: 2 },
-  note: { fontSize: 12, color: colors.muted, marginTop: spacing.sm, textAlign: 'center' },
 });

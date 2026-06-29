@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Image, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ExpoSplashScreen from 'expo-splash-screen';
-import { spacing } from '../constants/theme';
+import { colors, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { goToAdminPortal } from '../navigation/adminRoutes';
 import { navigateAfterCustomerLogin } from '../navigation/customerRoutes';
@@ -13,12 +13,25 @@ import { RootStackParamList } from '../navigation/types';
 type Props = NativeStackScreenProps<RootStackParamList, 'Splash'>;
 
 const SPLASH_MS = 2500;
-const SPLASH_BG = '#FEFBF3';
+const SPLASH_BG = colors.surfaceMuted;
 const logo = require('../../assets/logo.png');
+
+function useSplashLogoSize() {
+  const { width, height } = useWindowDimensions();
+
+  return useMemo(() => {
+    const horizontalCap = width * 0.38;
+    const verticalCap = height * 0.2;
+    const logoSize = Math.min(horizontalCap, verticalCap, 132);
+    const cornerRadius = Math.round(logoSize * 0.22);
+    return { logoSize, cornerRadius };
+  }, [width, height]);
+}
 
 export function SplashScreen({ navigation }: Props) {
   const { user, loading } = useAuth();
   const [minTimeDone, setMinTimeDone] = useState(false);
+  const { logoSize, cornerRadius } = useSplashLogoSize();
 
   useEffect(() => {
     ExpoSplashScreen.hideAsync().catch(() => {});
@@ -62,9 +75,24 @@ export function SplashScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <Image source={logo} style={styles.logo} resizeMode="contain" accessibilityLabel="Lunch Box logo" />
-        <ActivityIndicator size="large" color="#1E3A6E" style={styles.loader} />
+      <View style={styles.logoStage}>
+        <View
+          style={[
+            styles.logoFrame,
+            { width: logoSize, height: logoSize, borderRadius: cornerRadius },
+          ]}
+        >
+          <Image
+            source={logo}
+            style={[styles.logo, { borderRadius: cornerRadius }]}
+            resizeMode="contain"
+            accessibilityLabel="Chef Queen logo"
+          />
+        </View>
+      </View>
+
+      <View style={styles.footer}>
+        <ActivityIndicator size="large" color={colors.orange} />
         <Text style={styles.loadingText}>Loading...</Text>
       </View>
     </SafeAreaView>
@@ -72,14 +100,36 @@ export function SplashScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: SPLASH_BG },
-  content: {
+  container: {
     flex: 1,
-    justifyContent: 'center',
+    backgroundColor: SPLASH_BG,
+  },
+  logoStage: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: spacing.xl,
   },
-  logo: { width: 280, height: 280 },
-  loader: { marginTop: spacing.xl },
-  loadingText: { marginTop: spacing.md, fontSize: 13, color: '#5C6B7A', fontWeight: '600' },
+  logoFrame: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    ...shadow.subtle,
+  },
+  logo: {
+    width: '100%',
+    height: '100%',
+  },
+  footer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: spacing.xl,
+    gap: spacing.sm,
+    minHeight: 88,
+  },
+  loadingText: {
+    fontSize: 13,
+    color: colors.muted,
+    fontWeight: '600',
+  },
 });

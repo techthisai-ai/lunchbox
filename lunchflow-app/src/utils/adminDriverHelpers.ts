@@ -61,6 +61,10 @@ export function formatDriverName(name: string): string {
     .join(' ');
 }
 
+export function isDriverAccountActive(driver: RegisteredDriver): boolean {
+  return driver.approvalStatus === 'approved' && driver.status !== 'Offline';
+}
+
 export function resolveUiStatus(driver: RegisteredDriver, onLeaveIds: Set<string>): DriverUiStatus {
   if (driver.approvalStatus === 'pending') return 'Pending Approval';
   if (driver.approvalStatus === 'rejected') return 'Inactive';

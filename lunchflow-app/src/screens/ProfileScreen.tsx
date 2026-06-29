@@ -9,14 +9,16 @@ import { SubscriptionPlan } from '../constants/subscriptions';
 import { colors, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { ProfileStackParamList } from '../navigation/types';
+import { getCustomerOrderToday, loadCustomerProfile } from '../services/orderHubService';
 import { loadActiveSubscription } from '../services/subscriptionService';
+import { buildFoodReadyStudents, getDropAddress, normalizeDeliveryType } from '../types/delivery';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'ProfileMain'>;
 
 const baseMenuItems = [
   { icon: 'person-outline' as const, label: 'Personal Details', route: 'PersonalDetails' as const },
   { icon: 'document-text-outline' as const, label: 'Subscription Details', route: 'Subscription' as const },
-  { icon: 'location-outline' as const, label: 'Saved Addresses', sub: '2 addresses', route: 'SavedAddresses' as const },
+  { icon: 'location-outline' as const, label: 'Saved Addresses', route: 'SavedAddresses' as const },
   { icon: 'gift-outline' as const, label: 'Referral & Rewards', route: 'Referral' as const },
   { icon: 'wallet-outline' as const, label: 'Wallet & Payments', route: 'Wallet' as const },
   { icon: 'help-circle-outline' as const, label: 'Help & Support', route: 'Support' as const },
@@ -26,28 +28,50 @@ const baseMenuItems = [
 export function ProfileScreen({ navigation }: Props) {
   const { user, logout } = useAuth();
   const [activePlan, setActivePlan] = useState<SubscriptionPlan | null>(null);
+  const [deliveryAddressCount, setDeliveryAddressCount] = useState(1);
 
   useFocusEffect(
     useCallback(() => {
       if (!user?.phone) {
         setActivePlan(null);
+        setDeliveryAddressCount(1);
         return;
       }
       loadActiveSubscription(user.phone).then(setActivePlan);
+      Promise.all([loadCustomerProfile(user.phone), getCustomerOrderToday(user.phone)]).then(
+        ([profile, order]) => {
+          const fallbackAddress = (order ? getDropAddress(order) : '') || profile.school || '';
+          const students = buildFoodReadyStudents({
+            studentEntries: order?.studentEntries,
+            students: order?.studentEntries,
+            person: order?.studentName || profile.studentName,
+            dropAddress: fallbackAddress,
+            deliveryType: normalizeDeliveryType(order?.deliveryType ?? profile.deliveryType),
+            deliveryTypes: order?.deliveryTypes,
+          });
+          const filled = students.filter((entry) => entry.dropLocation.trim());
+          setDeliveryAddressCount(filled.length || (fallbackAddress.trim() ? 1 : 0));
+        },
+      );
     }, [user?.phone]),
   );
 
   const menuItems = useMemo(
     () =>
-      baseMenuItems.map((item) =>
-        item.route === 'Subscription'
-          ? {
-              ...item,
-              sub: activePlan ? `${activePlan.badgeLabel} · ${activePlan.price}` : 'Student · 1M · ₹699',
-            }
-          : item,
-      ),
-    [activePlan],
+      baseMenuItems.map((item) => {
+        if (item.route === 'Subscription') {
+          return {
+            ...item,
+            sub: activePlan ? `${activePlan.badgeLabel} · ${activePlan.price}` : 'Student · 1M · ₹699',
+          };
+        }
+        if (item.route === 'SavedAddresses') {
+          const total = 1 + deliveryAddressCount;
+          return { ...item, sub: `${total} address${total === 1 ? '' : 'es'}` };
+        }
+        return item;
+      }),
+    [activePlan, deliveryAddressCount],
   );
 
   const handleLogout = async () => {

@@ -16,9 +16,12 @@ export function goToDriverPendingApproval(navigation: DriverRootNavigation) {
 export async function navigateAfterDriverLogin(navigation: DriverRootNavigation, phone: string) {
   const normalized = normalizePhone(phone);
   const driver = await loadDriverByPhone(normalized);
-  const approvalStatus = driver?.approvalStatus ?? 'approved';
+  if (!driver) {
+    goToDriverPendingApproval(navigation);
+    return;
+  }
 
-  if (approvalStatus === 'approved') {
+  if (driver.approvalStatus === 'approved') {
     goToDriverHome(navigation);
     return;
   }

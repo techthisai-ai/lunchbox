@@ -12,7 +12,7 @@ import { useDelivery } from '../context/DeliveryContext';
 import { useFoodReadyOverlay } from '../context/FoodReadyOverlayContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { HomeStackParamList } from '../navigation/types';
-import { getDeliveryTypeLabel, getDropAddress, normalizeDeliveryType } from '../types/delivery';
+import { getDeliveryTypeLabel, getDropAddress, normalizeDeliveryType, normalizeDeliveryTypes, buildFoodReadyStudents } from '../types/delivery';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'FoodReady'>;
 
@@ -173,9 +173,20 @@ export function FoodReadyScreen({ navigation }: Props) {
                     initialValues: {
                       name: displayOrder.customerName,
                       deliveryType: normalizeDeliveryType(displayOrder.deliveryType),
+                      deliveryTypes: normalizeDeliveryTypes(
+                        displayOrder.deliveryTypes,
+                        normalizeDeliveryType(displayOrder.deliveryType),
+                      ),
                       pickupAddress: displayOrder.pickupAddress,
                       dropAddress: getDropAddress(displayOrder),
                       person: displayOrder.studentName,
+                      students: buildFoodReadyStudents({
+                        studentEntries: displayOrder.studentEntries,
+                        person: displayOrder.studentName,
+                        dropAddress: getDropAddress(displayOrder),
+                        deliveryType: normalizeDeliveryType(displayOrder.deliveryType),
+                        deliveryTypes: displayOrder.deliveryTypes,
+                      }),
                     },
                     submitting,
                     onConfirm: async (details) => {

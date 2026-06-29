@@ -6,7 +6,7 @@ import { db } from '../lib/firebase';
 import { GeoPoint } from '../types/delivery';
 
 const MEMORY_CACHE = new Map<string, GeoPoint>();
-const STORAGE_CACHE_KEY = '@lunchflow_geocode_cache_v1';
+const STORAGE_CACHE_KEY = '@lunchflow_geocode_cache_v2';
 
 function hashAddress(address: string): number {
   let hash = 0;
@@ -19,6 +19,20 @@ function hashAddress(address: string): number {
 
 function cacheKey(address: string): string {
   return address.trim().toLowerCase();
+}
+
+/** Tamil Nadu bounding box for map defaults */
+export function isTamilNaduPoint(point: GeoPoint): boolean {
+  return point.lat >= 8 && point.lat <= 13.6 && point.lng >= 76.2 && point.lng <= 80.5;
+}
+
+export function resolveMapPoint(
+  stored: GeoPoint | null | undefined,
+  address: string,
+  fallback: GeoPoint,
+): GeoPoint {
+  if (stored && isTamilNaduPoint(stored)) return stored;
+  return geocodeAddress(address, fallback);
 }
 
 function getGoogleMapsApiKey(): string | null {
@@ -34,8 +48,24 @@ export function geocodeAddress(address: string, fallback: GeoPoint): GeoPoint {
   const cached = MEMORY_CACHE.get(normalized);
   if (cached) return cached;
 
-  if (normalized.includes('green park')) return DEMO_PICKUP;
-  if (normalized.includes('delhi public') || normalized.includes('dps')) return DEMO_DROP;
+  if (normalized.includes('stella') || normalized.includes('school') || normalized.includes('college')) {
+    return DEMO_DROP;
+  }
+  if (
+    normalized.includes('north street') ||
+    normalized.includes('anna nagar') ||
+    normalized.includes('t nagar') ||
+    normalized.includes('home')
+  ) {
+    return DEMO_PICKUP;
+  }
+  if (normalized.includes('chennai') || normalized.includes('coimbatore') || normalized.includes('madurai')) {
+    const cityHash = hashAddress(normalized);
+    return {
+      lat: fallback.lat + (((cityHash % 200) - 100) / 10000),
+      lng: fallback.lng + ((((cityHash >> 8) % 200) - 100) / 10000),
+    };
+  }
 
   const hash = hashAddress(normalized);
   const latOffset = ((hash % 1000) - 500) / 10000;
@@ -61,7 +91,15 @@ async function writeStorageCache(cache: Record<string, GeoPoint>): Promise<void>
 }
 
 async function fetchGoogleGeocode(address: string, apiKey: string): Promise<GeoPoint | null> {
-  const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`;
+  const normalized = address.trim().toLowerCase();
+  const hasRegion =
+    normalized.includes('tamil') ||
+    normalized.includes('chennai') ||
+    normalized.includes('coimbatore') ||
+    normalized.includes('madurai') ||
+    normalized.includes('india');
+  const query = hasRegion ? address : `${address}, Tamil Nadu, India`;
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${apiKey}`;
   const response = await fetch(url);
   if (!response.ok) return null;
   const data = (await response.json()) as {

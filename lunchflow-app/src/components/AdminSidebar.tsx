@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, palette, radius, shadow, spacing } from '../constants/theme';
 import { LogoMark } from './LogoMark';
 
@@ -44,6 +44,10 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'reports', label: 'Reports' },
 ];
 
+const SIDEBAR_WIDTH = 252;
+
+export const ADMIN_SIDEBAR_WIDTH = SIDEBAR_WIDTH;
+
 const SIDEBAR = {
   bg: palette.purple10,
   bgSoft: palette.purple10Soft,
@@ -58,19 +62,12 @@ const SIDEBAR = {
 
 type Props = {
   active: AdminPage;
-  adminName?: string;
   onNavigate: (page: AdminPage) => void;
   onLogout: () => void;
   variant?: 'fixed' | 'overlay';
 };
 
-function getInitial(name?: string) {
-  return (name?.trim().charAt(0) || 'A').toUpperCase();
-}
-
-export function AdminSidebar({ active, adminName, onNavigate, onLogout, variant = 'fixed' }: Props) {
-  const displayName = adminName?.trim() || 'Admin User';
-
+export function AdminSidebar({ active, onNavigate, onLogout, variant = 'fixed' }: Props) {
   return (
     <LinearGradient
       colors={[SIDEBAR.bg, SIDEBAR.bgSoft, '#1E0F33']}
@@ -79,7 +76,7 @@ export function AdminSidebar({ active, adminName, onNavigate, onLogout, variant 
       style={[styles.sidebar, variant === 'overlay' && styles.sidebarOverlay]}
     >
       <View style={styles.brandCard}>
-        <LogoMark size={38} />
+        <LogoMark size={48} />
         <View style={styles.brandText}>
           <Text style={styles.brandTitle}>
             Lunch<Text style={styles.brandAccent}>Flow</Text>
@@ -91,7 +88,12 @@ export function AdminSidebar({ active, adminName, onNavigate, onLogout, variant 
         </View>
       </View>
 
-      <View style={styles.nav}>
+      <ScrollView
+        style={styles.navScroll}
+        contentContainerStyle={styles.navContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         {NAV_ITEMS.map((item) => {
           const selected = active === item.id;
           return (
@@ -110,21 +112,9 @@ export function AdminSidebar({ active, adminName, onNavigate, onLogout, variant 
             </Pressable>
           );
         })}
-      </View>
+      </ScrollView>
 
       <View style={styles.footer}>
-        <View style={styles.userCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{getInitial(adminName)}</Text>
-          </View>
-          <View style={styles.userMeta}>
-            <Text style={styles.adminName} numberOfLines={1}>
-              {displayName}
-            </Text>
-            <Text style={styles.adminRole}>Administrator</Text>
-          </View>
-        </View>
-
         <Pressable
           style={({ pressed, hovered }) => [
             styles.logoutBtn,
@@ -142,16 +132,18 @@ export function AdminSidebar({ active, adminName, onNavigate, onLogout, variant 
 
 const styles = StyleSheet.create({
   sidebar: {
-    width: 252,
+    width: SIDEBAR_WIDTH,
+    flex: 1,
     flexDirection: 'column',
     borderRightWidth: 1,
     borderRightColor: SIDEBAR.border,
     alignSelf: 'stretch',
     flexShrink: 0,
+    overflow: 'hidden',
+    height: '100%',
     ...(Platform.OS === 'web'
       ? {
-          height: '100%' as unknown as number,
-          minHeight: '100vh' as unknown as number,
+          minHeight: '100%' as unknown as number,
         }
       : {}),
   },
@@ -211,24 +203,27 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
-  nav: {
+  navScroll: {
     flex: 1,
     minHeight: 0,
+  },
+  navContent: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
-    justifyContent: 'space-evenly',
     gap: 6,
+    paddingBottom: 8,
   },
   navItem: {
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
+    paddingVertical: 11,
     paddingHorizontal: 10,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: SIDEBAR.border,
     backgroundColor: SIDEBAR.surface,
+    flexShrink: 0,
   },
   navItemHover: {
     backgroundColor: SIDEBAR.hover,
@@ -240,10 +235,11 @@ const styles = StyleSheet.create({
   },
   navLabel: {
     width: '100%',
-    fontSize: 14,
+    fontSize: 17,
     fontWeight: '700',
     color: SIDEBAR.text,
     textAlign: 'center',
+    lineHeight: 22,
   },
   navLabelActive: {
     color: SIDEBAR.activeText,
@@ -258,45 +254,7 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: 'rgba(0, 0, 0, 0.15)',
     flexShrink: 0,
-  },
-  userCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    backgroundColor: SIDEBAR.surface,
-    borderWidth: 1,
-    borderColor: SIDEBAR.border,
-  },
-  avatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: SIDEBAR.activeBg,
-  },
-  avatarText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: SIDEBAR.activeText,
-  },
-  userMeta: {
-    flex: 1,
-    minWidth: 0,
-  },
-  adminName: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: SIDEBAR.text,
-  },
-  adminRole: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: SIDEBAR.textMuted,
-    marginTop: 1,
+    zIndex: 2,
   },
   logoutBtn: {
     flexDirection: 'row',

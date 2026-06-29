@@ -89,7 +89,7 @@ export function OtpVerifyScreen({ navigation, route }: Props) {
 
       <View style={[styles.content, { paddingHorizontal: horizontalPadding }]}>
         <View style={styles.centerBlock}>
-          <LogoMark size={56} />
+          <LogoMark size={80} />
           <Text style={styles.title}>Enter OTP</Text>
           <Text style={styles.subtitle}>We sent a code to +91 {phone}</Text>
 

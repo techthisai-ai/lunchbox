@@ -1,9 +1,12 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
 import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { Button } from '../../components/Button';
 import { colors, radius, spacing } from '../../constants/theme';
+import { useAdminLayout } from '../../hooks/useAdminLayout';
+import { useAdminTableColumn } from '../../hooks/useAdminTableColumn';
 import { DEFAULT_DELIVERY_SLOTS, DeliverySlot, loadDeliverySlots, saveDeliverySlot } from '../../services/deliverySlotService';
 import { loadPricingPlans, savePricingPlans, PricingPlan } from '../../services/slotPricingService';
 
@@ -17,6 +20,19 @@ function isValidTime(value: string): boolean {
 }
 
 export function AdminSlotsScreen() {
+  const { isSidebarCollapsed } = useAdminLayout();
+  const col = useAdminTableColumn();
+  const slotCols = {
+    slot: col(0.9, 140),
+    window: col(1.3, 130),
+    booked: col(0.4, 60, { alignItems: 'center' }),
+    input: col(0.5, 85, { alignItems: 'flex-start' }),
+  };
+  const planCols = {
+    plan: col(1, 140),
+    duration: col(0.85, 100),
+    input: col(0.5, 85, { alignItems: 'flex-start' }),
+  };
   const [slots, setSlots] = useState<DeliverySlot[]>([]);
   const [plans, setPlans] = useState<PricingPlan[]>([]);
   const [newSlotName, setNewSlotName] = useState('');
@@ -108,55 +124,49 @@ export function AdminSlotsScreen() {
         <View style={styles.sectionPanel}>
           <Text style={styles.sectionTitle}>Delivery Slots</Text>
           <View style={styles.tableCard}>
-            <View style={styles.table}>
-              <View style={styles.headerRow}>
-                <View style={styles.colSlot}>
-                  <Text style={styles.th}>Slot</Text>
+            <AdminTableScroll minWidth={500}>
+              <View style={styles.table}>
+                <View style={styles.headerRow}>
+                  <View style={slotCols.slot}><Text style={styles.th}>Slot</Text></View>
+                  <View style={slotCols.window}><Text style={styles.th}>Window</Text></View>
+                  <View style={slotCols.booked}><Text style={styles.th}>Booked</Text></View>
+                  <View style={slotCols.input}><Text style={styles.th}>Capacity</Text></View>
                 </View>
-                <View style={styles.colWindow}>
-                  <Text style={styles.th}>Window</Text>
-                </View>
-                <View style={styles.colBooked}>
-                  <Text style={styles.th}>Booked</Text>
-                </View>
-                <View style={styles.colInput}>
-                  <Text style={styles.th}>Capacity</Text>
-                </View>
+                {slots.map((slot) => (
+                  <View key={slot.id} style={styles.row}>
+                    <View style={slotCols.slot}>
+                      <Text style={styles.td} numberOfLines={1}>
+                        {slot.label}
+                      </Text>
+                    </View>
+                    <View style={slotCols.window}>
+                      <Text style={styles.td} numberOfLines={1}>
+                        {slot.startTime} - {slot.endTime}
+                      </Text>
+                    </View>
+                    <View style={slotCols.booked}>
+                      <Text style={styles.td} numberOfLines={1}>
+                        {slot.booked}
+                      </Text>
+                    </View>
+                    <View style={slotCols.input}>
+                      <TextInput
+                        style={styles.numInput}
+                        keyboardType="number-pad"
+                        defaultValue={String(slot.capacity)}
+                        onEndEditing={(e) => updateSlotCapacity(slot, e.nativeEvent.text)}
+                      />
+                    </View>
+                  </View>
+                ))}
               </View>
-              {slots.map((slot) => (
-                <View key={slot.id} style={styles.row}>
-                  <View style={styles.colSlot}>
-                    <Text style={styles.td} numberOfLines={1}>
-                      {slot.label}
-                    </Text>
-                  </View>
-                  <View style={styles.colWindow}>
-                    <Text style={styles.td} numberOfLines={1}>
-                      {slot.startTime} - {slot.endTime}
-                    </Text>
-                  </View>
-                  <View style={styles.colBooked}>
-                    <Text style={styles.td} numberOfLines={1}>
-                      {slot.booked}
-                    </Text>
-                  </View>
-                  <View style={styles.colInput}>
-                    <TextInput
-                      style={styles.numInput}
-                      keyboardType="number-pad"
-                      defaultValue={String(slot.capacity)}
-                      onEndEditing={(e) => updateSlotCapacity(slot, e.nativeEvent.text)}
-                    />
-                  </View>
-                </View>
-              ))}
-            </View>
+            </AdminTableScroll>
           </View>
 
-          <View style={styles.addForm}>
+          <View style={[styles.addForm, isSidebarCollapsed && styles.addFormCompact]}>
             <Text style={styles.addFormTitle}>Add Delivery Slot</Text>
-            <View style={styles.addFormRow}>
-              <View style={styles.addFieldWide}>
+            <View style={[styles.addFormRow, isSidebarCollapsed && styles.addFormRowCompact]}>
+              <View style={[styles.addFieldWide, isSidebarCollapsed && styles.addFieldFull]}>
                 <Text style={styles.addLabel}>Slot Name</Text>
                 <TextInput
                   style={styles.textInput}
@@ -166,7 +176,7 @@ export function AdminSlotsScreen() {
                   placeholderTextColor={colors.muted}
                 />
               </View>
-              <View style={styles.addFieldTime}>
+              <View style={[styles.addFieldTime, isSidebarCollapsed && styles.addFieldHalf]}>
                 <Text style={styles.addLabel}>Start</Text>
                 <TextInput
                   style={styles.textInput}
@@ -176,7 +186,7 @@ export function AdminSlotsScreen() {
                   placeholderTextColor={colors.muted}
                 />
               </View>
-              <View style={styles.addFieldTime}>
+              <View style={[styles.addFieldTime, isSidebarCollapsed && styles.addFieldHalf]}>
                 <Text style={styles.addLabel}>End</Text>
                 <TextInput
                   style={styles.textInput}
@@ -186,7 +196,7 @@ export function AdminSlotsScreen() {
                   placeholderTextColor={colors.muted}
                 />
               </View>
-              <View style={styles.addFieldCapacity}>
+              <View style={[styles.addFieldCapacity, isSidebarCollapsed && styles.addFieldHalf]}>
                 <Text style={styles.addLabel}>Capacity</Text>
                 <TextInput
                   style={styles.textInput}
@@ -201,7 +211,7 @@ export function AdminSlotsScreen() {
                 title={addingSlot ? 'Adding...' : 'Add Slot'}
                 onPress={handleAddSlot}
                 small
-                style={styles.addBtn}
+                style={[styles.addBtn, isSidebarCollapsed && styles.addBtnFull]}
               />
             </View>
             {slotError ? <Text style={styles.addError}>{slotError}</Text> : null}
@@ -211,41 +221,37 @@ export function AdminSlotsScreen() {
         <View style={styles.sectionPanel}>
           <Text style={styles.sectionTitle}>Subscription Pricing</Text>
           <View style={styles.tableCard}>
-            <View style={styles.table}>
-              <View style={styles.headerRow}>
-                <View style={styles.colPlan}>
-                  <Text style={styles.th}>Plan</Text>
+            <AdminTableScroll minWidth={400}>
+              <View style={styles.table}>
+                <View style={styles.headerRow}>
+                  <View style={planCols.plan}><Text style={styles.th}>Plan</Text></View>
+                  <View style={planCols.duration}><Text style={styles.th}>Duration</Text></View>
+                  <View style={planCols.input}><Text style={styles.th}>Amount (₹)</Text></View>
                 </View>
-                <View style={styles.colDuration}>
-                  <Text style={styles.th}>Duration</Text>
-                </View>
-                <View style={styles.colInput}>
-                  <Text style={styles.th}>Amount (₹)</Text>
-                </View>
+                {plans.map((plan) => (
+                  <View key={plan.id} style={styles.row}>
+                    <View style={planCols.plan}>
+                      <Text style={styles.td} numberOfLines={1}>
+                        {plan.name}
+                      </Text>
+                    </View>
+                    <View style={planCols.duration}>
+                      <Text style={styles.td} numberOfLines={1}>
+                        {plan.durationDays} days
+                      </Text>
+                    </View>
+                    <View style={planCols.input}>
+                      <TextInput
+                        style={styles.numInput}
+                        keyboardType="number-pad"
+                        defaultValue={String(plan.amount)}
+                        onEndEditing={(e) => updatePlanAmount(plan, e.nativeEvent.text)}
+                      />
+                    </View>
+                  </View>
+                ))}
               </View>
-              {plans.map((plan) => (
-                <View key={plan.id} style={styles.row}>
-                  <View style={styles.colPlan}>
-                    <Text style={styles.td} numberOfLines={1}>
-                      {plan.name}
-                    </Text>
-                  </View>
-                  <View style={styles.colDuration}>
-                    <Text style={styles.td} numberOfLines={1}>
-                      {plan.durationDays} days
-                    </Text>
-                  </View>
-                  <View style={styles.colInput}>
-                    <TextInput
-                      style={styles.numInput}
-                      keyboardType="number-pad"
-                      defaultValue={String(plan.amount)}
-                      onEndEditing={(e) => updatePlanAmount(plan, e.nativeEvent.text)}
-                    />
-                  </View>
-                </View>
-              ))}
-            </View>
+            </AdminTableScroll>
           </View>
         </View>
       </View>
@@ -298,12 +304,6 @@ const styles = StyleSheet.create({
   },
   th: { fontSize: 11, fontWeight: '800', color: colors.muted, textTransform: 'uppercase' },
   td: { fontSize: 13, color: colors.text, fontWeight: '600' },
-  colSlot: { flex: 0.9, minWidth: 0 },
-  colWindow: { flex: 1.3, minWidth: 0 },
-  colBooked: { width: 52, flexShrink: 0 },
-  colPlan: { flex: 1, minWidth: 0 },
-  colDuration: { flex: 0.85, minWidth: 0 },
-  colInput: { width: 76, flexShrink: 0, alignItems: 'flex-start' },
   numInput: {
     width: 72,
     borderWidth: 1,
@@ -336,6 +336,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 8,
   },
+  addFormRowCompact: { flexDirection: 'column', alignItems: 'stretch' },
+  addFieldFull: { width: '100%', minWidth: 0, flex: 0 },
+  addFieldHalf: { width: '100%', minWidth: 0, flex: 0 },
+  addBtnFull: { alignSelf: 'stretch', width: '100%' },
   addFieldWide: {
     flex: 1,
     minWidth: 120,

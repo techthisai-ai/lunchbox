@@ -3,13 +3,121 @@ export type DeliveryType = 'school' | 'college' | 'office';
 /** @deprecated legacy stored values */
 export type LegacyDeliveryType = 'student' | 'other';
 
+export type FoodReadyStudentEntry = {
+  name: string;
+  dropLocation: string;
+  classSection: string;
+  deliveryType: DeliveryType;
+};
+
 export type FoodReadyDetails = {
   name: string;
   pickupAddress: string;
   dropAddress: string;
+  /** Comma-separated names for display and legacy callers */
   person: string;
+  /** One or more student / employee names */
+  persons?: string[];
+  /** Full student rows with drop location and class / section */
+  students?: FoodReadyStudentEntry[];
+  /** Primary delivery type for legacy callers */
   deliveryType: DeliveryType;
+  /** One or more selected where options */
+  deliveryTypes?: DeliveryType[];
 };
+
+export function emptyFoodReadyStudent(deliveryType: DeliveryType = 'school'): FoodReadyStudentEntry {
+  return { name: '', dropLocation: '', classSection: '', deliveryType };
+}
+
+export function normalizeDeliveryTypes(
+  value?: DeliveryType | DeliveryType[] | null,
+  fallback: DeliveryType = 'school',
+): DeliveryType[] {
+  if (Array.isArray(value) && value.length) {
+    return [...new Set(value.map((entry) => normalizeDeliveryType(entry)))];
+  }
+  if (value) {
+    return [normalizeDeliveryType(value)];
+  }
+  return [fallback];
+}
+
+export function buildFoodReadyStudents(
+  initial?: Partial<FoodReadyDetails> & { studentEntries?: FoodReadyStudentEntry[] },
+): FoodReadyStudentEntry[] {
+  const defaultTypes = normalizeDeliveryTypes(
+    initial?.deliveryTypes ?? initial?.studentEntries?.map((entry) => entry.deliveryType),
+    normalizeDeliveryType(initial?.deliveryType),
+  );
+  const defaultType = defaultTypes[0];
+
+  if (initial?.students?.length) {
+    return initial.students.map((entry) => ({
+      ...emptyFoodReadyStudent(defaultType),
+      ...entry,
+      deliveryType: normalizeDeliveryType(entry.deliveryType ?? defaultType),
+    }));
+  }
+  if (initial?.studentEntries?.length) {
+    return initial.studentEntries.map((entry) => ({
+      ...emptyFoodReadyStudent(defaultType),
+      ...entry,
+      deliveryType: normalizeDeliveryType(entry.deliveryType ?? defaultType),
+    }));
+  }
+  const names = parsePersonList(initial?.persons ?? initial?.person);
+  const drop = initial?.dropAddress ?? '';
+  return names.map((name) => ({ ...emptyFoodReadyStudent(defaultType), name, dropLocation: drop }));
+}
+
+export function formatStudentDisplayName(entries: FoodReadyStudentEntry[]): string {
+  return entries
+    .filter((entry) => entry.name.trim())
+    .map((entry) => {
+      const detail = entry.classSection.trim();
+      return detail ? `${entry.name.trim()} (${detail})` : entry.name.trim();
+    })
+    .join(', ');
+}
+
+export function formatStudentDropAddresses(entries: FoodReadyStudentEntry[]): string {
+  const drops = entries
+    .filter((entry) => entry.name.trim())
+    .map((entry) => entry.dropLocation.trim())
+    .filter(Boolean);
+  return [...new Set(drops)].join(' | ');
+}
+
+export function foodReadyStudentsToLegacy(entries: FoodReadyStudentEntry[]): {
+  person: string;
+  persons: string[];
+  dropAddress: string;
+} {
+  const filled = entries.filter((entry) => entry.name.trim());
+  const persons = filled.map((entry) => entry.name.trim());
+  return {
+    person: formatStudentDisplayName(filled),
+    persons,
+    dropAddress: formatStudentDropAddresses(filled) || filled[0]?.dropLocation.trim() || '',
+  };
+}
+
+export function parsePersonList(value?: string | string[]): string[] {
+  if (Array.isArray(value)) {
+    const list = value.map((entry) => entry.trim()).filter(Boolean);
+    return list.length ? list : [''];
+  }
+  const list = (value ?? '')
+    .split(/[,;]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return list.length ? list : [''];
+}
+
+export function formatPersonList(persons: string[]): string {
+  return persons.map((entry) => entry.trim()).filter(Boolean).join(', ');
+}
 
 export function normalizeDeliveryType(type?: DeliveryType | LegacyDeliveryType | string): DeliveryType {
   if (type === 'college' || type === 'other') return 'college';
@@ -82,6 +190,7 @@ export type DeliveryOrder = {
   studentName: string;
   school: string;
   deliveryType: DeliveryType;
+  deliveryTypes?: DeliveryType[];
   pickupAddress: string;
   dropAddress: string;
   estimatedArrival: string | null;
@@ -107,6 +216,7 @@ export type DeliveryOrder = {
   assignedDriverPhone?: string;
   deliverySlotId?: string;
   deliverySlotLabel?: string;
+  studentEntries?: FoodReadyStudentEntry[];
 };
 
 export type DeliveryProfile = {

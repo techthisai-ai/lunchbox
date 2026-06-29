@@ -1,30 +1,34 @@
 import { Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { colors } from '../constants/theme';
-import { useFullWidthLayout } from '../context/FullWidthContext';
 import { useResponsive } from '../hooks/useResponsive';
 
 type Props = {
   children: React.ReactNode;
 };
 
-function AppFrame({ children }: Props) {
-  const { contentMaxWidth, isWide } = useResponsive();
-  const fullWidth = useFullWidthLayout();
-  const maxWidth = fullWidth ? undefined : isWide ? contentMaxWidth : contentMaxWidth;
-
-  return (
-    <View style={[styles.frame, isWide && !fullWidth && styles.frameWide]}>
-      <View style={[styles.content, maxWidth != null ? { maxWidth } : styles.contentFull]}>{children}</View>
-    </View>
-  );
-}
+type FrameProps = Props & {
+  /** When true, use full browser width (admin portal on web). */
+  fullWidth?: boolean;
+};
 
 export function MobileShell({ children }: Props) {
   return (
     <SafeAreaProvider style={[styles.root, Platform.OS === 'web' && styles.webRoot]}>
-      <AppFrame>{children}</AppFrame>
+      {children}
     </SafeAreaProvider>
+  );
+}
+
+export function AppLayoutFrame({ children, fullWidth = false }: FrameProps) {
+  const { contentMaxWidth, isWide } = useResponsive();
+  const constrainWidth = isWide && !fullWidth;
+  const maxWidth = constrainWidth ? contentMaxWidth : undefined;
+
+  return (
+    <View style={[styles.frame, constrainWidth && styles.frameWide]}>
+      <View style={[styles.content, maxWidth != null ? { maxWidth } : styles.contentFull]}>{children}</View>
+    </View>
   );
 }
 

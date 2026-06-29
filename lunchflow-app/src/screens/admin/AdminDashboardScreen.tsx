@@ -2,6 +2,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
 import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
 import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
 import { AdminNotificationBell } from '../../components/admin/AdminNotificationBell';
@@ -12,6 +13,7 @@ import { formatOrderDisplayId } from '../../utils/adminOrderHelpers';
 import { LiveDeliveryMap } from '../../components/LiveDeliveryMap';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
+import { useAdminTableColumn } from '../../hooks/useAdminTableColumn';
 import { buildDailySalesReport, buildSalaryReport } from '../../services/reportsService';
 import {
   getAdminStatusLabel,
@@ -48,7 +50,16 @@ export function AdminDashboardScreen() {
   const [drivers, setDrivers] = useState<Awaited<ReturnType<typeof loadRegisteredDrivers>>>([]);
   const [revenue, setRevenue] = useState(0);
   const [pendingPayments, setPendingPayments] = useState(0);
-  const { showMobileHeader, pageTitleSize } = useAdminLayout();
+  const { showMobileHeader, pageTitleSize, isSidebarCollapsed, isCompact } = useAdminLayout();
+  const col = useAdminTableColumn();
+  const c = {
+    id: col(1.1, 95),
+    customer: col(1, 125),
+    route: col(1.8, 200),
+    driver: col(0.9, 115),
+    status: col(0.85, 105, { alignItems: 'flex-start' }),
+  };
+  const mapHeight = isCompact ? 200 : isSidebarCollapsed ? 220 : 280;
 
   const refresh = useCallback(async () => {
     await processExpiredPickupOrders();
@@ -86,15 +97,13 @@ export function AdminDashboardScreen() {
 
   return (
     <AdminPageLayout wide>
-      <View style={styles.header}>
+      <View style={[styles.header, isSidebarCollapsed && styles.headerMobile]}>
         {!showMobileHeader ? (
           <View>
             <Text style={[styles.pageTitle, { fontSize: pageTitleSize }]}>Dashboard</Text>
           </View>
-        ) : (
-          <View />
-        )}
-        <View style={styles.headerActions}>
+        ) : null}
+        <View style={[styles.headerActions, isSidebarCollapsed && styles.headerActionsMobile]}>
           <View style={styles.datePill}>
             <Ionicons name="calendar-outline" size={16} color={colors.muted} />
             <Text style={styles.dateText}>{formatTodayDate()}</Text>
@@ -115,9 +124,9 @@ export function AdminDashboardScreen() {
       <View style={styles.midRow}>
         <AdminPanel title="Live Delivery Map" style={styles.mapPanel}>
           {(mapOrder ?? fleetOrders[0] ?? orders[0]) ? (
-            <LiveDeliveryMap order={(mapOrder ?? fleetOrders[0] ?? orders[0])!} fleetOrders={fleetOrders} height={280} />
+            <LiveDeliveryMap order={(mapOrder ?? fleetOrders[0] ?? orders[0])!} fleetOrders={fleetOrders} height={mapHeight} />
           ) : (
-            <View style={styles.mapPlaceholder}>
+            <View style={[styles.mapPlaceholder, { height: mapHeight }]}>
               <Ionicons name="map-outline" size={32} color={colors.muted} />
               <Text style={styles.placeholderText}>No active deliveries on the map yet.</Text>
             </View>
@@ -127,48 +136,39 @@ export function AdminDashboardScreen() {
 
       <View style={styles.bottomRow}>
         <AdminPanel title="Recent Orders" actionLabel="View all" style={styles.tablePanel}>
+          <AdminTableScroll minWidth={760}>
           <View style={styles.table}>
             <View style={styles.tableHead}>
-              <View style={styles.colId}>
-                <Text style={styles.th}>Order ID</Text>
-              </View>
-              <View style={styles.colCustomer}>
-                <Text style={styles.th}>Customer</Text>
-              </View>
-              <View style={styles.colRoute}>
-                <Text style={styles.th}>Route</Text>
-              </View>
-              <View style={styles.colDriver}>
-                <Text style={styles.th}>Driver</Text>
-              </View>
-              <View style={styles.colStatus}>
-                <Text style={styles.th}>Status</Text>
-              </View>
+              <View style={c.id}><Text style={styles.th}>Order ID</Text></View>
+              <View style={c.customer}><Text style={styles.th}>Customer</Text></View>
+              <View style={c.route}><Text style={styles.th}>Route</Text></View>
+              <View style={c.driver}><Text style={styles.th}>Driver</Text></View>
+              <View style={c.status}><Text style={styles.th}>Status</Text></View>
             </View>
             {recentOrders.length > 0 ? (
               recentOrders.map((order) => (
                 <View key={order.id} style={styles.tableRow}>
-                  <View style={styles.colId}>
+                  <View style={c.id}>
                     <Text style={[styles.td, styles.idText]} numberOfLines={1}>
                       {formatOrderDisplayId(order.id)}
                     </Text>
                   </View>
-                  <View style={styles.colCustomer}>
+                  <View style={c.customer}>
                     <Text style={styles.td} numberOfLines={1}>
                       {order.customerName}
                     </Text>
                   </View>
-                  <View style={styles.colRoute}>
+                  <View style={c.route}>
                     <Text style={styles.td} numberOfLines={1}>
                       {order.pickupAddress} → {order.school}
                     </Text>
                   </View>
-                  <View style={styles.colDriver}>
+                  <View style={c.driver}>
                     <Text style={styles.td} numberOfLines={1}>
                       {order.driver?.name ?? '—'}
                     </Text>
                   </View>
-                  <View style={styles.colStatus}>
+                  <View style={c.status}>
                     <Badge label={getAdminStatusLabel(order.status)} tone={statusTone(order.status)} />
                   </View>
                 </View>
@@ -177,6 +177,7 @@ export function AdminDashboardScreen() {
               <Text style={styles.empty}>No orders today yet.</Text>
             )}
           </View>
+          </AdminTableScroll>
         </AdminPanel>
       </View>
     </AdminPageLayout>
@@ -192,6 +193,8 @@ const styles = StyleSheet.create({
     gap: 16,
     marginBottom: spacing.lg,
   },
+  headerMobile: { marginBottom: spacing.md, gap: 10 },
+  headerActionsMobile: { width: '100%', justifyContent: 'space-between' },
   pageTitle: { fontSize: 28, fontWeight: '800', color: colors.text },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   datePill: {
@@ -211,7 +214,6 @@ const styles = StyleSheet.create({
   mapPanel: { flex: 1, minWidth: 0, width: '100%' },
   tablePanel: { flex: 1, minWidth: 0, width: '100%' },
   mapPlaceholder: {
-    height: 280,
     borderRadius: radius.sm,
     backgroundColor: colors.bg,
     alignItems: 'center',
@@ -239,10 +241,5 @@ const styles = StyleSheet.create({
   th: { fontSize: 11, fontWeight: '700', color: colors.muted, textTransform: 'uppercase' },
   td: { fontSize: 12, color: colors.text, fontWeight: '500' },
   idText: { fontWeight: '800', color: colors.text },
-  colId: { flex: 1.1, minWidth: 0 },
-  colCustomer: { flex: 1, minWidth: 0 },
-  colRoute: { flex: 1.8, minWidth: 0 },
-  colDriver: { flex: 0.9, minWidth: 0 },
-  colStatus: { width: 118, flexShrink: 0, alignItems: 'flex-start' },
   empty: { fontSize: 13, color: colors.muted, paddingVertical: 12 },
 });

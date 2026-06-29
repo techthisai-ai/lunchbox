@@ -7,27 +7,41 @@ import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
 import { colors, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
-import { navigateAfterDriverLogin } from '../../navigation/driverRoutes';
+import { goToDriverHome } from '../../navigation/driverRoutes';
 import { RootStackParamList } from '../../navigation/types';
-import { loadDriverByPhone } from '../../services/userRegistryService';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DriverPendingApproval'>;
 
+const POLL_MS = 3000;
+
 export function DriverPendingApprovalScreen({ navigation }: Props) {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshDriverProfile } = useAuth();
   const [status, setStatus] = useState<'pending' | 'rejected'>('pending');
 
   useFocusEffect(
     useCallback(() => {
       if (!user?.phone) return;
-      loadDriverByPhone(user.phone).then((driver) => {
-        const approvalStatus = driver?.approvalStatus ?? 'pending';
+      let cancelled = false;
+
+      const checkApproval = async () => {
+        const profile = await refreshDriverProfile();
+        if (cancelled) return;
+
+        const approvalStatus = profile?.driverApprovalStatus ?? user.driverApprovalStatus ?? 'pending';
         setStatus(approvalStatus === 'rejected' ? 'rejected' : 'pending');
+
         if (approvalStatus === 'approved') {
-          navigateAfterDriverLogin(navigation, user.phone!);
+          goToDriverHome(navigation);
         }
-      });
-    }, [navigation, user?.phone]),
+      };
+
+      checkApproval();
+      const interval = setInterval(checkApproval, POLL_MS);
+      return () => {
+        cancelled = true;
+        clearInterval(interval);
+      };
+    }, [navigation, refreshDriverProfile, user?.driverApprovalStatus, user?.phone]),
   );
 
   const handleLogout = async () => {

@@ -16,6 +16,7 @@ export type CustomerRegistration = {
   studentName: string;
   classSection: string;
   emergencyContact: string;
+  referralCode?: string;
 };
 
 export type DriverRegistration = {
@@ -247,6 +248,9 @@ export async function loadDriverByPhone(phone: string): Promise<RegisteredDriver
       const parsed = parseDriverRecord(docSnap.data() as Record<string, unknown>, docSnap.id);
       if (parsed?.phone === normalized) {
         driver = parsed;
+        const nextLocal = await readDriverMap();
+        nextLocal[normalized] = parsed;
+        await AsyncStorage.setItem(DRIVERS_KEY, JSON.stringify(nextLocal));
         break;
       }
     }
@@ -306,6 +310,44 @@ export async function approveDriver(driverId: string): Promise<RegisteredDriver>
 
 export async function rejectDriver(driverId: string): Promise<RegisteredDriver> {
   return updateDriverApproval(driverId, 'rejected');
+}
+
+export async function setDriverAvailability(driverId: string, active: boolean): Promise<RegisteredDriver> {
+  const drivers = await loadRegisteredDrivers();
+  const target = drivers.find((driver) => driver.id === driverId);
+  if (!target) {
+    throw new Error('Driver not found');
+  }
+  if (target.approvalStatus !== 'approved') {
+    throw new Error('Approve the driver before changing availability');
+  }
+
+  const nextStatus = active ? 'Available' : 'Offline';
+  if (target.status === nextStatus) return target;
+
+  const updated: RegisteredDriver = {
+    ...target,
+    status: nextStatus,
+  };
+
+  const local = await readDriverMap();
+  local[target.phone] = updated;
+  await AsyncStorage.setItem(DRIVERS_KEY, JSON.stringify(local));
+
+  try {
+    await setDoc(
+      doc(db, 'drivers', target.id),
+      {
+        status: nextStatus,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
+  } catch {
+    // Local registry remains source of truth when remote write fails.
+  }
+
+  return updated;
 }
 
 export async function registerDriverRecord(

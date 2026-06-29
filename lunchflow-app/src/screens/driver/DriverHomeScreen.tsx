@@ -38,7 +38,7 @@ type DriverHomeNavigation = CompositeNavigationProp<
 >;
 
 export function DriverHomeScreen() {
-  const { user } = useAuth();
+  const { user, refreshDriverProfile } = useAuth();
   const navigation = useNavigation<DriverHomeNavigation>();
   const [pending, setPending] = useState<DeliveryOrder[]>([]);
   const [active, setActive] = useState<DeliveryOrder[]>([]);
@@ -62,10 +62,12 @@ export function DriverHomeScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!user?.phone) return;
-      if (user.driverApprovalStatus && user.driverApprovalStatus !== 'approved') {
-        navigateAfterDriverLogin(navigation, user.phone);
-      }
-    }, [navigation, user?.driverApprovalStatus, user?.phone]),
+      refreshDriverProfile().then((profile) => {
+        if (profile?.driverApprovalStatus && profile.driverApprovalStatus !== 'approved') {
+          navigateAfterDriverLogin(navigation, user.phone!);
+        }
+      });
+    }, [navigation, refreshDriverProfile, user?.phone]),
   );
 
   useFocusEffect(

@@ -52,7 +52,7 @@ export function RoleSelectScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <LogoMark size={56} />
+        <LogoMark size={80} />
         <Text style={styles.title}>
           Lunch<Text style={styles.orange}>Flow</Text>
         </Text>

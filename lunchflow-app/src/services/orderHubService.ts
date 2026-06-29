@@ -13,12 +13,22 @@ import {
   FoodReadyDetails,
   GeoPoint,
   RoutePlan,
+  formatStudentDisplayName,
+  formatStudentDropAddresses,
   getDropAddress,
   normalizeDeliveryType,
+  normalizeDeliveryTypes,
 } from '../types/delivery';
 import { loadCustomerRegistration, loadRegisteredDrivers, incrementDriverCompletedDeliveries } from './userRegistryService';
 import { getDriverRatingSummary } from './ratingService';
-import { geocodeAddress, geocodeAddressAsync, interpolatePoint, driverProgressForStatus, isRecentGpsLocation, estimateTravelMinutes } from './mapGeocoding';
+import {
+  geocodeAddressAsync,
+  interpolatePoint,
+  driverProgressForStatus,
+  isRecentGpsLocation,
+  estimateTravelMinutes,
+  resolveMapPoint,
+} from './mapGeocoding';
 import { getEtaDestination } from '../utils/deliveryEta';
 import { pickAvailableSlot, reserveDeliverySlot } from './deliverySlotService';
 import { emitOrderChange } from './orderSync';
@@ -144,22 +154,21 @@ function phoneMatches(orderPhone: string, phone: string): boolean {
   return normalizePhone(orderPhone) === normalizePhone(phone);
 }
 
-function resolveOrderLocations(order: Pick<DeliveryOrder, 'pickupAddress' | 'dropAddress' | 'school'>): {
+function resolveOrderLocations(order: Pick<DeliveryOrder, 'pickupAddress' | 'dropAddress' | 'school' | 'pickupLocation' | 'dropLocation'>): {
   pickupLocation: GeoPoint;
   dropLocation: GeoPoint;
 } {
   return {
-    pickupLocation: geocodeAddress(order.pickupAddress, DEMO_PICKUP),
-    dropLocation: geocodeAddress(getDropAddress(order), DEMO_DROP),
+    pickupLocation: resolveMapPoint(order.pickupLocation, order.pickupAddress, DEMO_PICKUP),
+    dropLocation: resolveMapPoint(order.dropLocation, getDropAddress(order), DEMO_DROP),
   };
 }
 
 function withLocations(order: DeliveryOrder): DeliveryOrder {
-  const { pickupLocation, dropLocation } = resolveOrderLocations(order);
   return {
     ...order,
-    pickupLocation: order.pickupLocation ?? pickupLocation,
-    dropLocation: order.dropLocation ?? dropLocation,
+    pickupLocation: resolveMapPoint(order.pickupLocation, order.pickupAddress, DEMO_PICKUP),
+    dropLocation: resolveMapPoint(order.dropLocation, getDropAddress(order), DEMO_DROP),
   };
 }
 
@@ -168,7 +177,7 @@ function computeDriverLocation(order: DeliveryOrder): DriverLocation | null {
   if (order.driverLocation && isRecentGpsLocation(order.driverLocation.updatedAt)) {
     return order.driverLocation;
   }
-  const pickup = order.pickupLocation ?? resolveOrderLocations(order).pickupLocation;
+  const pickup = resolveMapPoint(order.pickupLocation, order.pickupAddress, DEMO_PICKUP);
   const drop = order.dropLocation ?? resolveOrderLocations(order).dropLocation;
   const progress = driverProgressForStatus(order.status);
   const point = interpolatePoint(pickup, drop, progress);
@@ -468,18 +477,32 @@ export async function markFoodReady(phone: string, details?: FoodReadyDetails): 
     return order;
   }
 
-  const personName = details?.person?.trim() || order.studentName;
+  const filledStudents = details?.students?.filter((entry) => entry.name.trim()) ?? [];
+  const personName =
+    (filledStudents.length ? formatStudentDisplayName(filledStudents) : null) ||
+    (details?.persons?.map((entry) => entry.trim()).filter(Boolean).join(', ') || details?.person?.trim()) ||
+    order.studentName;
   const customerName = details?.name?.trim() || order.customerName;
   const pickupAddress = details?.pickupAddress?.trim() || order.pickupAddress;
-  const dropAddress = details?.dropAddress?.trim() || order.dropAddress || order.school;
-  const deliveryType = normalizeDeliveryType(details?.deliveryType ?? order.deliveryType);
-  const locations = resolveOrderLocations({ pickupAddress, dropAddress, school: dropAddress });
+  const dropAddress =
+    (filledStudents.length ? formatStudentDropAddresses(filledStudents) : null) ||
+    details?.dropAddress?.trim() ||
+    order.dropAddress ||
+    order.school;
+  const deliveryTypes = normalizeDeliveryTypes(
+    details?.deliveryTypes ?? filledStudents.map((entry) => entry.deliveryType),
+    normalizeDeliveryType(details?.deliveryType ?? order.deliveryType),
+  );
+  const deliveryType = deliveryTypes[0] ?? normalizeDeliveryType(details?.deliveryType ?? order.deliveryType);
+  const primaryDrop = filledStudents[0]?.dropLocation.trim() || dropAddress;
+  const locations = resolveOrderLocations({ pickupAddress, dropAddress: primaryDrop, school: primaryDrop });
 
   const nowIso = new Date().toISOString();
   const updated: DeliveryOrder = {
     ...order,
     status: 'awaiting_driver',
     deliveryType,
+    deliveryTypes,
     customerName,
     studentName: personName,
     school: dropAddress,
@@ -492,6 +515,7 @@ export async function markFoodReady(phone: string, details?: FoodReadyDetails): 
     qrCode: order.qrCode || generateQrCode(personName, order.id),
     pickupReadyAtIso: nowIso,
     pickupExpiresAtIso: addMinutesIso(PICKUP_READY_TIMEOUT_MINUTES),
+    studentEntries: filledStudents.length ? filledStudents : order.studentEntries,
   };
 
   await persistOrder(updated);

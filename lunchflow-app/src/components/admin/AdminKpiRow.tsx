@@ -14,7 +14,20 @@ export function AdminKpiRow({ children, dense }: Props) {
   const items = Children.toArray(children);
 
   if (dense) {
-    const useScroll = isSidebarCollapsed || width < 900;
+    // Mobile admin: fit all KPI cards on screen in a 2-column grid (no horizontal scroll).
+    if (isSidebarCollapsed) {
+      return (
+        <View style={[styles.row, styles.wrap]}>
+          {items.map((child, index) => (
+            <View key={index} style={styles.itemDenseMobile}>
+              {child}
+            </View>
+          ))}
+        </View>
+      );
+    }
+
+    const useScroll = width < 900;
 
     if (useScroll) {
       return (
@@ -90,5 +103,10 @@ const styles = StyleSheet.create({
   itemScroll: {
     width: 148,
     flexShrink: 0,
+  },
+  itemDenseMobile: {
+    width: '48%',
+    flexGrow: 1,
+    minWidth: 0,
   },
 });

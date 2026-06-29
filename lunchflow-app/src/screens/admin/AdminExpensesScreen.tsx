@@ -1,7 +1,9 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
+import { AdminSearchField } from '../../components/admin/AdminSearchField';
 import { AdminAddCategoryModal } from '../../components/admin/AdminAddCategoryModal';
 import { AdminAddExpenseModal } from '../../components/admin/AdminAddExpenseModal';
 import { AdminFilterSelect } from '../../components/admin/AdminFilterSelect';
@@ -10,8 +12,11 @@ import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
 import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { Badge } from '../../components/Badge';
 import { colors, radius, spacing } from '../../constants/theme';
+import { useAdminLayout } from '../../hooks/useAdminLayout';
+import { useAdminTableColumn } from '../../hooks/useAdminTableColumn';
 import { listExpenseCategories, listExpenseRecords } from '../../services/adminFinanceService';
 import { ExpenseCategoryDef, ExpenseRecord } from '../../types/finance';
+import { buildMonthFilterOptions, currentMonthKey } from '../../utils/adminMonthHelpers';
 
 const CATEGORY_TONE: Record<string, 'orange' | 'blue' | 'green' | 'gray'> = {
   fuel: 'orange',
@@ -29,17 +34,6 @@ const CATEGORY_AMOUNT_COLOR: Record<string, string> = {
 
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function formatMonthLabel(month: string): string {
-  const [year, monthPart] = month.split('-');
-  const date = new Date(Number(year), Number(monthPart) - 1, 1);
-  return date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 }
 
 function formatExpenseDate(record: ExpenseRecord): string {
@@ -73,11 +67,13 @@ function getCategoryAmountColor(id: string): string {
 }
 
 export function AdminExpensesScreen() {
+  const { isSidebarCollapsed } = useAdminLayout();
+  const col = useAdminTableColumn();
   const [records, setRecords] = useState<ExpenseRecord[]>([]);
   const [categories, setCategories] = useState<ExpenseCategoryDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const [monthFilter, setMonthFilter] = useState(currentMonth());
+  const [monthFilter, setMonthFilter] = useState(currentMonthKey());
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
   const [addCategoryOpen, setAddCategoryOpen] = useState(false);
@@ -104,19 +100,20 @@ export function AdminExpensesScreen() {
     [categories],
   );
 
-  const monthOptions = useMemo(() => {
-    const months = new Set(records.map((record) => record.date.slice(0, 7)));
-    months.add(currentMonth());
-    return [...months]
-      .sort((a, b) => b.localeCompare(a))
-      .map((month) => ({ id: month, label: formatMonthLabel(month) }));
-  }, [records]);
+  const monthOptions = useMemo(
+    () => buildMonthFilterOptions(records.map((record) => record.date.slice(0, 7))),
+    [records],
+  );
 
   const today = todayKey();
+  const currentYear = String(new Date().getFullYear());
   const totalAllTime = records.reduce((sum, record) => sum + record.amount, 0);
   const todayTotal = records.filter((record) => record.date === today).reduce((sum, record) => sum + record.amount, 0);
   const monthTotal = records
-    .filter((record) => record.date.startsWith(currentMonth()))
+    .filter((record) => record.date.startsWith(currentMonthKey()))
+    .reduce((sum, record) => sum + record.amount, 0);
+  const yearTotal = records
+    .filter((record) => record.date.startsWith(currentYear))
     .reduce((sum, record) => sum + record.amount, 0);
 
   const filtered = useMemo(() => {
@@ -141,12 +138,12 @@ export function AdminExpensesScreen() {
       <AdminAddExpenseModal visible={addExpenseOpen} onClose={() => setAddExpenseOpen(false)} onAdded={refresh} />
       <AdminAddCategoryModal visible={addCategoryOpen} onClose={() => setAddCategoryOpen(false)} onAdded={refresh} />
 
-      <View style={styles.header}>
-        <Pressable style={styles.addCategoryBtn} onPress={() => setAddCategoryOpen(true)}>
+      <View style={[styles.header, isSidebarCollapsed && styles.headerCompact]}>
+        <Pressable style={[styles.addCategoryBtn, isSidebarCollapsed && styles.headerBtnFull]} onPress={() => setAddCategoryOpen(true)}>
           <Ionicons name="pricetag-outline" size={18} color={colors.text} />
           <Text style={styles.addCategoryBtnText}>Add Category</Text>
         </Pressable>
-        <Pressable style={styles.addBtn} onPress={() => setAddExpenseOpen(true)}>
+        <Pressable style={[styles.addBtn, isSidebarCollapsed && styles.headerBtnFull]} onPress={() => setAddExpenseOpen(true)}>
           <Ionicons name="add" size={18} color={colors.white} />
           <Text style={styles.addBtnText}>Add Expense</Text>
         </Pressable>
@@ -156,25 +153,28 @@ export function AdminExpensesScreen() {
         <AdminKpiCard compact label="Total Expenses" value={`₹${totalAllTime.toLocaleString('en-IN')}`} icon="wallet" iconBg={colors.orangeLight} iconColor={colors.orange} />
         <AdminKpiCard compact label="Expenses Today" value={`₹${todayTotal.toLocaleString('en-IN')}`} icon="water" iconBg={colors.yellowLight} iconColor={colors.dark} />
         <AdminKpiCard compact label="Expenses This Month" value={`₹${monthTotal.toLocaleString('en-IN')}`} icon="calendar" iconBg={colors.greenLight} iconColor={colors.greenDark} />
+        <AdminKpiCard compact label="Expenses This Year" value={`₹${yearTotal.toLocaleString('en-IN')}`} icon="stats-chart" iconBg={colors.blueLight} iconColor={colors.blue} />
       </AdminKpiRow>
 
       <View style={styles.tableCard}>
-        <View style={styles.toolbar}>
-          <View style={styles.toolbarSearch}>
-            <Ionicons name="search" size={16} color={colors.muted} />
-            <TextInput
-              placeholder="Search expenses..."
-              placeholderTextColor={colors.muted}
-              style={styles.toolbarSearchInput}
-              value={query}
-              onChangeText={setQuery}
+        <View style={[styles.toolbar, isSidebarCollapsed && styles.toolbarMobile]}>
+          <AdminSearchField
+            placeholder="Search expenses..."
+            value={query}
+            onChangeText={setQuery}
+            fullWidth={isSidebarCollapsed}
+          />
+          <View style={[styles.toolbarFilters, isSidebarCollapsed && styles.toolbarFiltersMobile]}>
+            <AdminFilterSelect
+              value={monthFilter}
+              options={monthOptions}
+              onChange={setMonthFilter}
+              minWidth={160}
+              fullWidth={isSidebarCollapsed}
+              leadingIcon="calendar-outline"
             />
+            <AdminFilterSelect value={categoryFilter} options={categoryOptions} onChange={setCategoryFilter} minWidth={140} fullWidth={isSidebarCollapsed} />
           </View>
-          <View style={styles.monthWrap}>
-            <Ionicons name="calendar-outline" size={14} color={colors.muted} />
-            <AdminFilterSelect value={monthFilter} options={monthOptions} onChange={setMonthFilter} minWidth={130} />
-          </View>
-          <AdminFilterSelect value={categoryFilter} options={categoryOptions} onChange={setCategoryFilter} minWidth={140} />
         </View>
 
         {loading ? (
@@ -183,29 +183,30 @@ export function AdminExpensesScreen() {
           </View>
         ) : (
           <View style={styles.tableWrap}>
+            <AdminTableScroll minWidth={720}>
             <View style={styles.table}>
               <View style={styles.tableHead}>
-                <View style={styles.colName}>
+                <View style={col(1.45, 180, { overflow: 'hidden' })}>
                   <Text style={[styles.th, styles.cellText]} numberOfLines={1}>
                     Expense Name
                   </Text>
                 </View>
-                <View style={styles.colCategory}>
+                <View style={col(0.9, 115, { alignItems: 'flex-start', overflow: 'hidden' })}>
                   <Text style={[styles.th, styles.cellText]} numberOfLines={1}>
                     Category
                   </Text>
                 </View>
-                <View style={styles.colAmount}>
+                <View style={col(0.7, 95, { alignItems: 'flex-start', overflow: 'hidden' })}>
                   <Text style={[styles.th, styles.cellText]} numberOfLines={1}>
                     Amount
                   </Text>
                 </View>
-                <View style={styles.colDate}>
+                <View style={col(1.15, 155, { overflow: 'hidden' })}>
                   <Text style={[styles.th, styles.cellText]} numberOfLines={1}>
                     Date
                   </Text>
                 </View>
-                <View style={styles.colPayment}>
+                <View style={col(0.65, 90, { alignItems: 'flex-start', overflow: 'hidden' })}>
                   <Text style={[styles.th, styles.cellText]} numberOfLines={1}>
                     Payment
                   </Text>
@@ -219,25 +220,25 @@ export function AdminExpensesScreen() {
                   const amountColor = getCategoryAmountColor(record.category);
                   return (
                     <View key={record.id} style={styles.tableRow}>
-                      <View style={styles.colName}>
+                      <View style={col(1.45, 180, { overflow: 'hidden' })}>
                         <Text style={[styles.td, styles.expenseTitle, styles.cellText]} numberOfLines={1}>
                           {record.title}
                         </Text>
                       </View>
-                      <View style={styles.colCategory}>
+                      <View style={col(0.9, 115, { alignItems: 'flex-start', overflow: 'hidden' })}>
                         <Badge label={label} tone={tone} />
                       </View>
-                      <View style={styles.colAmount}>
+                      <View style={col(0.7, 95, { alignItems: 'flex-start', overflow: 'hidden' })}>
                         <Text style={[styles.td, styles.amountText, styles.cellText, { color: amountColor }]} numberOfLines={1}>
                           ₹{record.amount.toLocaleString('en-IN')}
                         </Text>
                       </View>
-                      <View style={styles.colDate}>
+                      <View style={col(1.15, 155, { overflow: 'hidden' })}>
                         <Text style={[styles.td, styles.cellText]} numberOfLines={1}>
                           {formatExpenseDate(record)}
                         </Text>
                       </View>
-                      <View style={styles.colPayment}>
+                      <View style={col(0.65, 90, { alignItems: 'flex-start', overflow: 'hidden' })}>
                         <Badge label={paymentLabel(record.paymentMethod)} tone="green" />
                       </View>
                     </View>
@@ -250,6 +251,7 @@ export function AdminExpensesScreen() {
                 </View>
               )}
             </View>
+            </AdminTableScroll>
           </View>
         )}
       </View>
@@ -263,7 +265,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: 10,
     marginBottom: spacing.md,
+    flexWrap: 'wrap',
   },
+  headerCompact: { flexDirection: 'column', alignItems: 'stretch' },
+  headerBtnFull: { width: '100%', justifyContent: 'center' },
   addCategoryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -301,26 +306,16 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     alignItems: 'center',
   },
-  toolbarSearch: {
+  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  toolbarFilters: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: 12,
-    height: 40,
+    flexWrap: 'wrap',
+    gap: 10,
     flex: 1,
-    minWidth: 180,
-  },
-  toolbarSearchInput: { flex: 1, fontSize: 13, color: colors.text, paddingVertical: 0 },
-  monthWrap: {
-    flexDirection: 'row',
+    minWidth: 0,
     alignItems: 'center',
-    gap: 8,
-    minWidth: 170,
   },
+  toolbarFiltersMobile: { width: '100%', flexDirection: 'column', flex: 0, alignItems: 'stretch' },
   tableWrap: { width: '100%', paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.md },
   table: { width: '100%' },
   tableHead: {
@@ -344,11 +339,6 @@ const styles = StyleSheet.create({
   th: { fontSize: 10, fontWeight: '700', color: colors.muted, textTransform: 'uppercase' },
   td: { fontSize: 12, color: colors.text, fontWeight: '600' },
   cellText: { width: '100%', minWidth: 0 },
-  colName: { flex: 1.45, minWidth: 0, overflow: 'hidden' },
-  colCategory: { flex: 0.9, minWidth: 0, overflow: 'hidden', alignItems: 'flex-start' },
-  colAmount: { flex: 0.7, minWidth: 0, overflow: 'hidden', alignItems: 'flex-start' },
-  colDate: { flex: 1.15, minWidth: 0, overflow: 'hidden' },
-  colPayment: { flex: 0.65, minWidth: 0, overflow: 'hidden', alignItems: 'flex-start' },
   expenseTitle: { fontWeight: '800' },
   amountText: { fontWeight: '800' },
   emptyRow: { paddingVertical: 48, alignItems: 'center', paddingHorizontal: spacing.md },

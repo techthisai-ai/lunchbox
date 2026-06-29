@@ -1,7 +1,8 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
+import { AdminSearchField } from '../../components/admin/AdminSearchField';
 import { AdminCustomerDetailPanel } from '../../components/admin/AdminCustomerDetailPanel';
 import { AdminMobileOverlay } from '../../components/admin/AdminMobileOverlay';
 import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
@@ -10,6 +11,7 @@ import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { Badge } from '../../components/Badge';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
+import { useAdminTableColumn } from '../../hooks/useAdminTableColumn';
 import { listAllOrdersToday } from '../../services/orderHubService';
 import { loadSubscriptionAmountsByPhone, loadActiveSubscriptionRecord } from '../../services/subscriptionService';
 import { loadRegisteredCustomers, RegisteredCustomer } from '../../services/userRegistryService';
@@ -37,7 +39,17 @@ export function AdminCustomersScreen() {
   const [subscriptionCount, setSubscriptionCount] = useState(0);
   const [activeSubscriptionCount, setActiveSubscriptionCount] = useState(0);
   const [query, setQuery] = useState('');
-  const { showMobileHeader, pageTitleSize } = useAdminLayout();
+  const { showMobileHeader, pageTitleSize, isSidebarCollapsed } = useAdminLayout();
+  const col = useAdminTableColumn();
+  const c = {
+    id: col(0.95, 100),
+    name: col(1.25, 170),
+    phone: col(1.05, 115),
+    type: col(0.6, 88, { alignItems: 'flex-start' }),
+    school: col(1.15, 150),
+    sub: col(0.75, 95, { alignItems: 'flex-end' }),
+    status: col(0.7, 88, { alignItems: 'flex-start' }),
+  };
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [customerDetail, setCustomerDetail] = useState<CustomerDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -124,17 +136,13 @@ export function AdminCustomersScreen() {
         <AdminKpiCard compact label="Active Subscription" value={String(activeSubscriptionCount)} icon="card" iconBg={colors.greenLight} iconColor={colors.greenDark} />
       </AdminKpiRow>
 
-      <View style={styles.toolbar}>
-        <View style={styles.toolbarSearch}>
-          <Ionicons name="search" size={16} color={colors.muted} />
-          <TextInput
-            placeholder="Search customers by name, phone..."
-            placeholderTextColor={colors.muted}
-            style={styles.toolbarSearchInput}
-            value={query}
-            onChangeText={setQuery}
-          />
-        </View>
+      <View style={[styles.toolbar, isSidebarCollapsed && styles.toolbarMobile]}>
+        <AdminSearchField
+          placeholder="Search customers by name, phone..."
+          value={query}
+          onChangeText={setQuery}
+          fullWidth={isSidebarCollapsed}
+        />
       </View>
 
       <View style={styles.contentRow}>
@@ -145,27 +153,28 @@ export function AdminCustomersScreen() {
             </View>
           ) : (
             <View style={styles.tableWrap}>
+              <AdminTableScroll minWidth={920}>
               <View style={styles.table}>
                 <View style={styles.tableHead}>
-                  <View style={styles.colId}>
+                  <View style={c.id}>
                     <Text style={styles.th}>Customer ID</Text>
                   </View>
-                  <View style={styles.colName}>
+                  <View style={c.name}>
                     <Text style={styles.th}>Customer Name</Text>
                   </View>
-                  <View style={styles.colPhone}>
+                  <View style={c.phone}>
                     <Text style={styles.th}>Phone</Text>
                   </View>
-                  <View style={styles.colType}>
+                  <View style={c.type}>
                     <Text style={styles.th}>Type</Text>
                   </View>
-                  <View style={styles.colSchool}>
+                  <View style={c.school}>
                     <Text style={styles.th}>School / Office</Text>
                   </View>
-                  <View style={styles.colSub}>
+                  <View style={c.sub}>
                     <Text style={styles.th}>Subscription</Text>
                   </View>
-                  <View style={styles.colStatus}>
+                  <View style={c.status}>
                     <Text style={styles.th}>Status</Text>
                   </View>
                 </View>
@@ -181,12 +190,12 @@ export function AdminCustomersScreen() {
                         style={[styles.tableRow, selectedPhone === customer.phone && styles.tableRowActive]}
                         onPress={() => setSelectedPhone(customer.phone)}
                       >
-                        <View style={styles.colId}>
+                        <View style={c.id}>
                           <Text style={[styles.td, styles.idText]} numberOfLines={1}>
                             {formatCustomerDisplayId(customer.phone)}
                           </Text>
                         </View>
-                        <View style={[styles.colName, styles.personCell]}>
+                        <View style={[c.name, styles.personCell]}>
                           <View style={styles.avatar}>
                             <Text style={styles.avatarText}>{initials(displayName)}</Text>
                           </View>
@@ -194,25 +203,25 @@ export function AdminCustomersScreen() {
                             {displayName}
                           </Text>
                         </View>
-                        <View style={styles.colPhone}>
+                        <View style={c.phone}>
                           <Text style={styles.td} numberOfLines={1}>
                             +91 {customer.phone}
                           </Text>
                         </View>
-                        <View style={styles.colType}>
+                        <View style={c.type}>
                           <Badge label={getDeliveryTypeLabel(customer.registrationType)} tone="blue" />
                         </View>
-                        <View style={styles.colSchool}>
+                        <View style={c.school}>
                           <Text style={styles.td} numberOfLines={1}>
                             {customer.school || '—'}
                           </Text>
                         </View>
-                        <View style={styles.colSub}>
+                        <View style={c.sub}>
                           <Text style={[styles.td, styles.earningsText]} numberOfLines={1}>
                             {isActive ? `₹${amount.toLocaleString('en-IN')}` : '—'}
                           </Text>
                         </View>
-                        <View style={styles.colStatus}>
+                        <View style={c.status}>
                           <Badge label={isActive ? 'Active' : 'Inactive'} tone={isActive ? 'green' : 'gray'} />
                         </View>
                       </Pressable>
@@ -225,6 +234,7 @@ export function AdminCustomersScreen() {
                   </View>
                 )}
               </View>
+              </AdminTableScroll>
             </View>
           )}
         </View>
@@ -251,20 +261,7 @@ const styles = StyleSheet.create({
   pageTitle: { fontSize: 28, fontWeight: '800', color: colors.text },
   kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: spacing.lg },
   toolbar: { flexDirection: 'row', marginBottom: spacing.md },
-  toolbarSearch: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: 12,
-    height: 40,
-    flex: 1,
-    minWidth: 220,
-  },
-  toolbarSearchInput: { flex: 1, fontSize: 13, color: colors.text, paddingVertical: 0 },
+  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch' },
   contentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' },
   tableCard: {
     flex: 1,
@@ -300,13 +297,6 @@ const styles = StyleSheet.create({
   personText: { flex: 1, minWidth: 0 },
   idText: { fontWeight: '800' },
   earningsText: { fontWeight: '800' },
-  colId: { flex: 0.95, minWidth: 0 },
-  colName: { flex: 1.25, minWidth: 0 },
-  colPhone: { flex: 1.05, minWidth: 0 },
-  colType: { width: 84, flexShrink: 0, alignItems: 'flex-start' },
-  colSchool: { flex: 1.15, minWidth: 0 },
-  colSub: { width: 80, flexShrink: 0, alignItems: 'flex-end' },
-  colStatus: { width: 84, flexShrink: 0, alignItems: 'flex-start' },
   personCell: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
   avatar: {
     width: 26,

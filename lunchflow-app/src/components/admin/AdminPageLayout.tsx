@@ -17,6 +17,7 @@ export function AdminPageLayout({ children, wide }: Props) {
     <View style={styles.page}>
       <ScrollView
         style={styles.scroll}
+        nestedScrollEnabled
         contentContainerStyle={[
           styles.scrollContent,
           {

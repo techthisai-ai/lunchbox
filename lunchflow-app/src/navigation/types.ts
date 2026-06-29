@@ -5,7 +5,7 @@ export type RootStackParamList = {
   RoleSelect: undefined;
   Login: { phone?: string; role?: 'customer' | 'driver' | 'admin' } | undefined;
   OtpVerify: { phone: string; role?: 'customer' | 'driver' };
-  Register: { phone?: string } | undefined;
+  Register: { phone?: string; referralCode?: string } | undefined;
   DriverLogin: { phone?: string } | undefined;
   DriverRegister: { phone?: string } | undefined;
   SubscriptionOnboarding: undefined;

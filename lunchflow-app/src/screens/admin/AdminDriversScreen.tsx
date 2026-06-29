@@ -1,10 +1,13 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
 import { AdminAddDriverModal } from '../../components/admin/AdminAddDriverModal';
+import { AdminDriverApprovalModal } from '../../components/admin/AdminDriverApprovalModal';
 import { AdminDriverDetailPanel } from '../../components/admin/AdminDriverDetailPanel';
 import { AdminMobileOverlay } from '../../components/admin/AdminMobileOverlay';
+import { AdminSearchField } from '../../components/admin/AdminSearchField';
 import { AdminFilterSelect } from '../../components/admin/AdminFilterSelect';
 import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
 import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
@@ -12,8 +15,9 @@ import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { Badge } from '../../components/Badge';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
+import { useAdminTableColumn } from '../../hooks/useAdminTableColumn';
 import { listAllOrdersToday, subscribeToAllOrdersToday } from '../../services/orderHubService';
-import { loadRegisteredDrivers } from '../../services/userRegistryService';
+import { loadRegisteredDrivers, setDriverAvailability } from '../../services/userRegistryService';
 import { DeliveryOrder } from '../../types/delivery';
 import {
   DriverUiStatus,
@@ -23,6 +27,7 @@ import {
   formatDriverName,
   formatVehicleParts,
   getStatusTone,
+  isDriverAccountActive,
 } from '../../utils/adminDriverHelpers';
 
 const STATUS_OPTIONS: { id: 'all' | DriverUiStatus; label: string }[] = [
@@ -67,7 +72,19 @@ export function AdminDriversScreen() {
   const [vehicleFilter, setVehicleFilter] = useState('all');
   const [dutyFilter, setDutyFilter] = useState<'all' | 'yes' | 'no'>('all');
   const [addDriverOpen, setAddDriverOpen] = useState(false);
-  const { showMobileHeader, pageTitleSize } = useAdminLayout();
+  const [approvalOpen, setApprovalOpen] = useState(false);
+  const { showMobileHeader, pageTitleSize, isSidebarCollapsed } = useAdminLayout();
+  const col = useAdminTableColumn();
+  const c = {
+    id: col(0.9, 90),
+    name: col(1.2, 165),
+    phone: col(1, 115),
+    vehicle: col(1.15, 125),
+    orders: col(0.65, 75, { alignItems: 'center' }),
+    earnings: col(0.85, 95, { alignItems: 'center' }),
+    status: col(1, 115, { alignItems: 'flex-start' }),
+    action: col(0.75, 88, { alignItems: 'center', justifyContent: 'center' }),
+  };
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -112,6 +129,15 @@ export function AdminDriversScreen() {
     });
   };
 
+  const handleSetAvailability = async (driverId: string, active: boolean) => {
+    try {
+      await setDriverAvailability(driverId, active);
+      await refresh();
+    } catch (error) {
+      Alert.alert('Unable to update', error instanceof Error ? error.message : 'Please try again.');
+    }
+  };
+
   return (
     <AdminPageLayout wide>
       <AdminAddDriverModal
@@ -119,12 +145,32 @@ export function AdminDriversScreen() {
         onClose={() => setAddDriverOpen(false)}
         onAdded={refresh}
       />
-      <View style={styles.header}>
+      <AdminDriverApprovalModal
+        visible={approvalOpen}
+        onClose={() => setApprovalOpen(false)}
+        onChanged={refresh}
+      />
+      <View style={[styles.header, isSidebarCollapsed && styles.headerCompact]}>
         <View>
           {!showMobileHeader ? <Text style={[styles.pageTitle, { fontSize: pageTitleSize }]}>Drivers</Text> : null}
         </View>
-        <View style={styles.headerActions}>
-          <Pressable style={styles.addBtn} onPress={() => setAddDriverOpen(true)}>
+        <View style={[styles.headerActions, isSidebarCollapsed && styles.headerActionsFull]}>
+          <Pressable
+            style={[styles.approvalBtn, isSidebarCollapsed && styles.actionBtnFlex]}
+            onPress={() => setApprovalOpen(true)}
+          >
+            <Ionicons name="checkmark-circle-outline" size={18} color={colors.orange} />
+            <Text style={styles.approvalBtnText}>Approval</Text>
+            {pendingCount > 0 ? (
+              <View style={styles.approvalBadge}>
+                <Text style={styles.approvalBadgeText}>{pendingCount}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+          <Pressable
+            style={[styles.addBtn, isSidebarCollapsed && styles.actionBtnFlex]}
+            onPress={() => setAddDriverOpen(true)}
+          >
             <Ionicons name="add" size={18} color={colors.white} />
             <Text style={styles.addBtnText}>Add Driver</Text>
           </Pressable>
@@ -140,19 +186,19 @@ export function AdminDriversScreen() {
         <AdminKpiCard compact label="Inactive Drivers" value={String(tabCounts.inactive)} icon="person-remove" iconBg={colors.redLight} iconColor={colors.red} />
       </AdminKpiRow>
 
-      <View style={styles.toolbar}>
-        <View style={styles.toolbarSearch}>
-          <Ionicons name="search" size={16} color={colors.muted} />
-          <TextInput placeholder="Search Driver" placeholderTextColor={colors.muted} style={styles.toolbarSearchInput} value={query} onChangeText={setQuery} />
+      <View style={[styles.toolbar, isSidebarCollapsed && styles.toolbarMobile]}>
+        <AdminSearchField placeholder="Search Driver" value={query} onChangeText={setQuery} fullWidth={isSidebarCollapsed} />
+        <View style={[styles.toolbarFilters, isSidebarCollapsed && styles.toolbarFiltersMobile]}>
+          <AdminFilterSelect value={statusFilter} options={STATUS_OPTIONS} onChange={setStatusFilter} minWidth={130} fullWidth={isSidebarCollapsed} />
+          <AdminFilterSelect value={vehicleFilter} options={VEHICLE_OPTIONS} onChange={setVehicleFilter} minWidth={120} fullWidth={isSidebarCollapsed} />
+          <AdminFilterSelect
+            value={dutyFilter}
+            options={DUTY_OPTIONS}
+            onChange={(value) => setDutyFilter(value as 'all' | 'yes' | 'no')}
+            minWidth={110}
+            fullWidth={isSidebarCollapsed}
+          />
         </View>
-        <AdminFilterSelect value={statusFilter} options={STATUS_OPTIONS} onChange={setStatusFilter} minWidth={130} />
-        <AdminFilterSelect value={vehicleFilter} options={VEHICLE_OPTIONS} onChange={setVehicleFilter} minWidth={120} />
-        <AdminFilterSelect
-          value={dutyFilter}
-          options={DUTY_OPTIONS}
-          onChange={(value) => setDutyFilter(value as 'all' | 'yes' | 'no')}
-          minWidth={110}
-        />
       </View>
 
       <View style={styles.contentRow}>
@@ -163,47 +209,37 @@ export function AdminDriversScreen() {
             </View>
           ) : (
             <View style={styles.tableWrap}>
+              <AdminTableScroll minWidth={960}>
               <View style={styles.table}>
                 <View style={styles.tableHead}>
-                  <View style={styles.colId}>
-                    <Text style={styles.th}>Driver ID</Text>
-                  </View>
-                  <View style={styles.colName}>
-                    <Text style={styles.th}>Driver Name</Text>
-                  </View>
-                  <View style={styles.colPhone}>
-                    <Text style={styles.th}>Phone</Text>
-                  </View>
-                  <View style={styles.colVehicle}>
-                    <Text style={styles.th}>Vehicle</Text>
-                  </View>
-                  <View style={styles.colOrders}>
-                    <Text style={[styles.th, styles.thCenter]}>Orders Today</Text>
-                  </View>
-                  <View style={styles.colEarnings}>
-                    <Text style={[styles.th, styles.thCenter]}>Earnings Today</Text>
-                  </View>
-                  <View style={styles.colStatus}>
-                    <Text style={styles.th}>Status</Text>
-                  </View>
+                  <View style={c.id}><Text style={styles.th}>Driver ID</Text></View>
+                  <View style={c.name}><Text style={styles.th}>Driver Name</Text></View>
+                  <View style={c.phone}><Text style={styles.th}>Phone</Text></View>
+                  <View style={c.vehicle}><Text style={styles.th}>Vehicle</Text></View>
+                  <View style={c.orders}><Text style={[styles.th, styles.thCenter]}>Orders Today</Text></View>
+                  <View style={c.earnings}><Text style={[styles.th, styles.thCenter]}>Earnings Today</Text></View>
+                  <View style={c.status}><Text style={styles.th}>Status</Text></View>
+                  <View style={c.action}><Text style={[styles.th, styles.thCenter]}>Action</Text></View>
                 </View>
 
                 {filtered.length > 0 ? (
                   filtered.map((driver) => {
                     const vehicle = formatVehicleParts(driver.vehicle);
                     const displayName = formatDriverName(driver.name);
+                    const accountActive = isDriverAccountActive(driver);
+                    const canToggle = driver.approvalStatus === 'approved';
                     return (
                       <Pressable
                         key={driver.id}
                         style={[styles.tableRow, selectedId === driver.id && styles.tableRowActive]}
                         onPress={() => setSelectedId(driver.id)}
                       >
-                        <View style={styles.colId}>
+                        <View style={c.id}>
                           <Text style={[styles.td, styles.idText]} numberOfLines={1}>
                             {driver.displayId}
                           </Text>
                         </View>
-                        <View style={[styles.colName, styles.personCell]}>
+                        <View style={[c.name, styles.personCell]}>
                           <View style={styles.avatar}>
                             <Text style={styles.avatarText}>{initials(displayName)}</Text>
                           </View>
@@ -211,12 +247,12 @@ export function AdminDriversScreen() {
                             {displayName}
                           </Text>
                         </View>
-                        <View style={styles.colPhone}>
+                        <View style={c.phone}>
                           <Text style={styles.td} numberOfLines={1}>
                             +91 {driver.phone}
                           </Text>
                         </View>
-                        <View style={styles.colVehicle}>
+                        <View style={c.vehicle}>
                           <Text style={styles.td} numberOfLines={1}>
                             {vehicle.plate}
                           </Text>
@@ -226,16 +262,48 @@ export function AdminDriversScreen() {
                             </Text>
                           ) : null}
                         </View>
-                        <View style={styles.colOrders}>
+                        <View style={c.orders}>
                           <Text style={[styles.td, styles.numericText]}>{driver.ordersToday}</Text>
                         </View>
-                        <View style={styles.colEarnings}>
+                        <View style={c.earnings}>
                           <Text style={[styles.td, styles.numericText, styles.earningsText]} numberOfLines={1}>
                             ₹{driver.earningsToday.toLocaleString('en-IN')}
                           </Text>
                         </View>
-                        <View style={styles.colStatus}>
+                        <View style={c.status}>
                           <Badge label={driver.uiStatus} tone={getStatusTone(driver.uiStatus)} />
+                        </View>
+                        <View style={c.action}>
+                          <View style={styles.actionGroup}>
+                            <Pressable
+                              style={[styles.actionBtn, accountActive && styles.actionBtnActive]}
+                              onPress={(event) => {
+                                event.stopPropagation?.();
+                                if (canToggle && !accountActive) void handleSetAvailability(driver.id, true);
+                              }}
+                              disabled={!canToggle || accountActive}
+                            >
+                              <Ionicons
+                                name="checkmark-circle"
+                                size={22}
+                                color={accountActive ? colors.green : colors.muted}
+                              />
+                            </Pressable>
+                            <Pressable
+                              style={[styles.actionBtn, !accountActive && canToggle && styles.actionBtnInactive]}
+                              onPress={(event) => {
+                                event.stopPropagation?.();
+                                if (canToggle && accountActive) void handleSetAvailability(driver.id, false);
+                              }}
+                              disabled={!canToggle || !accountActive}
+                            >
+                              <Ionicons
+                                name="close-circle"
+                                size={22}
+                                color={!accountActive && canToggle ? colors.red : colors.muted}
+                              />
+                            </Pressable>
+                          </View>
                         </View>
                       </Pressable>
                     );
@@ -247,6 +315,7 @@ export function AdminDriversScreen() {
                   </View>
                 )}
               </View>
+              </AdminTableScroll>
             </View>
           )}
         </View>
@@ -277,7 +346,31 @@ const styles = StyleSheet.create({
   },
   pageTitle: { fontSize: 28, fontWeight: '800', color: colors.text },
   breadcrumb: { fontSize: 13, color: colors.muted, marginTop: 4, fontWeight: '600' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  headerCompact: { flexDirection: 'column', alignItems: 'stretch' },
+  headerActionsFull: { width: '100%' },
+  actionBtnFlex: { flex: 1, justifyContent: 'center' },
+  approvalBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.white,
+    borderRadius: radius.sm,
+    paddingHorizontal: 16,
+    height: 40,
+    borderWidth: 1.5,
+    borderColor: colors.orange,
+  },
+  approvalBtnText: { fontSize: 13, fontWeight: '800', color: colors.orange },
+  approvalBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.orange,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  approvalBadgeText: { fontSize: 10, fontWeight: '800', color: colors.onPrimary },
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -289,6 +382,7 @@ const styles = StyleSheet.create({
   },
   addBtnText: { fontSize: 13, fontWeight: '800', color: colors.onPrimary },
   kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: spacing.lg },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   toolbar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -296,20 +390,15 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     alignItems: 'center',
   },
-  toolbarSearch: {
+  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  toolbarFilters: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: 12,
-    height: 40,
+    flexWrap: 'wrap',
+    gap: 10,
     flex: 1,
-    minWidth: 160,
+    minWidth: 0,
   },
-  toolbarSearchInput: { flex: 1, fontSize: 13, color: colors.text, paddingVertical: 0 },
+  toolbarFiltersMobile: { width: '100%', flexDirection: 'column', flex: 0 },
   contentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' },
   tableCard: {
     flex: 1,
@@ -348,13 +437,6 @@ const styles = StyleSheet.create({
   earningsText: { fontWeight: '800', color: colors.text },
   numericText: { textAlign: 'center', width: '100%' },
   vehicleModel: { fontSize: 10, color: colors.muted, marginTop: 1, fontWeight: '600' },
-  colId: { flex: 0.9, minWidth: 0 },
-  colName: { flex: 1.2, minWidth: 0 },
-  colPhone: { flex: 1, minWidth: 0 },
-  colVehicle: { flex: 1.15, minWidth: 0 },
-  colOrders: { width: 72, flexShrink: 0, alignItems: 'center' },
-  colEarnings: { width: 88, flexShrink: 0, alignItems: 'center' },
-  colStatus: { width: 108, flexShrink: 0, alignItems: 'flex-start' },
   personCell: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
   avatar: {
     width: 26,
@@ -366,6 +448,17 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   avatarText: { fontSize: 10, fontWeight: '800', color: colors.greenDark },
+  actionGroup: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  actionBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.bg,
+  },
+  actionBtnActive: { backgroundColor: colors.greenLight },
+  actionBtnInactive: { backgroundColor: colors.redLight },
   emptyRow: { paddingVertical: 48, alignItems: 'center', paddingHorizontal: spacing.md },
   emptyTitle: { fontSize: 16, fontWeight: '800', color: colors.text, marginBottom: 6 },
   emptyText: { fontSize: 13, color: colors.muted, fontWeight: '600', textAlign: 'center' },

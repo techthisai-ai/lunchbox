@@ -11,13 +11,7 @@ import { colors } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/types';
 import { navigateAfterCustomerRegistration } from '../navigation/customerRoutes';
-import {
-  DeliveryType,
-  REGISTRATION_TYPE_OPTIONS,
-  getDetailLabel,
-  getInstitutionLabel,
-  getPersonLabel,
-} from '../types/delivery';
+import { DeliveryType, REGISTRATION_TYPE_OPTIONS } from '../types/delivery';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Register'>;
 
@@ -27,25 +21,17 @@ export function RegisterScreen({ navigation, route }: Props) {
   const [phone, setPhone] = useState(route.params?.phone ?? '');
   const [address, setAddress] = useState('');
   const [registrationType, setRegistrationType] = useState<DeliveryType>('school');
-  const [school, setSchool] = useState('');
-  const [studentName, setStudentName] = useState('');
-  const [classSection, setClassSection] = useState('');
-  const [emergencyContact, setEmergencyContact] = useState('');
+  const [referralCode, setReferralCode] = useState(route.params?.referralCode ?? '');
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (route.params?.phone) {
       setPhone(route.params.phone);
     }
-  }, [route.params?.phone]);
-
-  const handleTypeChange = (type: DeliveryType) => {
-    setRegistrationType(type);
-    setSchool('');
-    setStudentName('');
-    setClassSection('');
-    setError('');
-  };
+    if (route.params?.referralCode) {
+      setReferralCode(route.params.referralCode);
+    }
+  }, [route.params?.phone, route.params?.referralCode]);
 
   const handleRegister = async () => {
     setError('');
@@ -54,10 +40,11 @@ export function RegisterScreen({ navigation, route }: Props) {
       phone,
       address,
       registrationType,
-      school,
-      studentName,
-      classSection,
-      emergencyContact,
+      school: '',
+      studentName: '',
+      classSection: '',
+      emergencyContact: '',
+      referralCode: referralCode.trim() || undefined,
     });
     if (err) {
       setError(err);
@@ -66,10 +53,6 @@ export function RegisterScreen({ navigation, route }: Props) {
     await navigateAfterCustomerRegistration(navigation, normalizePhone(phone));
   };
 
-  const institutionLabel = getInstitutionLabel(registrationType);
-  const personLabel = getPersonLabel(registrationType);
-  const detailLabel = getDetailLabel(registrationType);
-
   return (
     <SafeAreaView style={styles.container}>
       <ScreenHeader title="Create Account" subtitle="Register for daily lunchbox delivery" onBack={() => navigation.goBack()} />
@@ -77,45 +60,19 @@ export function RegisterScreen({ navigation, route }: Props) {
         <Input label="Full Name" value={name} onChangeText={setName} placeholder="Enter your full name" />
         <Input label="Mobile Number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Enter 10-digit mobile number" />
         <Input label="Home Address" value={address} onChangeText={setAddress} placeholder="Enter your home address" />
-
         <SelectField
           label="Registration Type"
           value={registrationType}
           options={REGISTRATION_TYPE_OPTIONS}
-          onChange={handleTypeChange}
+          onChange={setRegistrationType}
           placeholder="Select student, college or office"
         />
-
         <Input
-          label={institutionLabel}
-          value={school}
-          onChangeText={setSchool}
-          placeholder={`Enter ${institutionLabel.toLowerCase()}`}
-        />
-        <Input
-          label={personLabel}
-          value={studentName}
-          onChangeText={setStudentName}
-          placeholder={`Enter ${personLabel.toLowerCase()}`}
-        />
-        <Input
-          label={detailLabel}
-          value={classSection}
-          onChangeText={setClassSection}
-          placeholder={
-            registrationType === 'school'
-              ? 'e.g. Class 5 · Section B'
-              : registrationType === 'college'
-                ? 'e.g. B.Tech CSE · 2nd Year'
-                : 'e.g. HR · 3rd Floor'
-          }
-        />
-        <Input
-          label="Emergency Contact"
-          value={emergencyContact}
-          onChangeText={setEmergencyContact}
-          keyboardType="phone-pad"
-          placeholder="Enter emergency contact number"
+          label="Referral Code (optional)"
+          value={referralCode}
+          onChangeText={setReferralCode}
+          placeholder="Enter friend's referral code"
+          autoCapitalize="characters"
         />
 
         {error ? <Text style={styles.error}>{error}</Text> : null}

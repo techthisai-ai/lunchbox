@@ -1,10 +1,11 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AdminCustomerDetailPanel } from '../../components/admin/AdminCustomerDetailPanel';
 import { AdminMobileOverlay } from '../../components/admin/AdminMobileOverlay';
 import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
+import { AdminSearchField } from '../../components/admin/AdminSearchField';
 import { AdminFilterSelect } from '../../components/admin/AdminFilterSelect';
 import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
 import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
@@ -12,6 +13,7 @@ import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { Badge } from '../../components/Badge';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
+import { useAdminTableColumn } from '../../hooks/useAdminTableColumn';
 import {
   assignDriverByAdmin,
   listAllOrdersToday,
@@ -77,7 +79,19 @@ export function AdminOrdersScreen() {
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
   const [drivers, setDrivers] = useState<Awaited<ReturnType<typeof loadRegisteredDrivers>>>([]);
   const [tab, setTab] = useState<OrderTab>('all');
-  const { showMobileHeader, pageTitleSize } = useAdminLayout();
+  const { showMobileHeader, pageTitleSize, isSidebarCollapsed } = useAdminLayout();
+  const col = useAdminTableColumn();
+  const c = {
+    id: col(1.05, 100),
+    date: col(0.95, 115),
+    customer: col(1.15, 150),
+    phone: col(1.05, 110),
+    location: col(1.05, 130),
+    driver: col(1.05, 130),
+    status: col(0.75, 92, { alignItems: 'flex-start' }),
+    payment: col(0.65, 78, { alignItems: 'flex-start' }),
+    amount: col(0.6, 72, { alignItems: 'flex-end' }),
+  };
   const [query, setQuery] = useState('');
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all');
   const [driverFilter, setDriverFilter] = useState('all');
@@ -197,15 +211,11 @@ export function AdminOrdersScreen() {
 
   return (
     <AdminPageLayout wide>
-      <View style={styles.header}>
-        {!showMobileHeader ? (
+      {!showMobileHeader ? (
           <View>
             <Text style={[styles.pageTitle, { fontSize: pageTitleSize }]}>Orders</Text>
           </View>
-        ) : (
-          <View />
-        )}
-      </View>
+        ) : null}
 
       <AdminKpiRow dense>
         <AdminKpiCard compact label="Total Orders" value={String(orders.length)} icon="layers" iconBg={colors.purpleLight} iconColor={colors.purple} />
@@ -215,19 +225,33 @@ export function AdminOrdersScreen() {
         <AdminKpiCard compact label="Cancelled Orders" value={String(cancelled.length)} icon="close-circle" iconBg={colors.redLight} iconColor={colors.red} />
       </AdminKpiRow>
 
-      <View style={styles.toolbar}>
-        <View style={styles.toolbarSearch}>
-          <Ionicons name="search" size={16} color={colors.muted} />
-          <TextInput
-            placeholder="Search Orders"
-            placeholderTextColor={colors.muted}
-            style={styles.toolbarSearchInput}
-            value={query}
-            onChangeText={setQuery}
+      <View style={[styles.filtersCard, isSidebarCollapsed && styles.filtersCardMobile]}>
+        <AdminSearchField
+          placeholder="Search Orders"
+          value={query}
+          onChangeText={setQuery}
+          fullWidth={isSidebarCollapsed}
+        />
+        <View style={[styles.toolbarFilters, isSidebarCollapsed && styles.toolbarFiltersMobile]}>
+          <AdminFilterSelect
+            label={isSidebarCollapsed ? 'Payment' : undefined}
+            value={paymentFilter}
+            options={PAYMENT_OPTIONS}
+            onChange={setPaymentFilter}
+            minWidth={120}
+            flex={isSidebarCollapsed}
+            fullWidth={false}
+          />
+          <AdminFilterSelect
+            label={isSidebarCollapsed ? 'Driver' : undefined}
+            value={driverFilter}
+            options={driverOptions}
+            onChange={setDriverFilter}
+            minWidth={130}
+            flex={isSidebarCollapsed}
+            fullWidth={false}
           />
         </View>
-        <AdminFilterSelect value={paymentFilter} options={PAYMENT_OPTIONS} onChange={setPaymentFilter} minWidth={120} />
-        <AdminFilterSelect value={driverFilter} options={driverOptions} onChange={setDriverFilter} minWidth={130} />
       </View>
 
       <View style={styles.contentRow}>
@@ -256,36 +280,16 @@ export function AdminOrdersScreen() {
         <View style={styles.tableWrap}>
           <View style={styles.table}>
             <View style={styles.tableHead}>
-              <View style={styles.colId}>
-                <Text style={styles.th}>Order ID</Text>
-              </View>
-              <View style={styles.colDate}>
-                <Text style={styles.th}>Date & Time</Text>
-              </View>
-              <View style={styles.colCustomer}>
-                <Text style={styles.th}>Customer</Text>
-              </View>
-              <View style={styles.colPhone}>
-                <Text style={styles.th}>Phone</Text>
-              </View>
-              <View style={styles.colLocation}>
-                <Text style={styles.th}>Pickup</Text>
-              </View>
-              <View style={styles.colLocation}>
-                <Text style={styles.th}>Delivery</Text>
-              </View>
-              <View style={styles.colDriver}>
-                <Text style={styles.th}>Driver</Text>
-              </View>
-              <View style={styles.colStatus}>
-                <Text style={styles.th}>Status</Text>
-              </View>
-              <View style={styles.colPayment}>
-                <Text style={styles.th}>Payment</Text>
-              </View>
-              <View style={styles.colAmount}>
-                <Text style={styles.th}>Amount</Text>
-              </View>
+              <View style={c.id}><Text style={styles.th}>Order ID</Text></View>
+              <View style={c.date}><Text style={styles.th}>Date & Time</Text></View>
+              <View style={c.customer}><Text style={styles.th}>Customer</Text></View>
+              <View style={c.phone}><Text style={styles.th}>Phone</Text></View>
+              <View style={c.location}><Text style={styles.th}>Pickup</Text></View>
+              <View style={c.location}><Text style={styles.th}>Delivery</Text></View>
+              <View style={c.driver}><Text style={styles.th}>Driver</Text></View>
+              <View style={c.status}><Text style={styles.th}>Status</Text></View>
+              <View style={c.payment}><Text style={styles.th}>Payment</Text></View>
+              <View style={c.amount}><Text style={styles.th}>Amount</Text></View>
             </View>
 
             {filtered.length > 0 ? (
@@ -298,17 +302,17 @@ export function AdminOrdersScreen() {
                     style={[styles.tableRow, selectedOrderId === order.id && styles.tableRowActive]}
                     onPress={() => setSelectedOrderId(order.id)}
                   >
-                    <View style={styles.colId}>
+                    <View style={c.id}>
                       <Text style={[styles.td, styles.idText]} numberOfLines={1}>
                         {formatOrderDisplayId(order.id)}
                       </Text>
                     </View>
-                    <View style={styles.colDate}>
+                    <View style={c.date}>
                       <Text style={styles.td} numberOfLines={1}>
                         {formatOrderDateTimeLabel(order)}
                       </Text>
                     </View>
-                    <View style={[styles.colCustomer, styles.personCell]}>
+                    <View style={[c.customer, styles.personCell]}>
                       <View style={styles.avatar}>
                         <Text style={styles.avatarText}>{initials(order.customerName)}</Text>
                       </View>
@@ -316,23 +320,23 @@ export function AdminOrdersScreen() {
                         {formatCustomerName(order.customerName)}
                       </Text>
                     </View>
-                    <View style={[styles.colPhone, styles.phoneCell]}>
+                    <View style={[c.phone, styles.phoneCell]}>
                       <Ionicons name="call" size={12} color={colors.orange} />
                       <Text style={[styles.td, styles.personText]} numberOfLines={1}>
                         {order.customerPhone}
                       </Text>
                     </View>
-                    <View style={styles.colLocation}>
+                    <View style={c.location}>
                       <Text style={styles.td} numberOfLines={1}>
                         {order.pickupAddress}
                       </Text>
                     </View>
-                    <View style={styles.colLocation}>
+                    <View style={c.location}>
                       <Text style={styles.td} numberOfLines={1}>
                         {order.school || order.dropAddress}
                       </Text>
                     </View>
-                    <View style={[styles.colDriver, styles.personCell]}>
+                    <View style={[c.driver, styles.personCell]}>
                       {order.driver ? (
                         <>
                           <View style={[styles.avatar, styles.driverAvatar]}>
@@ -374,13 +378,13 @@ export function AdminOrdersScreen() {
                         </Pressable>
                       )}
                     </View>
-                    <View style={styles.colStatus}>
+                    <View style={c.status}>
                       <Badge label={getTableStatusLabel(order.status)} tone={getTableStatusTone(order.status)} />
                     </View>
-                    <View style={styles.colPayment}>
+                    <View style={c.payment}>
                       <Badge label={payment.label} tone={payment.tone} />
                     </View>
-                    <View style={styles.colAmount}>
+                    <View style={c.amount}>
                       <Text style={[styles.td, styles.amountText]} numberOfLines={1}>
                         ₹{orderAmount.toLocaleString('en-IN')}
                       </Text>
@@ -409,37 +413,40 @@ export function AdminOrdersScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    flexWrap: 'wrap',
-    gap: 16,
-    marginBottom: spacing.lg,
-  },
-  pageTitle: { fontSize: 28, fontWeight: '800', color: colors.text },
+  pageTitle: { fontSize: 28, fontWeight: '800', color: colors.text, marginBottom: spacing.lg },
   kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: spacing.lg },
-  toolbar: {
+  filtersCard: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
     marginBottom: spacing.md,
     alignItems: 'center',
   },
-  toolbarSearch: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.white,
+  filtersCardMobile: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: 12,
-    height: 40,
-    flex: 1,
-    minWidth: 180,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: 12,
+    marginBottom: spacing.lg,
   },
-  toolbarSearchInput: { flex: 1, fontSize: 13, color: colors.text, paddingVertical: 0 },
+  toolbarFilters: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    flex: 1,
+    minWidth: 0,
+  },
+  toolbarFiltersMobile: {
+    width: '100%',
+    flexDirection: 'row',
+    flex: 0,
+    gap: 10,
+    alignItems: 'flex-start',
+  },
   contentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' },
   tableCard: {
     flex: 1,
@@ -507,15 +514,6 @@ const styles = StyleSheet.create({
   linkTd: { color: colors.orange, fontWeight: '700', fontStyle: 'normal' },
   idText: { fontWeight: '800', color: colors.text },
   amountText: { fontWeight: '800', textAlign: 'right' },
-  colId: { flex: 1.05, minWidth: 0 },
-  colDate: { flex: 0.95, minWidth: 0 },
-  colCustomer: { flex: 1.15, minWidth: 0 },
-  colPhone: { flex: 1.05, minWidth: 0 },
-  colLocation: { flex: 1.05, minWidth: 0 },
-  colDriver: { flex: 1.05, minWidth: 0 },
-  colStatus: { width: 92, flexShrink: 0, alignItems: 'flex-start' },
-  colPayment: { width: 78, flexShrink: 0, alignItems: 'flex-start' },
-  colAmount: { width: 72, flexShrink: 0, alignItems: 'flex-end' },
   personCell: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
   personText: { flex: 1, minWidth: 0 },
   phoneCell: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 },

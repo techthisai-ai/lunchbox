@@ -21,7 +21,7 @@ import { listCustomerOrders } from '../services/orderHubService';
 import { getStatusBadgeTone, getStatusLabel } from '../services/orderHubService';
 import { loadActiveSubscription, checkSubscriptionRenewalReminders } from '../services/subscriptionService';
 import { SubscriptionPlan } from '../constants/subscriptions';
-import { DeliveryProfile, FoodReadyDetails, getDropAddress, normalizeDeliveryType } from '../types/delivery';
+import { DeliveryProfile, FoodReadyDetails, getDropAddress, normalizeDeliveryType, normalizeDeliveryTypes, buildFoodReadyStudents } from '../types/delivery';
 import { getSubscriptionRenewalLabel } from '../utils/date';
 import { callDriver } from '../utils/phoneCall';
 
@@ -80,13 +80,27 @@ export function HomeScreen({ navigation }: Props) {
   }, [navigation]);
 
   const buildFoodReadyDefaults = useCallback(
-    (profile?: DeliveryProfile): Partial<FoodReadyDetails> => ({
-      name: user?.name || profile?.name || '',
-      deliveryType: normalizeDeliveryType(order?.deliveryType),
-      pickupAddress: order?.pickupAddress || profile?.address || '',
-      dropAddress: (order ? getDropAddress(order) : '') || profile?.school || '',
-      person: order?.studentName || profile?.studentName || '',
-    }),
+    (profile?: DeliveryProfile): Partial<FoodReadyDetails> => {
+      const personValue = order?.studentName || profile?.studentName || '';
+      const dropValue = (order ? getDropAddress(order) : '') || profile?.school || '';
+      const students = buildFoodReadyStudents({
+        students: order?.studentEntries,
+        studentEntries: order?.studentEntries,
+        person: personValue,
+        dropAddress: dropValue,
+        deliveryType: normalizeDeliveryType(order?.deliveryType),
+        deliveryTypes: order?.deliveryTypes,
+      });
+      return {
+        name: user?.name || profile?.name || '',
+        deliveryType: normalizeDeliveryType(order?.deliveryType),
+        deliveryTypes: normalizeDeliveryTypes(order?.deliveryTypes, normalizeDeliveryType(order?.deliveryType)),
+        pickupAddress: order?.pickupAddress || profile?.address || '',
+        dropAddress: dropValue,
+        person: personValue,
+        students,
+      };
+    },
     [order, user?.name],
   );
 

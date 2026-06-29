@@ -31,7 +31,7 @@ import {
   DriverRegistration,
   CustomerRegistration,
 } from './userRegistryService';
-import { getDetailLabel, getInstitutionLabel, getPersonLabel, normalizeDeliveryType } from '../types/delivery';
+import { normalizeDeliveryType } from '../types/delivery';
 
 export type { CustomerRegistration, DriverRegistration };
 export { RegistrationRequiredError } from './userRegistryService';
@@ -261,12 +261,17 @@ export async function verifyDriverOtp(otp: string, phoneHint?: string): Promise<
       user: { id: string; role: UserRole; name: string; phone: string; vehicle?: string };
     };
     await signInWithCustomToken(auth, data.customToken);
+    const driver = await loadDriverByPhone(normalized);
+    if (driver) {
+      return driverAuthUser(driver);
+    }
     return {
       id: data.user.id,
       role: 'driver',
       name: data.user.name,
       phone: data.user.phone,
       vehicle: data.user.vehicle,
+      driverApprovalStatus: 'pending',
     };
   } catch (error) {
     throw new Error(firebaseErrorMessage(error));
@@ -332,10 +337,12 @@ export async function registerCustomer(data: CustomerRegistration): Promise<Auth
   if (!data.name.trim()) throw new Error('Enter your full name');
   if (phone.length !== 10) throw new Error('Enter a valid 10-digit mobile number');
   if (!data.address.trim()) throw new Error('Enter your home address');
-  if (!data.school.trim()) throw new Error(`Enter ${getInstitutionLabel(registrationType).toLowerCase()}`);
-  if (!data.studentName.trim()) throw new Error(`Enter ${getPersonLabel(registrationType).toLowerCase()}`);
-  if (!data.classSection.trim()) throw new Error(`Enter ${getDetailLabel(registrationType).toLowerCase()}`);
-  if (!data.emergencyContact.trim()) throw new Error('Enter emergency contact number');
+
+  if (data.referralCode?.trim()) {
+    const { validateReferralCode } = await import('./referralService');
+    const validation = await validateReferralCode(data.referralCode, phone);
+    if (!validation.ok) throw new Error(validation.error);
+  }
 
   const alreadyRegistered = await isCustomerRegistered(phone);
   if (alreadyRegistered) {
@@ -386,12 +393,34 @@ export async function registerCustomer(data: CustomerRegistration): Promise<Auth
     // Local registration is enough for login when remote write fails.
   }
 
+  try {
+    const { applyReferralOnSignup, ensureReferralProfile } = await import('./referralService');
+    await ensureReferralProfile(phone, data.name.trim());
+    if (data.referralCode?.trim()) {
+      await applyReferralOnSignup({
+        newUserPhone: phone,
+        newUserName: data.name.trim(),
+        referralCode: data.referralCode.trim(),
+      });
+    }
+  } catch (error) {
+    if (data.referralCode?.trim()) {
+      throw error instanceof Error ? error : new Error('Could not apply referral code');
+    }
+  }
+
   return customerAuthUser(phone, data.name.trim());
 }
 
 export async function registerDriver(data: DriverRegistration): Promise<AuthUser> {
   const record = await registerDriverRecord(data);
   return driverAuthUser(record);
+}
+
+export async function refreshDriverAuthUser(phone: string): Promise<AuthUser | null> {
+  const driver = await loadDriverByPhone(normalizePhone(phone));
+  if (!driver) return null;
+  return driverAuthUser(driver);
 }
 
 export async function logoutUser(): Promise<void> {

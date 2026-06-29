@@ -52,8 +52,8 @@ export function WalletScreen({ navigation }: Props) {
       <ScrollView contentContainerStyle={styles.scroll}>
         <LinearGradient colors={[...gradients.primary]} style={styles.balance}>
           <Text style={styles.balanceLabel}>Wallet Balance</Text>
-          <Text style={styles.amount}>₹{(wallet?.balance ?? 1250).toLocaleString('en-IN')}</Text>
-          <Text style={styles.credit}>+ ₹{wallet?.referralCredit ?? 50} referral credit</Text>
+          <Text style={styles.amount}>₹{(wallet?.balance ?? 0).toLocaleString('en-IN')}</Text>
+          <Text style={styles.credit}>+ ₹{wallet?.referralCredit ?? 0} referral credit</Text>
         </LinearGradient>
 
         <Text style={styles.section}>Payment Methods</Text>

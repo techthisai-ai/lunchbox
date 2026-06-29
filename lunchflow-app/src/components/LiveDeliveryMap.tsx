@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 import { DEMO_DROP, DEMO_PICKUP } from '../constants/maps';
 import { colors } from '../constants/theme';
-import { geocodeAddress } from '../services/mapGeocoding';
+import { resolveMapPoint, isTamilNaduPoint } from '../services/mapGeocoding';
 import { DeliveryOrder, GeoPoint } from '../types/delivery';
 
 type Props = {
@@ -74,9 +74,10 @@ function loadLeaflet(): Promise<LeafletApi> {
 }
 
 function resolvePoints(order: DeliveryOrder) {
-  const pickup = order.pickupLocation ?? geocodeAddress(order.pickupAddress, DEMO_PICKUP);
-  const drop = order.dropLocation ?? geocodeAddress(order.dropAddress || order.school, DEMO_DROP);
-  const driver = order.driverLocation ?? pickup;
+  const pickup = resolveMapPoint(order.pickupLocation, order.pickupAddress, DEMO_PICKUP);
+  const drop = resolveMapPoint(order.dropLocation, order.dropAddress || order.school, DEMO_DROP);
+  const driver =
+    order.driverLocation && isTamilNaduPoint(order.driverLocation) ? order.driverLocation : pickup;
   return { pickup, drop, driver };
 }
 

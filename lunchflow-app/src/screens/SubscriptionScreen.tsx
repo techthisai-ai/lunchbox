@@ -216,7 +216,6 @@ export function SubscriptionScreen() {
       />
       <ScreenHeader
         title="Subscription Plans"
-        subtitle={isOnboarding ? 'Choose a plan to get started' : 'Choose the plan that fits you'}
         onBack={isOnboarding ? undefined : () => navigation.goBack()}
       />
       <ScrollView contentContainerStyle={styles.scroll}>
@@ -270,10 +269,13 @@ function PlanCard({
       accessibilityState={{ selected }}
     >
       {selected ? <Text style={styles.selectedBadge}>Selected</Text> : null}
-      <Text style={styles.planName}>{name}</Text>
-      <Text style={styles.price}>
-        {price} <Text style={styles.period}>/ {period}</Text>
-      </Text>
+      <View style={styles.planRow}>
+        <Text style={styles.planName}>{name}</Text>
+        <View style={styles.priceBlock}>
+          <Text style={styles.price}>{price}</Text>
+          <Text style={styles.period}>/ {period}</Text>
+        </View>
+      </View>
     </Pressable>
   );
 }
@@ -281,33 +283,65 @@ function PlanCard({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   scroll: { padding: spacing.md, paddingBottom: 32 },
-  section: { fontSize: 16, fontWeight: '800', marginBottom: 12, marginTop: 4 },
-  plan: {
-    borderWidth: 2,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.lg,
-    marginBottom: 12,
-    backgroundColor: colors.white,
+  section: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: 8,
+    marginTop: spacing.sm,
   },
-  selected: { borderColor: colors.orange, borderWidth: 3, backgroundColor: colors.orangeLight },
+  plan: {
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 8,
+    backgroundColor: colors.white,
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  selected: {
+    borderColor: colors.orange,
+    borderWidth: 2,
+    backgroundColor: colors.orangeLight,
+  },
   pressed: { opacity: 0.92 },
   selectedBadge: {
     position: 'absolute',
-    top: -10,
-    left: 16,
+    top: -9,
+    right: 12,
     backgroundColor: colors.orange,
     color: colors.onPrimary,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: radius.full,
     overflow: 'hidden',
   },
-  planName: { fontWeight: '700', fontSize: 16, marginBottom: 4 },
-  price: { fontSize: 28, fontWeight: '800', color: colors.orange },
-  period: { fontSize: 14, fontWeight: '600', color: colors.muted },
+  planRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  planName: {
+    fontWeight: '700',
+    fontSize: 14,
+    color: colors.text,
+    flexShrink: 0,
+  },
+  priceBlock: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    flex: 1,
+    gap: 4,
+  },
+  price: { fontSize: 20, fontWeight: '800', color: colors.orange },
+  period: { fontSize: 12, fontWeight: '600', color: colors.muted },
   message: { fontSize: 13, color: colors.green, marginTop: 8, fontWeight: '600' },
   messageHint: { color: colors.orange },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },

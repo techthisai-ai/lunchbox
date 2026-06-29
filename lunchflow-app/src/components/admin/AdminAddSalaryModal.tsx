@@ -12,6 +12,8 @@ type Props = {
   onClose: () => void;
   onAdded: () => void;
   defaultMonth: string;
+  defaultEmployeeName?: string;
+  defaultRole?: string;
 };
 
 const ROLE_OPTIONS = [
@@ -27,7 +29,14 @@ function formatMonthLabel(month: string): string {
   return date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 }
 
-export function AdminAddSalaryModal({ visible, onClose, onAdded, defaultMonth }: Props) {
+export function AdminAddSalaryModal({
+  visible,
+  onClose,
+  onAdded,
+  defaultMonth,
+  defaultEmployeeName = '',
+  defaultRole = 'Driver',
+}: Props) {
   const [employeeName, setEmployeeName] = useState('');
   const [role, setRole] = useState<(typeof ROLE_OPTIONS)[number]['id']>('Driver');
   const [amount, setAmount] = useState('');
@@ -41,8 +50,17 @@ export function AdminAddSalaryModal({ visible, onClose, onAdded, defaultMonth }:
       setAmount('');
       setError('');
       setSaving(false);
+      return;
     }
-  }, [visible]);
+    setEmployeeName(defaultEmployeeName);
+    setRole(
+      ROLE_OPTIONS.some((option) => option.id === defaultRole)
+        ? (defaultRole as (typeof ROLE_OPTIONS)[number]['id'])
+        : 'Driver',
+    );
+    setAmount('');
+    setError('');
+  }, [visible, defaultEmployeeName, defaultRole]);
 
   const handleClose = () => {
     if (saving) return;

@@ -12,23 +12,13 @@ import { Badge } from '../../components/Badge';
 import { colors, radius, spacing } from '../../constants/theme';
 import { listSalaryRecords } from '../../services/adminFinanceService';
 import { SalaryRecord } from '../../types/finance';
+import { buildMonthFilterOptions, currentMonthKey, formatMonthLabel } from '../../utils/adminMonthHelpers';
 
 const STATUS_OPTIONS = [
   { id: 'all' as const, label: 'All Status' },
   { id: 'paid' as const, label: 'Paid' },
   { id: 'unpaid' as const, label: 'Pending' },
 ];
-
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function formatMonthLabel(month: string): string {
-  const [year, monthPart] = month.split('-');
-  const date = new Date(Number(year), Number(monthPart) - 1, 1);
-  return date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
-}
 
 function formatPaymentDate(paidAt?: string): string {
   if (!paidAt) return '—';
@@ -48,9 +38,20 @@ export function AdminSalaryScreen() {
   const [records, setRecords] = useState<SalaryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const [monthFilter, setMonthFilter] = useState(currentMonth());
+  const [monthFilter, setMonthFilter] = useState(currentMonthKey());
   const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'unpaid'>('all');
   const [addSalaryOpen, setAddSalaryOpen] = useState(false);
+  const [salaryDefaults, setSalaryDefaults] = useState<{ employeeName: string; role: string } | null>(null);
+
+  const openAddSalary = (defaults?: { employeeName: string; role: string }) => {
+    setSalaryDefaults(defaults ?? null);
+    setAddSalaryOpen(true);
+  };
+
+  const closeAddSalary = () => {
+    setAddSalaryOpen(false);
+    setSalaryDefaults(null);
+  };
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -67,13 +68,10 @@ export function AdminSalaryScreen() {
     }, [refresh]),
   );
 
-  const monthOptions = useMemo(() => {
-    const months = new Set(records.map((record) => record.month));
-    months.add(currentMonth());
-    return [...months]
-      .sort((a, b) => b.localeCompare(a))
-      .map((month) => ({ id: month, label: formatMonthLabel(month) }));
-  }, [records]);
+  const monthOptions = useMemo(
+    () => buildMonthFilterOptions(records.map((record) => record.month)),
+    [records],
+  );
 
   const monthRecords = useMemo(
     () => records.filter((record) => record.month === monthFilter),
@@ -103,13 +101,15 @@ export function AdminSalaryScreen() {
     <AdminPageLayout wide>
       <AdminAddSalaryModal
         visible={addSalaryOpen}
-        onClose={() => setAddSalaryOpen(false)}
+        onClose={closeAddSalary}
         onAdded={refresh}
         defaultMonth={monthFilter}
+        defaultEmployeeName={salaryDefaults?.employeeName}
+        defaultRole={salaryDefaults?.role}
       />
 
       <View style={styles.header}>
-        <Pressable style={styles.addBtn} onPress={() => setAddSalaryOpen(true)}>
+        <Pressable style={styles.addBtn} onPress={() => openAddSalary()}>
           <Ionicons name="add" size={18} color={colors.white} />
           <Text style={styles.addBtnText}>Add Salary</Text>
         </Pressable>
@@ -134,10 +134,13 @@ export function AdminSalaryScreen() {
               onChangeText={setQuery}
             />
           </View>
-          <View style={styles.monthWrap}>
-            <Ionicons name="calendar-outline" size={14} color={colors.muted} />
-            <AdminFilterSelect value={monthFilter} options={monthOptions} onChange={setMonthFilter} minWidth={130} />
-          </View>
+          <AdminFilterSelect
+            value={monthFilter}
+            options={monthOptions}
+            onChange={setMonthFilter}
+            minWidth={160}
+            leadingIcon="calendar-outline"
+          />
           <AdminFilterSelect value={statusFilter} options={STATUS_OPTIONS} onChange={setStatusFilter} minWidth={120} />
         </View>
 
@@ -147,7 +150,7 @@ export function AdminSalaryScreen() {
           </View>
         ) : (
           <View style={styles.tableWrap}>
-            <AdminTableScroll minWidth={820}>
+            <AdminTableScroll minWidth={900}>
               <View style={styles.table}>
               <View style={styles.tableHead}>
                 <Text style={[styles.th, styles.colName]}>Employee Name</Text>
@@ -156,6 +159,7 @@ export function AdminSalaryScreen() {
                 <Text style={[styles.th, styles.colAmount]}>Amount</Text>
                 <Text style={[styles.th, styles.colDate]}>Payment Date</Text>
                 <Text style={[styles.th, styles.colStatus]}>Status</Text>
+                <Text style={[styles.th, styles.colAction]}>Action</Text>
               </View>
 
               {filtered.length > 0 ? (
@@ -186,6 +190,16 @@ export function AdminSalaryScreen() {
                         label={record.status === 'paid' ? 'Paid' : 'Pending'}
                         tone={record.status === 'paid' ? 'green' : 'orange'}
                       />
+                    </View>
+                    <View style={styles.colAction}>
+                      <Pressable
+                        style={styles.rowSalaryBtn}
+                        onPress={() =>
+                          openAddSalary({ employeeName: record.employeeName, role: record.role })
+                        }
+                      >
+                        <Text style={styles.rowSalaryBtnText}>Salary</Text>
+                      </Pressable>
                     </View>
                   </View>
                 ))
@@ -249,12 +263,6 @@ const styles = StyleSheet.create({
     minWidth: 180,
   },
   toolbarSearchInput: { flex: 1, fontSize: 13, color: colors.text, paddingVertical: 0 },
-  monthWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    minWidth: 170,
-  },
   tableWrap: { width: '100%', paddingHorizontal: spacing.md, paddingTop: spacing.md },
   table: { width: '100%' },
   tableHead: {
@@ -286,6 +294,16 @@ const styles = StyleSheet.create({
   colAmount: { width: 96, flexShrink: 0 },
   colDate: { flex: 1, minWidth: 110 },
   colStatus: { width: 92, flexShrink: 0 },
+  colAction: { width: 72, flexShrink: 0, alignItems: 'center' },
+  rowSalaryBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: colors.orange,
+    minWidth: 58,
+    alignItems: 'center',
+  },
+  rowSalaryBtnText: { fontSize: 11, fontWeight: '800', color: colors.onPrimary },
   personCell: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
   avatar: {
     width: 32,

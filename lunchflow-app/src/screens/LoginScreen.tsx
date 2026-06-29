@@ -106,7 +106,7 @@ export function LoginScreen({ navigation, route }: Props) {
     <SafeAreaView style={styles.container}>
       <View style={[styles.content, { paddingHorizontal: horizontalPadding }]}>
         <View style={styles.centerBlock}>
-          <LogoMark size={64} />
+          <LogoMark size={96} />
 
           <View style={styles.roleRow}>
             {ROLES.map((role) => {

@@ -1,13 +1,13 @@
 import { DEMO_DROP, DEMO_PICKUP } from '../constants/maps';
-import { geocodeAddress, estimateTravelMinutes, isRecentGpsLocation } from '../services/mapGeocoding';
+import { resolveMapPoint, estimateTravelMinutes, isRecentGpsLocation } from '../services/mapGeocoding';
 import { DeliveryOrder, GeoPoint, getDropAddress } from '../types/delivery';
 
 function resolvePickup(order: DeliveryOrder): GeoPoint {
-  return order.pickupLocation ?? geocodeAddress(order.pickupAddress, DEMO_PICKUP);
+  return resolveMapPoint(order.pickupLocation, order.pickupAddress, DEMO_PICKUP);
 }
 
 function resolveDrop(order: DeliveryOrder): GeoPoint {
-  return order.dropLocation ?? geocodeAddress(getDropAddress(order), DEMO_DROP);
+  return resolveMapPoint(order.dropLocation, getDropAddress(order), DEMO_DROP);
 }
 
 export function getEtaDestination(order: DeliveryOrder): GeoPoint | null {

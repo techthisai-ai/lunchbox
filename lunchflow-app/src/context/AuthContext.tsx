@@ -7,6 +7,7 @@ import {
   logoutUser,
   registerCustomer as registerCustomerService,
   registerDriver as registerDriverService,
+  refreshDriverAuthUser,
   sendCustomerOtp,
   sendDriverOtp,
   subscribeToAuthState,
@@ -32,6 +33,7 @@ type AuthContextValue = {
   loginAsDriverOtp: (otp: string, phone?: string) => Promise<{ error: string | null; user?: AuthUser }>;
   registerCustomer: (data: CustomerRegistration) => Promise<string | null>;
   registerDriver: (data: DriverRegistration) => Promise<string | null>;
+  refreshDriverProfile: () => Promise<AuthUser | null>;
   logout: () => Promise<void>;
   role: UserRole | null;
 };
@@ -48,6 +50,13 @@ function registrationRequiredCode(error: unknown): string | null {
 function registerPushInBackground(phone?: string, name?: string) {
   if (!phone) return;
   registerForPushNotifications(phone, name).catch(() => {});
+}
+
+function ensureReferralInBackground(phone?: string, name?: string) {
+  if (!phone) return;
+  import('../services/referralService')
+    .then(({ ensureReferralProfile }) => ensureReferralProfile(phone, name || 'Customer'))
+    .catch(() => {});
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -157,6 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const profile = await verifyCustomerOtp(otp, phone);
           setUser(profile);
           registerPushInBackground(profile.phone, profile.name);
+          ensureReferralInBackground(profile.phone, profile.name);
           return { error: null, user: profile };
         } catch (error) {
           return { error: error instanceof Error ? error.message : 'Login failed' };
@@ -177,6 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const profile = await registerCustomerService(data);
           setUser(profile);
           registerPushInBackground(profile.phone, profile.name);
+          ensureReferralInBackground(profile.phone, profile.name);
           return null;
         } catch (error) {
           return error instanceof Error ? error.message : 'Registration failed';
@@ -190,6 +201,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (error) {
           return error instanceof Error ? error.message : 'Registration failed';
         }
+      },
+      refreshDriverProfile: async () => {
+        if (!user?.phone || user.role !== 'driver') return null;
+        const profile = await refreshDriverAuthUser(user.phone);
+        if (profile) {
+          setUser(profile);
+          await persistAuthSession(profile);
+        }
+        return profile;
       },
       logout: async () => {
         await logoutUser();

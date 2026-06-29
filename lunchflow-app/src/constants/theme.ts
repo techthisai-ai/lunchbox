@@ -1,62 +1,62 @@
 /**
- * LunchFlow Design System — 60-30-10 rule
+ * LunchFlow Design System — pink & white theme
  *
- * 60%  Pink — dominant backgrounds & page surfaces
- * 30%  Light Yellow — cards, inputs, tab bars, content sections
- * 10%  Dark Purple — buttons, icons, highlights, CTAs
+ * 60%  Soft cream / pink — page backgrounds
+ * 30%  White — cards, inputs, content panels
+ * 10%  Magenta pink — primary buttons & CTAs; dark navy — headings & sidebar
  */
 
 export const palette = {
-  // 60% — pink backgrounds & dominant surfaces
-  pink60: '#FF5BAE',
-  pink60Soft: '#FFD6E8',
-  pink60Muted: '#FFB8D4',
-  pink60Border: '#FF9EC8',
+  // 60% — soft backgrounds
+  pink60: '#E91E63',
+  pink60Soft: '#F8F7F2',
+  pink60Muted: '#FDF2F8',
+  pink60Border: '#E8E4E0',
 
-  // 30% — light yellow content sections
-  yellow30: '#FFF0A8',
-  yellow30Soft: '#FFFBE6',
-  yellow30Muted: '#F5E48A',
-  yellow30Border: '#E8D978',
+  // 30% — white content sections
+  yellow30: '#FFFFFF',
+  yellow30Soft: '#FFFFFF',
+  yellow30Muted: '#FAFAFA',
+  yellow30Border: '#EDE7F6',
 
-  // 10% — dark purple accents, CTAs, highlights
-  purple10: '#2A1645',
-  purple10Soft: '#3D2463',
-  purple10Muted: '#5C4878',
+  // 10% — dark navy accents, sidebar, headings
+  purple10: '#2D2D44',
+  purple10Soft: '#3D3D5C',
+  purple10Muted: '#6B7280',
 
   // text & semantic
   onPrimary: '#FFFFFF',
-  text: '#2A1645',
-  textSecondary: '#5C4878',
-  ink: '#2A1645',
-  error: '#B91C4A',
-  errorLight: '#FCE8EE',
+  text: '#2D2D44',
+  textSecondary: '#6B7280',
+  ink: '#2D2D44',
+  error: '#C62828',
+  errorLight: '#FCE4EC',
 };
 
 /**
  * Backward-compatible tokens — existing screens use `colors.orange`, `colors.white`, etc.
  */
 export const colors = {
-  // 10% — primary accent / CTA (legacy: orange)
-  orange: palette.purple10,
-  orangeDark: palette.purple10,
-  orangeLight: palette.yellow30Soft,
+  // primary accent / CTA (legacy: orange → magenta pink)
+  orange: palette.pink60,
+  orangeDark: '#C2185B',
+  orangeLight: '#FCE4EC',
 
-  // 30% — secondary surfaces (legacy: green)
-  green: palette.yellow30Border,
+  // secondary / success surfaces (legacy: green)
+  green: '#43A047',
   greenDark: palette.purple10,
-  greenLight: palette.yellow30Soft,
+  greenLight: '#E8F5E9',
 
   // admin / info (legacy: blue)
   blue: palette.purple10Soft,
   blueDark: palette.purple10,
-  blueLight: palette.yellow30Soft,
+  blueLight: '#F3E5F5',
 
-  // 60% — page backgrounds
+  // page backgrounds
   bg: palette.pink60Soft,
   surfaceMuted: palette.pink60Muted,
 
-  // 30% — cards, panels, inputs, tab bars
+  // cards, panels, inputs, tab bars
   surface: palette.yellow30Soft,
   card: palette.yellow30Soft,
   white: palette.yellow30Soft,
@@ -65,15 +65,15 @@ export const colors = {
   text: palette.text,
   muted: palette.textSecondary,
   border: palette.pink60Border,
-  borderSubtle: palette.pink60Muted,
+  borderSubtle: '#F0F0F0',
   onPrimary: palette.onPrimary,
 
   // legacy accent aliases
   purple: palette.purple10,
   purpleDark: palette.purple10,
-  purpleLight: palette.yellow30Soft,
-  yellow: palette.yellow30,
-  yellowLight: palette.yellow30Soft,
+  purpleLight: '#EDE7F6',
+  yellow: '#FFF8E1',
+  yellowLight: '#FDF2F8',
   yellowDark: palette.purple10,
   dark: palette.purple10,
 
@@ -83,11 +83,11 @@ export const colors = {
 };
 
 export const gradients = {
-  brand: [palette.purple10, palette.purple10Soft] as const,
-  primary: [palette.purple10, '#1E0F33'] as const,
-  secondary: [palette.yellow30, palette.yellow30Muted] as const,
+  brand: [palette.pink60, '#C2185B'] as const,
+  primary: [palette.pink60, '#AD1457'] as const,
+  secondary: [palette.pink60Soft, palette.pink60Muted] as const,
   premium: [palette.purple10, palette.purple10Soft] as const,
-  surface: [palette.pink60Soft, palette.pink60Muted] as const,
+  surface: [palette.pink60Soft, '#FFFFFF'] as const,
 };
 
 export const typography = {

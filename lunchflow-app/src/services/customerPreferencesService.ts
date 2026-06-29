@@ -9,11 +9,11 @@ export type NotificationPreferences = {
   whatsapp: boolean;
 };
 
-export type AppLanguage = 'en' | 'hi';
+export type AppLanguage = 'en' | 'ta';
 
 export const LANGUAGE_OPTIONS: { code: AppLanguage; label: string; nativeLabel: string }[] = [
   { code: 'en', label: 'English', nativeLabel: 'English' },
-  { code: 'hi', label: 'Hindi', nativeLabel: 'हिंदी' },
+  { code: 'ta', label: 'Tamil', nativeLabel: 'தமிழ்' },
 ];
 
 export function getLanguageLabel(code: AppLanguage): string {
@@ -97,7 +97,7 @@ export async function loadLanguagePreference(phone: string): Promise<AppLanguage
   if (!phone) return 'en';
   try {
     const raw = await AsyncStorage.getItem(languageStorageKey(normalizePhone(phone)));
-    if (raw === 'hi' || raw === 'en') return raw;
+    if (raw === 'ta' || raw === 'en') return raw;
     return 'en';
   } catch {
     return 'en';

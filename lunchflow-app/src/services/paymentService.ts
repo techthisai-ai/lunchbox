@@ -146,19 +146,9 @@ export type WalletState = {
 };
 
 const DEFAULT_WALLET: WalletState = {
-  balance: 1250,
-  referralCredit: 50,
-  transactions: [
-    {
-      id: 'tx-ref',
-      date: 'Jun 10',
-      desc: 'Referral Credit',
-      amt: '+₹50',
-      positive: true,
-      method: 'Wallet',
-      receiptText: 'LunchFlow Referral Credit\nAmount: +₹50\nDate: Jun 10',
-    },
-  ],
+  balance: 0,
+  referralCredit: 0,
+  transactions: [],
   paymentMethods: [],
 };
 
@@ -206,10 +196,14 @@ export async function loadWallet(phone: string): Promise<WalletState> {
 
   try {
     const raw = await AsyncStorage.getItem(storageKey(phone));
-    const stored = raw ? (JSON.parse(raw) as Omit<WalletState, 'paymentMethods'>) : DEFAULT_WALLET;
+    if (!raw) {
+      return { ...DEFAULT_WALLET, paymentMethods: buildPaymentMethods(phone) };
+    }
+    const stored = JSON.parse(raw) as Omit<WalletState, 'paymentMethods'>;
     return {
-      ...DEFAULT_WALLET,
-      ...stored,
+      balance: stored.balance ?? 0,
+      referralCredit: stored.referralCredit ?? 0,
+      transactions: stored.transactions ?? [],
       paymentMethods: buildPaymentMethods(phone),
     };
   } catch {
@@ -262,6 +256,41 @@ export async function processOnlinePayment(
   const nextWallet = {
     balance: wallet.balance,
     referralCredit: wallet.referralCredit,
+    transactions: [tx, ...wallet.transactions].slice(0, 30),
+  };
+
+  await persistWallet(phone, nextWallet);
+  return loadWallet(phone);
+}
+
+export async function creditWalletReward(
+  phone: string,
+  amount: number,
+  description: string,
+  receiptTitle = 'Wallet Credit',
+): Promise<WalletState> {
+  if (!phone || amount <= 0) return loadWallet(phone);
+
+  const wallet = await loadWallet(phone);
+  const now = new Date();
+  const tx: WalletTransaction = {
+    id: `credit-${Date.now()}`,
+    date: formatTxDate(now),
+    desc: description,
+    amt: `+${formatAmount(amount)}`,
+    positive: true,
+    method: 'Wallet',
+    receiptText: [
+      `LunchFlow ${receiptTitle}`,
+      `Description: ${description}`,
+      `Amount: +${formatAmount(amount)}`,
+      `Date: ${now.toLocaleString('en-IN')}`,
+    ].join('\n'),
+  };
+
+  const nextWallet = {
+    balance: wallet.balance + amount,
+    referralCredit: wallet.referralCredit + amount,
     transactions: [tx, ...wallet.transactions].slice(0, 30),
   };
 
