@@ -2,6 +2,7 @@
   "expo": {
     "name": "LunchFlow",
     "slug": "lunchflow",
+    "owner": "thisai",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

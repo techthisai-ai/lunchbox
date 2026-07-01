@@ -1,14 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
+import { formatPhoneInput } from '../constants/auth';
 import { colors, radius } from '../constants/theme';
 
 type Props = TextInputProps & {
   label: string;
+  phone?: boolean;
 };
 
-export function Input({ label, style, secureTextEntry, ...props }: Props) {
+export function Input({ label, style, secureTextEntry, phone, onChangeText, keyboardType, maxLength, placeholder, ...props }: Props) {
   const [hidden, setHidden] = useState(Boolean(secureTextEntry));
+  const handleChange = phone && onChangeText ? (text: string) => onChangeText(formatPhoneInput(text)) : onChangeText;
 
   return (
     <View style={styles.field}>
@@ -19,6 +22,10 @@ export function Input({ label, style, secureTextEntry, ...props }: Props) {
           style={[styles.input, secureTextEntry && styles.inputWithToggle, style]}
           secureTextEntry={secureTextEntry ? hidden : undefined}
           underlineColorAndroid="transparent"
+          keyboardType={phone ? 'phone-pad' : keyboardType}
+          maxLength={phone ? 10 : maxLength}
+          placeholder={phone && !placeholder ? 'Enter 10-digit mobile number' : placeholder}
+          onChangeText={handleChange}
           {...props}
         />
         {secureTextEntry ? (

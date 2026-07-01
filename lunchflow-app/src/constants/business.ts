@@ -31,5 +31,7 @@ export const DEFAULT_OFFERS: CouponOffer[] = [
 
 export const PICKUP_READY_TIMEOUT_MINUTES = 45;
 
+export const DEFAULT_DELIVERY_FEE = 45;
+
 export const CUSTOM_BILLING_MONTHS_MIN = 1;
 export const CUSTOM_BILLING_MONTHS_MAX = 12;

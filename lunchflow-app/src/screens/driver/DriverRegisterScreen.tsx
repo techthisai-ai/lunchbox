@@ -46,7 +46,7 @@ export function DriverRegisterScreen({ navigation, route }: Props) {
       <ScreenHeader title="Driver Registration" subtitle="Join as a pickup & delivery partner" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={styles.form}>
         <Input label="Full Name" value={name} onChangeText={setName} placeholder="Enter your full name" />
-        <Input label="Mobile Number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Enter 10-digit mobile number" />
+        <Input label="Mobile Number" value={phone} onChangeText={setPhone} phone />
         <Input label="Vehicle Number" value={vehicle} onChangeText={setVehicle} placeholder="e.g. DL 4C AB 1234" autoCapitalize="characters" />
         <Input label="Driving License Number" value={licenseNumber} onChangeText={setLicenseNumber} placeholder="Enter license number" autoCapitalize="characters" />
         {error ? <Text style={styles.error}>{error}</Text> : null}

@@ -79,13 +79,7 @@ export function AdminAddDriverModal({ visible, onClose, onAdded }: Props) {
 
           <ScrollView style={styles.formScroll} contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
             <Input label="Full Name" value={name} onChangeText={setName} placeholder="Enter driver full name" />
-            <Input
-              label="Mobile Number"
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-              placeholder="Enter 10-digit mobile number"
-            />
+            <Input label="Mobile Number" value={phone} onChangeText={setPhone} phone />
             <Input
               label="Vehicle Number"
               value={vehicle}

@@ -4,3 +4,5 @@ export const DEFAULT_MAP_CENTER = { lat: 13.0827, lng: 80.2707 };
 export const DEMO_PICKUP = { lat: 13.0418, lng: 80.2341 };
 /** Demo drop — Chennai school / college zone */
 export const DEMO_DROP = { lat: 13.0067, lng: 80.2576 };
+/** Max distance (km) from Chennai center for a stored coordinate to be trusted by default */
+export const CHENNAI_SERVICE_RADIUS_KM = 150;

@@ -1,28 +1,100 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Avatar } from '../components/Avatar';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { LiveDeliveryMap } from '../components/LiveDeliveryMap';
 import { Timeline } from '../components/Timeline';
-import { colors, spacing } from '../constants/theme';
+import { colors, shadow, spacing } from '../constants/theme';
 import { useDelivery } from '../context/DeliveryContext';
 import { useLiveEta } from '../hooks/useLiveEta';
 import { useResponsive } from '../hooks/useResponsive';
-import { getStatusLabel, getTrackingTimeline, syncDriverLocationForOrder } from '../services/orderHubService';
+import { getStatusBadgeTone, getStatusLabel, getTrackingTimeline, syncDriverLocationForOrder } from '../services/orderHubService';
 import { TrackStackParamList } from '../navigation/types';
+import { DeliveryStatus } from '../types/delivery';
 import { callDriver } from '../utils/phoneCall';
-import { getEtaDestinationLabel } from '../utils/deliveryEta';
 
 type Props = NativeStackScreenProps<TrackStackParamList, 'Tracking'>;
+
+const STATUS_CARD_MAP_OVERLAP = 20;
+
+function getTrackingStatusMessage(status: DeliveryStatus): string {
+  switch (status) {
+    case 'at_drop':
+      return 'Driver has arrived';
+    case 'picked_up':
+    case 'in_transit':
+      return 'Driver is arriving...';
+    case 'at_pickup':
+    case 'pickup_verified':
+      return 'Driver is at pickup';
+    case 'driver_assigned':
+      return 'Driver is on the way...';
+    default:
+      return 'Tracking your delivery...';
+  }
+}
+
+function TrackingHeader({
+  horizontalPadding,
+  refreshing,
+  onBack,
+  onRefresh,
+}: {
+  horizontalPadding: number;
+  refreshing: boolean;
+  onBack: () => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <View style={[styles.header, { paddingHorizontal: horizontalPadding }]}>
+      <Pressable onPress={onBack} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="Go back">
+        <Ionicons name="arrow-back" size={22} color={colors.onPrimary} />
+      </Pressable>
+      <Text style={styles.headerTitle}>Live Tracking</Text>
+      <Pressable
+        onPress={onRefresh}
+        style={styles.headerBtn}
+        disabled={refreshing}
+        accessibilityRole="button"
+        accessibilityLabel="Refresh tracking"
+      >
+        {refreshing ? (
+          <ActivityIndicator size="small" color={colors.onPrimary} />
+        ) : (
+          <Ionicons name="refresh" size={22} color={colors.onPrimary} />
+        )}
+      </Pressable>
+    </View>
+  );
+}
 
 export function TrackingScreen({ navigation }: Props) {
   const { order, refreshDelivery } = useDelivery();
   const { horizontalPadding } = useResponsive();
   const liveEtaMinutes = useLiveEta(order);
+  const [refreshing, setRefreshing] = useState(false);
+  const [mapKey, setMapKey] = useState(0);
+
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return;
+
+    setRefreshing(true);
+    try {
+      if (order?.id && order.driver) {
+        await syncDriverLocationForOrder(order.id);
+      }
+      await refreshDelivery({ force: true });
+      setMapKey((key) => key + 1);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [order?.id, order?.driver, refreshDelivery, refreshing]);
 
   useFocusEffect(
     useCallback(() => {
@@ -38,106 +110,188 @@ export function TrackingScreen({ navigation }: Props) {
     }, [order?.id, order?.driver, refreshDelivery]),
   );
 
+  const handleBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.getParent()?.navigate('Home');
+  };
+
   if (!order || order.status === 'booked') {
     return (
       <SafeAreaView style={styles.empty}>
         <Text style={styles.emptyTitle}>Tracking not started</Text>
         <Text style={styles.muted}>Mark food ready from Home first.</Text>
-        <Button title="Go Back" variant="outline" onPress={() => navigation.goBack()} style={{ marginTop: spacing.lg }} />
+        <Button title="Go Back" variant="outline" onPress={handleBack} style={{ marginTop: spacing.lg }} />
       </SafeAreaView>
     );
   }
 
   if (!order.driver) {
     return (
-      <SafeAreaView style={styles.empty}>
-        <ActivityIndicator size="large" color={colors.orange} />
-        <Text style={[styles.emptyTitle, { marginTop: spacing.lg }]}>Finding a driver</Text>
-        <Text style={styles.muted}>Your pickup request was sent. A driver will accept shortly.</Text>
-        <Badge label={getStatusLabel(order.status)} tone="orange" />
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <TrackingHeader
+          horizontalPadding={horizontalPadding}
+          refreshing={refreshing}
+          onBack={handleBack}
+          onRefresh={() => void handleRefresh()}
+        />
+        <View style={styles.empty}>
+          <ActivityIndicator size="large" color={colors.orange} />
+          <Text style={[styles.emptyTitle, { marginTop: spacing.lg }]}>Finding a driver</Text>
+          <Text style={styles.muted}>Your pickup request was sent. A driver will accept shortly.</Text>
+          <Badge label={getStatusLabel(order.status)} tone="orange" />
+        </View>
       </SafeAreaView>
     );
   }
 
   const isInTransit = ['in_transit', 'at_drop', 'picked_up'].includes(order.status);
   const etaMinutes = liveEtaMinutes ?? (isInTransit ? 14 : 8);
-  const etaLabel = getEtaDestinationLabel(order);
 
   return (
-    <View style={styles.container}>
-      <View style={styles.mapSection}>
-        <LiveDeliveryMap order={order} height={320} />
-        <View style={styles.liveBadge}>
-          <View style={styles.liveDot} />
-          <Text style={styles.liveText}>Live tracking</Text>
-        </View>
-      </View>
-      <ScrollView
-        style={styles.overlayScroll}
-        contentContainerStyle={[styles.overlay, { paddingHorizontal: horizontalPadding }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.etaRow}>
-          <View>
-            <Text style={styles.mutedLeft}>ETA to {etaLabel}</Text>
-            <Text style={styles.eta}>{etaMinutes} min</Text>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <TrackingHeader
+        horizontalPadding={horizontalPadding}
+        refreshing={refreshing}
+        onBack={handleBack}
+        onRefresh={() => void handleRefresh()}
+      />
+
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} bounces>
+        <View style={styles.heroBlock}>
+          <View style={[styles.statusSection, { paddingHorizontal: horizontalPadding }]}>
+            <LinearGradient
+              colors={['#FFF5F9', '#FFFFFF', '#FFFFFF']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0.5 }}
+              style={styles.statusCard}
+            >
+              <View style={styles.statusCardBody}>
+                <Text style={styles.statusMessage}>{getTrackingStatusMessage(order.status)}</Text>
+                <Text style={styles.etaLabel}>ETA</Text>
+                <Text style={styles.etaValue}>{etaMinutes} min</Text>
+              </View>
+              <Text style={styles.scooterArt} accessibilityLabel="Delivery rider">
+                🛵
+              </Text>
+            </LinearGradient>
           </View>
-          <Badge label={getStatusLabel(order.status)} tone="orange" />
-        </View>
-        <View style={styles.driverRow}>
-          <Avatar initials={order.driver.initials} large />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.driverName}>{order.driver.name}</Text>
-            <Text style={styles.mutedLeft}>★ {order.driver.rating} · {order.driver.vehicle}</Text>
+
+          <View style={styles.mapSection}>
+            <LiveDeliveryMap key={mapKey} order={order} height={320} />
           </View>
-          <Button title="Call" variant="green" small onPress={() => void callDriver(order)} />
         </View>
 
-        <Text style={styles.timelineTitle}>Delivery Timeline</Text>
-        <Timeline steps={getTrackingTimeline(order)} />
-        <Button title="Full Status" variant="outline" onPress={() => navigation.navigate('DeliveryStatus')} style={{ marginTop: spacing.md }} />
-        <View style={styles.linkRow}>
-          <Button title="QR & OTP" variant="outline" small onPress={() => navigation.navigate('QRTracking')} />
+        <View style={[styles.details, { paddingHorizontal: horizontalPadding }]}>
+          <View style={styles.driverRow}>
+            <Avatar initials={order.driver.initials} />
+            <Text style={styles.driverName} numberOfLines={1}>
+              {order.driver.name}
+            </Text>
+            <Badge label={getStatusLabel(order.status)} tone={getStatusBadgeTone(order.status)} />
+            <Button
+              title="Call"
+              variant="green"
+              small
+              onPress={() => void callDriver(order)}
+              style={styles.callBtn}
+            />
+          </View>
+
+          <Text style={styles.timelineTitle}>Delivery Timeline</Text>
+          <Timeline steps={getTrackingTimeline(order)} />
+          <Button title="Full Status" variant="outline" onPress={() => navigation.navigate('DeliveryStatus')} style={{ marginTop: spacing.md }} />
+          <View style={styles.linkRow}>
+            <Button title="QR & OTP" variant="outline" small onPress={() => navigation.navigate('QRTracking')} />
+          </View>
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  empty: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
+  container: { flex: 1, backgroundColor: colors.orange },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, backgroundColor: colors.bg },
   emptyTitle: { fontSize: 18, fontWeight: '800', marginBottom: 8 },
-  mapSection: { height: 320, position: 'relative' },
-  liveBadge: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.white,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
+    justifyContent: 'space-between',
+    backgroundColor: colors.orange,
+    paddingVertical: spacing.md,
   },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.green },
-  liveText: { fontSize: 11, fontWeight: '700', color: colors.text },
-  overlayScroll: { flex: 1, backgroundColor: colors.bg },
-  overlay: {
+  headerBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.onPrimary,
+    letterSpacing: -0.2,
+  },
+  scroll: { flex: 1, backgroundColor: colors.bg },
+  scrollContent: { paddingBottom: spacing.xl * 2 },
+  heroBlock: {
+    overflow: 'visible',
+  },
+  statusSection: {
+    backgroundColor: colors.bg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    zIndex: 2,
+  },
+  mapSection: {
+    width: '100%',
+    height: 320,
+    marginTop: -STATUS_CARD_MAP_OVERLAP,
+    backgroundColor: colors.surfaceMuted,
+    zIndex: 1,
+  },
+  statusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 20,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(233, 30, 99, 0.07)',
+    zIndex: 3,
+    elevation: 8,
+    ...shadow.subtle,
+  },
+  statusCardBody: { flex: 1, paddingRight: spacing.sm },
+  statusMessage: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.orangeDark,
+    marginBottom: spacing.sm,
+  },
+  etaLabel: { fontSize: 12, color: colors.muted, fontWeight: '600' },
+  etaValue: { fontSize: 28, fontWeight: '800', color: colors.text, marginTop: 2 },
+  scooterArt: { fontSize: 52, lineHeight: 58 },
+  details: {
+    backgroundColor: colors.white,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    marginTop: -20,
     paddingTop: spacing.lg,
-    paddingBottom: spacing.xl,
-    backgroundColor: colors.white,
+    paddingBottom: spacing.md,
   },
-  etaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
   muted: { fontSize: 12, color: colors.muted, textAlign: 'center', lineHeight: 18 },
-  mutedLeft: { fontSize: 12, color: colors.muted },
-  eta: { fontSize: 24, fontWeight: '800', color: colors.orange },
-  driverRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: spacing.md },
-  driverName: { fontWeight: '700', fontSize: 15 },
+  driverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: spacing.md,
+  },
+  driverName: { flex: 1, fontWeight: '700', fontSize: 15, minWidth: 0 },
+  callBtn: { alignSelf: 'center', flexShrink: 0 },
   timelineTitle: { fontSize: 13, fontWeight: '700', marginBottom: 8 },
   linkRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
 });

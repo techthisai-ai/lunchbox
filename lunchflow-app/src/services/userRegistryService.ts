@@ -45,6 +45,7 @@ export type RegisteredDriver = {
   ratingAverage?: string;
   ratingCount?: number;
   completedDeliveries?: number;
+  password?: string;
 };
 
 function parseDriverRecord(
@@ -73,6 +74,7 @@ function parseDriverRecord(
     ratingCount: typeof data.ratingCount === 'number' ? data.ratingCount : undefined,
     completedDeliveries:
       typeof data.completedDeliveries === 'number' ? data.completedDeliveries : undefined,
+    password: data.password ? String(data.password) : undefined,
   };
 }
 
@@ -407,6 +409,7 @@ async function persistDriverRecord(driver: RegisteredDriver): Promise<void> {
         ratingAverage: driver.ratingAverage,
         ratingCount: driver.ratingCount,
         completedDeliveries: driver.completedDeliveries,
+        password: driver.password,
         updatedAt: new Date().toISOString(),
       },
       { merge: true },
@@ -454,4 +457,31 @@ export async function getDriverProfileStats(driverId: string): Promise<{
     reviewCount: target?.ratingCount ?? 0,
     completedDeliveries: target?.completedDeliveries ?? 0,
   };
+}
+
+export async function changeDriverPassword(
+  phone: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<string | null> {
+  const normalized = normalizePhone(phone);
+  if (normalized.length !== 10) return 'Enter a valid mobile number';
+  if (newPassword.length < 6) return 'Password must be at least 6 characters';
+
+  const driver = await loadDriverByPhone(normalized);
+  if (!driver) return 'Driver account not found';
+
+  if (driver.password && driver.password !== currentPassword) {
+    return 'Current password is incorrect';
+  }
+  if (!driver.password && currentPassword) {
+    return 'No password set yet. Leave current password empty.';
+  }
+
+  await persistDriverRecord({ ...driver, password: newPassword });
+  return null;
+}
+
+export function driverHasPassword(driver: RegisteredDriver | null): boolean {
+  return Boolean(driver?.password?.trim());
 }

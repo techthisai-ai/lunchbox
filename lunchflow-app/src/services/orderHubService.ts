@@ -28,6 +28,8 @@ import {
   isRecentGpsLocation,
   estimateTravelMinutes,
   resolveMapPoint,
+  resolveOrderLocationsAsync,
+  isTrustedMapPoint,
 } from './mapGeocoding';
 import { getEtaDestination } from '../utils/deliveryEta';
 import { pickAvailableSlot, reserveDeliverySlot } from './deliverySlotService';
@@ -138,13 +140,13 @@ async function persistOrder(order: DeliveryOrder): Promise<void> {
 async function loadOrder(orderId: string): Promise<DeliveryOrder | null> {
   await syncFromFirestore();
   const local = await loadOrderLocal(orderId);
-  if (local) return local;
+  if (local) return hydrateOrderLocations(local);
   try {
     const snap = await getDoc(doc(db, 'orders', orderId));
     if (!snap.exists()) return null;
     const remote = snap.data() as DeliveryOrder;
     await saveOrderLocal(remote);
-    return remote;
+    return hydrateOrderLocations(remote);
   } catch {
     return null;
   }
@@ -170,6 +172,26 @@ function withLocations(order: DeliveryOrder): DeliveryOrder {
     pickupLocation: resolveMapPoint(order.pickupLocation, order.pickupAddress, DEMO_PICKUP),
     dropLocation: resolveMapPoint(order.dropLocation, getDropAddress(order), DEMO_DROP),
   };
+}
+
+async function hydrateOrderLocations(order: DeliveryOrder): Promise<DeliveryOrder> {
+  const pickupAddress = order.pickupAddress?.trim() ?? '';
+  const dropAddress = getDropAddress(order)?.trim() ?? '';
+  const pickupTrusted = isTrustedMapPoint(order.pickupLocation, pickupAddress);
+  const dropTrusted = isTrustedMapPoint(order.dropLocation, dropAddress);
+
+  if (pickupTrusted && dropTrusted && order.pickupLocation && order.dropLocation) {
+    return withLocations(order);
+  }
+
+  const locations = await resolveOrderLocationsAsync(order);
+  const updated: DeliveryOrder = {
+    ...order,
+    pickupLocation: locations.pickupLocation,
+    dropLocation: locations.dropLocation,
+  };
+  await persistOrder(updated);
+  return updated;
 }
 
 function computeDriverLocation(order: DeliveryOrder): DriverLocation | null {
@@ -474,6 +496,9 @@ export async function markFoodReady(phone: string, details?: FoodReadyDetails): 
     if (order.status === 'delivered') {
       throw new Error('Today\'s delivery is already completed');
     }
+    if (order.status === 'pickup_closed') {
+      throw new Error('This delivery was cancelled');
+    }
     return order;
   }
 
@@ -495,7 +520,13 @@ export async function markFoodReady(phone: string, details?: FoodReadyDetails): 
   );
   const deliveryType = deliveryTypes[0] ?? normalizeDeliveryType(details?.deliveryType ?? order.deliveryType);
   const primaryDrop = filledStudents[0]?.dropLocation.trim() || dropAddress;
-  const locations = resolveOrderLocations({ pickupAddress, dropAddress: primaryDrop, school: primaryDrop });
+  const locations = await resolveOrderLocationsAsync({
+    pickupAddress,
+    dropAddress: primaryDrop,
+    school: primaryDrop,
+    pickupLocation: order.pickupLocation,
+    dropLocation: order.dropLocation,
+  });
 
   const nowIso = new Date().toISOString();
   const updated: DeliveryOrder = {
@@ -679,6 +710,8 @@ export async function acceptPickup(
   if (!order) throw new Error('Order not found');
   if (order.status !== 'awaiting_driver') throw new Error('Order is no longer available');
 
+  const locatedOrder = await hydrateOrderLocations(order);
+
   const driverRecord = driver.phone ? { phone: driver.phone } : await resolveDriverById(driver.id);
   const driverPhone = driverRecord?.phone;
   const ratingSummary = await getDriverRatingSummary(driver.id);
@@ -691,20 +724,21 @@ export async function acceptPickup(
     ratingSummary.average,
   );
   const activeForDriver = await listDriverActiveOrders(driver.id);
-  const allActive = [...activeForDriver, { ...order, driver: driverInfo, status: 'driver_assigned' as DeliveryStatus }];
+  const allActive = [...activeForDriver, { ...locatedOrder, driver: driverInfo, status: 'driver_assigned' as DeliveryStatus }];
   const routePlan = planRoute(allActive);
 
   const updated: DeliveryOrder = {
-    ...order,
+    ...locatedOrder,
     status: 'driver_assigned',
     assignedDriverPhone: driverPhone,
     routePlan,
+    driver: driverInfo,
     driverLocation: computeDriverLocation({
-      ...order,
+      ...locatedOrder,
       status: 'driver_assigned',
       driver: driverInfo,
     }),
-    ...applyEta({ ...order, driver: driverInfo }, routePlan.etaMinutes),
+    ...applyEta({ ...locatedOrder, driver: driverInfo }, routePlan.etaMinutes),
   };
 
   await persistOrder(updated);

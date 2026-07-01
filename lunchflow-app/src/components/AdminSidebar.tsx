@@ -63,11 +63,10 @@ const SIDEBAR = {
 type Props = {
   active: AdminPage;
   onNavigate: (page: AdminPage) => void;
-  onLogout: () => void;
   variant?: 'fixed' | 'overlay';
 };
 
-export function AdminSidebar({ active, onNavigate, onLogout, variant = 'fixed' }: Props) {
+export function AdminSidebar({ active, onNavigate, variant = 'fixed' }: Props) {
   return (
     <LinearGradient
       colors={[SIDEBAR.bg, SIDEBAR.bgSoft, '#1E0F33']}
@@ -113,19 +112,6 @@ export function AdminSidebar({ active, onNavigate, onLogout, variant = 'fixed' }
           );
         })}
       </ScrollView>
-
-      <View style={styles.footer}>
-        <Pressable
-          style={({ pressed, hovered }) => [
-            styles.logoutBtn,
-            (pressed || (Platform.OS === 'web' && hovered)) && styles.logoutBtnHover,
-          ]}
-          onPress={onLogout}
-        >
-          <Ionicons name="log-out-outline" size={16} color="#FF8FAB" />
-          <Text style={styles.logoutText}>Logout</Text>
-        </Pressable>
-      </View>
     </LinearGradient>
   );
 }
@@ -244,35 +230,5 @@ const styles = StyleSheet.create({
   navLabelActive: {
     color: SIDEBAR.activeText,
     fontWeight: '800',
-  },
-  footer: {
-    borderTopWidth: 1,
-    borderTopColor: SIDEBAR.border,
-    paddingHorizontal: spacing.sm,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-    gap: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.15)',
-    flexShrink: 0,
-    zIndex: 2,
-  },
-  logoutBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: 'rgba(185, 28, 74, 0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 143, 171, 0.35)',
-  },
-  logoutBtnHover: {
-    backgroundColor: 'rgba(185, 28, 74, 0.28)',
-  },
-  logoutText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#FF8FAB',
   },
 });

@@ -147,14 +147,7 @@ export function LoginScreen({ navigation, route }: Props) {
                 />
               </>
             ) : (
-              <Input
-                label="Mobile Number"
-                value={phone}
-                onChangeText={setPhone}
-                keyboardType="phone-pad"
-                placeholder="10-digit mobile number"
-                maxLength={10}
-              />
+              <Input label="Mobile Number" value={phone} onChangeText={setPhone} phone placeholder="10-digit mobile number" />
             )}
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <Button

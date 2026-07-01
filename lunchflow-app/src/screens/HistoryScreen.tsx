@@ -13,8 +13,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Badge } from '../components/Badge';
-import { Card } from '../components/Card';
-import { ScreenHeader } from '../components/ScreenHeader';
 import { colors, radius, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
@@ -27,10 +25,10 @@ import {
   resolveHistoryDateKey,
 } from '../utils/date';
 
-const scrollableStatusFilters = ['All', 'Delivered', 'In Transit'] as const;
-const cancelledFilter = 'Cancelled';
+const statusFilters = ['All', 'Delivered', 'Cancelled'] as const;
 const periodFilters = ['Today', 'This Week', 'This Month'] as const;
 
+type StatusFilter = (typeof statusFilters)[number];
 type PeriodFilter = (typeof periodFilters)[number];
 
 function matchesPeriod(entry: DeliveryHistoryEntry, period: PeriodFilter): boolean {
@@ -38,6 +36,12 @@ function matchesPeriod(entry: DeliveryHistoryEntry, period: PeriodFilter): boole
   if (period === 'Today') return isHistoryToday(dateKey);
   if (period === 'This Week') return isHistoryThisWeek(dateKey);
   return isHistoryThisMonth(dateKey);
+}
+
+function statusTone(status: string): 'green' | 'red' | 'orange' {
+  if (status === 'Delivered') return 'green';
+  if (status === 'Cancelled') return 'red';
+  return 'orange';
 }
 
 function PeriodDropdown({
@@ -67,20 +71,12 @@ function PeriodDropdown({
     });
   };
 
-  const toggleMenu = () => {
-    if (open) {
-      closeMenu();
-      return;
-    }
-    openMenu();
-  };
-
   return (
     <>
-      <View ref={triggerRef} collapsable={false} style={styles.dropdownWrap}>
-        <Pressable style={styles.dropdown} onPress={toggleMenu}>
-          <Text style={styles.dropdownText}>{value}</Text>
-          <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color={colors.onPrimary} />
+      <View ref={triggerRef} collapsable={false} style={styles.periodWrap}>
+        <Pressable style={styles.periodChip} onPress={() => (open ? closeMenu() : openMenu())}>
+          <Text style={styles.periodChipText}>{value}</Text>
+          <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color={colors.orange} />
         </Pressable>
       </View>
       <Modal visible={open} transparent animationType="fade" onRequestClose={closeMenu}>
@@ -113,12 +109,86 @@ function PeriodDropdown({
   );
 }
 
+function RouteTimeline({
+  pickupLabel,
+  destinationName,
+  destinationAddress,
+}: {
+  pickupLabel: string;
+  destinationName: string;
+  destinationAddress: string;
+}) {
+  const showAddress = Boolean(destinationAddress && destinationAddress !== destinationName);
+
+  return (
+    <View style={styles.routeTimeline}>
+      <View style={styles.routeStopRow}>
+        <View style={styles.routePinCol}>
+          <View style={[styles.routePin, styles.pickupPin]}>
+            <Ionicons name="location" size={12} color={colors.onPrimary} />
+          </View>
+        </View>
+        <Text style={styles.routeStopLabel} numberOfLines={1}>
+          {pickupLabel}
+        </Text>
+      </View>
+
+      <View style={styles.routeConnectorRow}>
+        <View style={styles.routePinCol}>
+          <View style={styles.routeLine} />
+        </View>
+      </View>
+
+      <View style={[styles.routeStopRow, styles.routeStopRowDrop]}>
+        <View style={styles.routePinCol}>
+          <View style={[styles.routePin, styles.dropPin]}>
+            <Ionicons name="location" size={12} color={colors.onPrimary} />
+          </View>
+        </View>
+        <View style={styles.routeStopText}>
+          <Text style={styles.routeDestination} numberOfLines={3}>
+            {destinationName}
+          </Text>
+          {showAddress ? (
+            <Text style={styles.routeAddress} numberOfLines={2}>
+              {destinationAddress}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function HistoryCard({ entry }: { entry: DeliveryHistoryEntry }) {
+  return (
+    <View style={styles.historyCard}>
+      <View style={styles.cardHeader}>
+        <Text style={styles.cardDate}>{entry.date}</Text>
+        <Badge label={entry.status} tone={statusTone(entry.status)} />
+      </View>
+
+      <RouteTimeline
+        pickupLabel={entry.pickupLabel}
+        destinationName={entry.destinationName}
+        destinationAddress={entry.destinationAddress}
+      />
+
+      <View style={styles.cardFooter}>
+        <Text style={styles.cardTime}>{entry.time}</Text>
+        <Text style={styles.cardPrice}>{entry.price}</Text>
+      </View>
+    </View>
+  );
+}
+
 export function HistoryScreen() {
   const { user } = useAuth();
   const { horizontalPadding } = useResponsive();
   const [history, setHistory] = useState<DeliveryHistoryEntry[]>([]);
   const [query, setQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState('All');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<StatusFilter>('All');
   const [activePeriod, setActivePeriod] = useState<PeriodFilter>('This Week');
 
   const refresh = useCallback(async () => {
@@ -139,23 +209,36 @@ export function HistoryScreen() {
   const filtered = history.filter((item) => {
     const matchesStatus =
       activeFilter === 'All' ||
-      item.status.toLowerCase() === activeFilter.toLowerCase() ||
-      (activeFilter === 'In Transit' && item.status === 'In Transit');
-    const matchesQuery =
-      !query.trim() ||
-      item.route.toLowerCase().includes(query.toLowerCase()) ||
-      item.date.toLowerCase().includes(query.toLowerCase());
+      item.status.toLowerCase() === activeFilter.toLowerCase();
+    const haystack = [
+      item.route,
+      item.date,
+      item.destinationName,
+      item.destinationAddress,
+      item.pickupLabel,
+    ]
+      .join(' ')
+      .toLowerCase();
+    const matchesQuery = !query.trim() || haystack.includes(query.toLowerCase());
     return matchesPeriod(item, activePeriod) && matchesStatus && matchesQuery;
   });
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScreenHeader title="Delivery History" />
-      <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.search}>
+      <View style={[styles.header, { paddingHorizontal: horizontalPadding }]}>
+        <Text style={styles.headerTitle}>Delivery History</Text>
+        <Pressable
+          style={styles.searchBtn}
+          onPress={() => setSearchOpen((open) => !open)}
+          accessibilityRole="button"
+          accessibilityLabel="Search deliveries"
+        >
+          <Ionicons name="search" size={20} color={colors.text} />
+        </Pressable>
+      </View>
+
+      {searchOpen ? (
+        <View style={[styles.search, { marginHorizontal: horizontalPadding }]}>
           <Ionicons name="search" size={18} color={colors.muted} />
           <TextInput
             placeholder="Search deliveries..."
@@ -164,56 +247,40 @@ export function HistoryScreen() {
             value={query}
             onChangeText={setQuery}
             underlineColorAndroid="transparent"
+            autoFocus
           />
         </View>
-        <View style={styles.filterRow}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.statusScroll}
-            contentContainerStyle={styles.statusFilters}
-          >
-            {scrollableStatusFilters.map((f) => (
-              <Pressable
-                key={f}
-                style={[styles.chip, activeFilter === f && styles.chipActive]}
-                onPress={() => setActiveFilter(f)}
-              >
-                <Text style={[styles.chipText, activeFilter === f && styles.chipTextActive]}>{f}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+      ) : null}
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterScroll}
+        contentContainerStyle={[styles.filterRow, { paddingHorizontal: horizontalPadding }]}
+      >
+        {statusFilters.map((filter) => (
           <Pressable
-            style={[styles.chip, styles.cancelledChip, activeFilter === cancelledFilter && styles.chipActive]}
-            onPress={() => setActiveFilter(cancelledFilter)}
+            key={filter}
+            style={[styles.chip, activeFilter === filter && styles.chipActive]}
+            onPress={() => setActiveFilter(filter)}
           >
-            <Text style={[styles.chipText, activeFilter === cancelledFilter && styles.chipTextActive]}>
-              {cancelledFilter}
-            </Text>
+            <Text style={[styles.chipText, activeFilter === filter && styles.chipTextActive]}>{filter}</Text>
           </Pressable>
-          <PeriodDropdown value={activePeriod} onChange={setActivePeriod} />
-        </View>
+        ))}
+        <PeriodDropdown value={activePeriod} onChange={setActivePeriod} />
+      </ScrollView>
+
+      <ScrollView
+        style={styles.listScroll}
+        contentContainerStyle={[styles.listContent, { paddingHorizontal: horizontalPadding }]}
+        showsVerticalScrollIndicator={false}
+      >
         {filtered.length > 0 ? (
-          filtered.map((d) => (
-            <Card key={d.id}>
-              <View style={styles.row}>
-                <View style={styles.rowInfo}>
-                  <Text style={styles.date}>{d.date}</Text>
-                  <Text style={styles.route} numberOfLines={2}>
-                    {d.route}
-                  </Text>
-                </View>
-                <View style={styles.rowMeta}>
-                  <Badge label={d.status} tone={d.status === 'Delivered' ? 'green' : 'orange'} />
-                  <Text style={styles.time}>{d.time}</Text>
-                </View>
-              </View>
-            </Card>
-          ))
+          filtered.map((entry) => <HistoryCard key={entry.id} entry={entry} />)
         ) : (
-          <Card flat>
+          <View style={styles.emptyCard}>
             <Text style={styles.empty}>No deliveries for {activePeriod.toLowerCase()}.</Text>
-          </Card>
+          </View>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -222,7 +289,24 @@ export function HistoryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  scroll: { paddingTop: spacing.md, paddingBottom: 32, flexGrow: 1 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+  },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: colors.text },
+  searchBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   search: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -233,7 +317,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
-    marginBottom: 14,
+    marginBottom: spacing.sm,
   },
   searchInput: {
     flex: 1,
@@ -244,52 +328,43 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     backgroundColor: 'transparent',
   } as const,
+  filterScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   filterRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 14,
     gap: 8,
+    paddingBottom: spacing.sm,
   },
-  statusScroll: {
-    flexShrink: 1,
-    minWidth: 0,
-  },
-  statusFilters: { alignItems: 'center', paddingRight: 0 },
+  listScroll: { flex: 1 },
+  listContent: { paddingBottom: 32 },
   chip: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: radius.full,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
-    marginRight: 8,
-  },
-  cancelledChip: {
-    marginRight: 0,
-    flexShrink: 0,
   },
   chipActive: { backgroundColor: colors.orange, borderColor: colors.orange },
   chipText: { fontSize: 12, fontWeight: '600', color: colors.text },
   chipTextActive: { color: colors.onPrimary },
-  dropdownWrap: { flexShrink: 0, zIndex: 2 },
-  dropdown: {
+  periodWrap: { flexShrink: 0 },
+  periodChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: radius.full,
-    backgroundColor: colors.orange,
+    backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.orange,
   },
-  dropdownText: { fontSize: 12, fontWeight: '700', color: colors.onPrimary },
-  dropdownOverlay: {
-    flex: 1,
-  },
-  dropdownDismissArea: {
-    ...StyleSheet.absoluteFill,
-  },
+  periodChipText: { fontSize: 12, fontWeight: '700', color: colors.orange },
+  dropdownOverlay: { flex: 1 },
+  dropdownDismissArea: { ...StyleSheet.absoluteFillObject },
   dropdownMenu: {
     position: 'absolute',
     backgroundColor: colors.white,
@@ -308,17 +383,79 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  dropdownOptionLast: {
-    borderBottomWidth: 0,
-  },
+  dropdownOptionLast: { borderBottomWidth: 0 },
   dropdownOptionActive: { backgroundColor: colors.orange },
   dropdownOptionText: { fontSize: 13, fontWeight: '600', color: colors.text },
   dropdownOptionTextActive: { color: colors.onPrimary },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
-  rowInfo: { flex: 1, minWidth: 0 },
-  rowMeta: { alignItems: 'flex-end' },
-  date: { fontWeight: '700', fontSize: 14 },
-  route: { fontSize: 12, color: colors.muted, marginTop: 2 },
-  time: { fontSize: 11, color: colors.muted, marginTop: 4 },
+  historyCard: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    ...shadow.subtle,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  cardDate: { fontSize: 13, fontWeight: '700', color: colors.text },
+  routeTimeline: { marginBottom: spacing.md },
+  routeStopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  routeStopRowDrop: {
+    alignItems: 'flex-start',
+  },
+  routePinCol: {
+    width: 20,
+    alignItems: 'center',
+  },
+  routePin: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickupPin: { backgroundColor: colors.orange },
+  dropPin: { backgroundColor: colors.blue },
+  routeConnectorRow: {
+    flexDirection: 'row',
+    marginVertical: 2,
+  },
+  routeLine: {
+    width: 2,
+    height: 16,
+    backgroundColor: colors.orangeLight,
+    borderRadius: 1,
+  },
+  routeStopText: { flex: 1, minWidth: 0 },
+  routeStopLabel: { flex: 1, fontSize: 12, fontWeight: '600', color: colors.text },
+  routeDestination: { fontSize: 12, fontWeight: '600', color: colors.text, lineHeight: 17 },
+  routeAddress: { fontSize: 11, color: colors.muted, marginTop: 4, lineHeight: 16 },
+  cardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.xs,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSubtle,
+  },
+  cardTime: { fontSize: 11, color: colors.muted, fontWeight: '500' },
+  cardPrice: { fontSize: 13, fontWeight: '700', color: colors.text },
+  emptyCard: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    padding: spacing.lg,
+  },
   empty: { fontSize: 13, color: colors.muted, textAlign: 'center' },
 });

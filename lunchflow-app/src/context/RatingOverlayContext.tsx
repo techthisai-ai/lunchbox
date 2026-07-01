@@ -60,7 +60,6 @@ export function RatingOverlayProvider({ children }: { children: ReactNode }) {
       {children}
       <RatingDialog
         visible={visible}
-        orderLabel={order ? `${order.studentName} · ${order.school}` : ''}
         driverName={order?.driver?.name}
         submitting={submitting}
         onSubmit={handleSubmit}

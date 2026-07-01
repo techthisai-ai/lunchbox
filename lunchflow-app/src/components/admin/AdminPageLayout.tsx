@@ -20,6 +20,7 @@ export function AdminPageLayout({ children, wide }: Props) {
         nestedScrollEnabled
         contentContainerStyle={[
           styles.scrollContent,
+          showMobileHeader && styles.scrollContentMobile,
           {
             paddingHorizontal: pagePadding,
             paddingTop: showMobileHeader ? spacing.md : spacing.lg,
@@ -56,6 +57,9 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: {
     paddingBottom: spacing.xl,
+  },
+  scrollContentMobile: {
+    flexGrow: 0,
   },
   section: { marginTop: spacing.sm },
   sectionTitle: { fontSize: 18, fontWeight: '800', color: colors.text, marginBottom: spacing.md },

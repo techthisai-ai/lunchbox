@@ -13,6 +13,7 @@ export type RootStackParamList = {
   DriverTabs: NavigatorScreenParams<DriverTabParamList>;
   DriverPendingApproval: undefined;
   DriverNotifications: undefined;
+  DriverChangePassword: undefined;
   AdminPortal: undefined;
 };
 

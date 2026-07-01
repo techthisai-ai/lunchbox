@@ -56,7 +56,7 @@ export function AdminWebPortal({ onLogout }: Props) {
     <View style={styles.layout}>
       {!isSidebarCollapsed ? (
         <View style={styles.sidebarDock}>
-          <AdminSidebar active={page} onNavigate={handleNavigate} onLogout={handleLogout} />
+          <AdminSidebar active={page} onNavigate={handleNavigate} />
         </View>
       ) : null}
 
@@ -64,7 +64,7 @@ export function AdminWebPortal({ onLogout }: Props) {
         {showMobileHeader ? (
           <AdminMobileHeader title={ADMIN_PAGE_LABELS[page]} onMenuPress={() => setMenuOpen(true)} />
         ) : null}
-        <AdminPortalProvider navigate={handleNavigate}>
+        <AdminPortalProvider navigate={handleNavigate} logout={handleLogout}>
           <Screen />
         </AdminPortalProvider>
       </View>
@@ -77,7 +77,6 @@ export function AdminWebPortal({ onLogout }: Props) {
               variant="overlay"
               active={page}
               onNavigate={handleNavigate}
-              onLogout={handleLogout}
             />
           </View>
         </Modal>

@@ -65,6 +65,12 @@ export function isHistoryThisMonth(dateKey: string): boolean {
   return entryDate.getFullYear() === now.getFullYear() && entryDate.getMonth() === now.getMonth();
 }
 
+export function formatHistoryDate(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 export function formatRelativeTime(timestamp: number): string {
   const diffMs = Date.now() - timestamp;
   const diffMins = Math.floor(diffMs / 60000);

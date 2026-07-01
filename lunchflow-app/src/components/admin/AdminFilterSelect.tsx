@@ -1,7 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRef, useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, shadow } from '../../constants/theme';
+import { useAdminLayout } from '../../hooks/useAdminLayout';
 
 export type FilterOption<T extends string> = {
   id: T;
@@ -35,53 +46,80 @@ export function AdminFilterSelect<T extends string>({
   label,
   leadingIcon,
 }: Props<T>) {
+  const { isSidebarCollapsed } = useAdminLayout();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<Anchor>({ top: 0, left: 0, width: minWidth });
+  const [useSheet, setUseSheet] = useState(isSidebarCollapsed);
   const triggerRef = useRef<View>(null);
-  const layoutRef = useRef({ pageX: 0, pageY: 0, width: minWidth, height: 44 });
   const selected = options.find((option) => option.id === value);
 
-  const openMenu = () => {
-    const applyAnchor = (left: number, top: number, width: number, height: number) => {
-      setAnchor({
-        left: Math.max(8, left),
-        top: top + height + 4,
-        width: Math.max(width, minWidth),
-      });
-      setOpen(true);
-    };
+  const closeMenu = () => setOpen(false);
 
-    if (triggerRef.current?.measureInWindow) {
-      triggerRef.current.measureInWindow((left, top, width, height) => {
-        if (width > 0 && height > 0) {
-          applyAnchor(left, top, width, height);
-          return;
-        }
-        applyAnchor(layoutRef.current.pageX, layoutRef.current.pageY, layoutRef.current.width, layoutRef.current.height);
-      });
+  const openMenu = () => {
+    if (isSidebarCollapsed) {
+      setUseSheet(true);
+      setOpen(true);
       return;
     }
 
-    applyAnchor(layoutRef.current.pageX, layoutRef.current.pageY, layoutRef.current.width, layoutRef.current.height);
+    const applyAnchor = (left: number, top: number, width: number, height: number) => {
+      const menuWidth = Math.max(width, minWidth);
+      const nextTop = top + height + 4;
+      const nextLeft = Math.max(8, Math.min(left, windowWidth - menuWidth - 8));
+
+      if (nextTop < 8 || nextTop > windowHeight - 120) {
+        setUseSheet(true);
+        setOpen(true);
+        return;
+      }
+
+      setUseSheet(false);
+      setAnchor({ left: nextLeft, top: nextTop, width: menuWidth });
+      setOpen(true);
+    };
+
+    const measure = () => {
+      if (!triggerRef.current?.measureInWindow) {
+        setUseSheet(true);
+        setOpen(true);
+        return;
+      }
+
+      triggerRef.current.measureInWindow((left, top, width, height) => {
+        if (width > 0 && height > 0 && top >= 0) {
+          applyAnchor(left, top, width, height);
+          return;
+        }
+        setUseSheet(true);
+        setOpen(true);
+      });
+    };
+
+    if (Platform.OS === 'web') {
+      requestAnimationFrame(measure);
+      return;
+    }
+
+    measure();
   };
 
-  const closeMenu = () => setOpen(false);
+  const sheetTitle = label ?? selected?.label ?? 'Select option';
 
   return (
     <View style={fullWidth ? styles.labeledWrap : flex ? styles.labeledFlex : undefined}>
       {label ? <Text style={styles.fieldLabel}>{label}</Text> : null}
       <View
         ref={triggerRef}
-        style={[styles.wrap, fullWidth ? styles.wrapFull : flex ? styles.wrapFlex : { minWidth }]}
-        onLayout={(event) => {
-          const { width, height } = event.nativeEvent.layout;
-          layoutRef.current.width = width;
-          layoutRef.current.height = height;
-          triggerRef.current?.measureInWindow((left, top) => {
-            layoutRef.current.pageX = left;
-            layoutRef.current.pageY = top;
-          });
-        }}
+        collapsable={false}
+        style={
+          fullWidth
+            ? styles.wrapFull
+            : flex
+              ? styles.wrapFlex
+              : [styles.wrap, { minWidth }]
+        }
       >
         <Pressable
           style={styles.trigger}
@@ -95,39 +133,60 @@ export function AdminFilterSelect<T extends string>({
           </Text>
           <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color={colors.muted} />
         </Pressable>
+      </View>
 
-        <Modal visible={open} transparent animationType="fade" onRequestClose={closeMenu}>
+      {open ? (
+        <Modal visible transparent animationType="fade" onRequestClose={closeMenu}>
           <View style={styles.modalRoot}>
             <Pressable style={styles.backdrop} onPress={closeMenu} />
-            <View
-              style={[
-                styles.menu,
-                Platform.OS === 'web' && anchor.top <= 0 ? styles.menuCentered : null,
-                { top: anchor.top, left: anchor.left, width: anchor.width },
-              ]}
-            >
-              <ScrollView style={styles.menuScroll} keyboardShouldPersistTaps="handled">
-                {options.map((option) => {
-                  const active = option.id === value;
-                  return (
-                    <Pressable
-                      key={option.id}
-                      style={[styles.option, active && styles.optionActive]}
-                      onPress={() => {
-                        onChange(option.id);
-                        closeMenu();
-                      }}
-                    >
-                      <Text style={[styles.optionText, active && styles.optionTextActive]}>{option.label}</Text>
-                      {active ? <Ionicons name="checkmark" size={14} color={colors.orange} /> : null}
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </View>
+            {useSheet ? (
+              <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+                <View style={styles.sheetHandle} />
+                <Text style={styles.sheetTitle}>{sheetTitle}</Text>
+                <ScrollView style={styles.sheetScroll} keyboardShouldPersistTaps="handled">
+                  {options.map((option) => {
+                    const active = option.id === value;
+                    return (
+                      <Pressable
+                        key={option.id}
+                        style={[styles.option, active && styles.optionActive]}
+                        onPress={() => {
+                          onChange(option.id);
+                          closeMenu();
+                        }}
+                      >
+                        <Text style={[styles.optionText, active && styles.optionTextActive]}>{option.label}</Text>
+                        {active ? <Ionicons name="checkmark" size={14} color={colors.orange} /> : null}
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ) : (
+              <View style={[styles.menu, { top: anchor.top, left: anchor.left, width: anchor.width }]}>
+                <ScrollView style={styles.menuScroll} keyboardShouldPersistTaps="handled">
+                  {options.map((option) => {
+                    const active = option.id === value;
+                    return (
+                      <Pressable
+                        key={option.id}
+                        style={[styles.option, active && styles.optionActive]}
+                        onPress={() => {
+                          onChange(option.id);
+                          closeMenu();
+                        }}
+                      >
+                        <Text style={[styles.optionText, active && styles.optionTextActive]}>{option.label}</Text>
+                        {active ? <Ionicons name="checkmark" size={14} color={colors.orange} /> : null}
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
           </View>
         </Modal>
-      </View>
+      ) : null}
     </View>
   );
 }
@@ -136,6 +195,8 @@ const styles = StyleSheet.create({
   labeledWrap: {
     width: '100%',
     gap: 4,
+    flexGrow: 0,
+    flexShrink: 0,
   },
   labeledFlex: {
     flex: 1,
@@ -156,8 +217,11 @@ const styles = StyleSheet.create({
   },
   wrapFull: {
     width: '100%',
+    flexGrow: 0,
+    flexShrink: 0,
     flex: 0,
     minWidth: 0,
+    alignSelf: 'stretch',
   },
   wrapFlex: {
     flex: 1,
@@ -169,7 +233,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.sm,
@@ -180,10 +244,11 @@ const styles = StyleSheet.create({
   triggerText: { flex: 1, fontSize: 13, color: colors.text, fontWeight: '600' },
   modalRoot: {
     flex: 1,
+    justifyContent: 'flex-end',
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(45, 45, 68, 0.2)',
+    backgroundColor: 'rgba(45, 45, 68, 0.35)',
   },
   menu: {
     position: 'absolute',
@@ -196,24 +261,47 @@ const styles = StyleSheet.create({
     zIndex: 1000,
     ...shadow.elevated,
   },
-  menuCentered: {
-    top: '30%',
-    left: '50%',
-    transform: [{ translateX: -120 }],
-    width: 240,
-  },
   menuScroll: {
     maxHeight: 272,
+  },
+  sheet: {
+    backgroundColor: colors.white,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderBottomWidth: 0,
+    maxHeight: '70%',
+    paddingTop: 8,
+    ...shadow.elevated,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    marginBottom: 10,
+  },
+  sheetTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.text,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  sheetScroll: {
+    maxHeight: 360,
   },
   option: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     gap: 8,
   },
   optionActive: { backgroundColor: colors.orangeLight },
-  optionText: { fontSize: 13, color: colors.text, fontWeight: '600' },
+  optionText: { fontSize: 14, color: colors.text, fontWeight: '600', flex: 1 },
   optionTextActive: { color: colors.orange, fontWeight: '700' },
 });

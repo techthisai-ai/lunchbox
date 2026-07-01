@@ -2,13 +2,15 @@ import { CompositeNavigationProp, useFocusEffect, useNavigation } from '@react-n
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
-import { PickupVerifyDialog } from '../../components/PickupVerifyDialog';
+import { DriverKpiRow } from '../../components/driver/DriverKpiRow';
+import { DriverScreenHeader } from '../../components/driver/DriverScreenHeader';
+import { DriverOrderAddressDialog } from '../../components/DriverOrderAddressDialog';
 import { colors, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { navigateAfterDriverLogin } from '../../navigation/driverRoutes';
@@ -16,21 +18,15 @@ import { DriverTabParamList, RootStackParamList } from '../../navigation/types';
 import {
   acceptPickup,
   listDriverActiveOrders,
-  markAtDrop,
-  markAtPickup,
-  markBatchOrdersDelivered,
-  markDelivered,
-  markPickedUp,
+  listDriverCompletedToday,
   subscribeToDriverOrdersToday,
   subscribeToPendingPickups,
-  verifyPickup,
 } from '../../services/orderHubService';
-import { listDriverBatches } from '../../services/batchDeliveryService';
 import { refreshDriverLocationForOrders, stopDriverLocationTracking } from '../../services/driverLocationService';
-import { openMapsNavigation } from '../../services/mapsNavigation';
-import { DeliveryBatch } from '../../types/batch';
+import { openMapsNavigationToAddress } from '../../services/mapsNavigation';
 import { subscribeToOrderChanges } from '../../services/orderSync';
 import { DeliveryOrder, getDropAddress } from '../../types/delivery';
+import { DRIVER_EARNING_PER_ORDER } from '../../utils/adminDriverHelpers';
 
 type DriverHomeNavigation = CompositeNavigationProp<
   BottomTabNavigationProp<DriverTabParamList, 'DriverHome'>,
@@ -41,23 +37,22 @@ export function DriverHomeScreen() {
   const { user, refreshDriverProfile } = useAuth();
   const navigation = useNavigation<DriverHomeNavigation>();
   const [pending, setPending] = useState<DeliveryOrder[]>([]);
-  const [active, setActive] = useState<DeliveryOrder[]>([]);
-  const [inTransit, setInTransit] = useState<DeliveryOrder[]>([]);
-  const [verifyOrder, setVerifyOrder] = useState<DeliveryOrder | null>(null);
-  const [batches, setBatches] = useState<DeliveryBatch[]>([]);
+  const [activeOrders, setActiveOrders] = useState<DeliveryOrder[]>([]);
+  const [completedToday, setCompletedToday] = useState<DeliveryOrder[]>([]);
+  const [addressOrder, setAddressOrder] = useState<DeliveryOrder | null>(null);
   const [actionError, setActionError] = useState('');
-
-  const syncActiveOrders = useCallback((mine: DeliveryOrder[]) => {
-    setActive(mine.filter((o) => ['driver_assigned', 'at_pickup', 'pickup_verified'].includes(o.status)));
-    setInTransit(mine.filter((o) => ['in_transit', 'at_drop', 'picked_up'].includes(o.status)));
-  }, []);
+  const [todayEarnings, setTodayEarnings] = useState(0);
 
   const refresh = useCallback(async () => {
     if (!user?.id) return;
-    const mine = await listDriverActiveOrders(user.id);
-    syncActiveOrders(mine);
-    setBatches(await listDriverBatches(user.id));
-  }, [user?.id, syncActiveOrders]);
+    const [mine, done] = await Promise.all([
+      listDriverActiveOrders(user.id),
+      listDriverCompletedToday(user.id),
+    ]);
+    setActiveOrders(mine);
+    setCompletedToday(done);
+    setTodayEarnings(done.length * DRIVER_EARNING_PER_ORDER);
+  }, [user?.id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -81,39 +76,41 @@ export function DriverHomeScreen() {
   useEffect(() => subscribeToPendingPickups(setPending), []);
   useEffect(() => {
     if (!user?.id) return undefined;
-    return subscribeToDriverOrdersToday(user.id, syncActiveOrders);
-  }, [user?.id, syncActiveOrders]);
+    return subscribeToDriverOrdersToday(user.id, setActiveOrders);
+  }, [user?.id]);
 
   useEffect(() => subscribeToOrderChanges(refresh), [refresh]);
 
   useEffect(() => {
     if (!user?.id) return undefined;
-    const moving = [...active, ...inTransit];
-    const orderIds = moving.map((o) => o.id);
+    const orderIds = activeOrders.map((o) => o.id);
     refreshDriverLocationForOrders(user.id, orderIds);
     return () => {
       stopDriverLocationTracking();
     };
-  }, [user?.id, active, inTransit]);
+  }, [user?.id, activeOrders]);
 
-  useEffect(() => {
-    if (!user?.id) return undefined;
-    const interval = setInterval(async () => {
-      const mine = await listDriverActiveOrders(user.id);
-      syncActiveOrders(mine);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [user?.id, syncActiveOrders]);
+  const assignedToday = pending.length + activeOrders.length + completedToday.length;
+  const routePlan = activeOrders.find((o) => o.routePlan)?.routePlan;
+
+  const nextPickup = useMemo(() => {
+    const atPickup = activeOrders.find((o) =>
+      ['driver_assigned', 'at_pickup', 'pickup_verified'].includes(o.status),
+    );
+    return atPickup ?? pending[0] ?? null;
+  }, [activeOrders, pending]);
 
   const handleAccept = async (orderId: string) => {
     if (!user?.id || !user.name) return;
     setActionError('');
     try {
-      const accepted = await acceptPickup(orderId, { id: user.id, name: user.name, vehicle: user.vehicle, phone: user.phone });
-      const destination = accepted.pickupLocation;
-      if (destination) {
-        await openMapsNavigation(destination);
-      }
+      const accepted = await acceptPickup(orderId, {
+        id: user.id,
+        name: user.name,
+        vehicle: user.vehicle,
+        phone: user.phone,
+      });
+      await openMapsNavigationToAddress(accepted.pickupAddress);
       await refresh();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Could not accept pickup');
@@ -121,92 +118,100 @@ export function DriverHomeScreen() {
     }
   };
 
-  const openVerify = async (order: DeliveryOrder) => {
-    setActionError('');
-    try {
-      await markAtPickup(order.id);
-      setVerifyOrder(order);
-      await refresh();
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Could not update pickup status');
+  const handleStartTrip = () => {
+    if (nextPickup) {
+      void openMapsNavigationToAddress(nextPickup.pickupAddress);
+      return;
     }
+    navigation.navigate('DriverDeliveries');
   };
 
-  const handleVerify = async (code: string) => {
-    if (!verifyOrder) return 'No order selected';
-    try {
-      await verifyPickup(verifyOrder.id, code);
-      await markPickedUp(verifyOrder.id);
-      setVerifyOrder(null);
-      await refresh();
-      return null;
-    } catch (error) {
-      return error instanceof Error ? error.message : 'Verification failed';
-    }
-  };
-
-  const handleDeliver = async (orderId: string) => {
-    setActionError('');
-    try {
-      await markAtDrop(orderId);
-      await markDelivered(orderId);
-      await refresh();
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Could not mark delivered');
-    }
-  };
-
-  const handleDeliverBatch = async (batchId: string) => {
-    setActionError('');
-    try {
-      await markBatchOrdersDelivered(batchId);
-      await refresh();
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Could not deliver batch');
-    }
-  };
-
-  const routePlan = [...active, ...inTransit].find((o) => o.routePlan)?.routePlan;
+  const firstName = user?.name?.trim().split(' ')[0] || 'Driver';
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <PickupVerifyDialog
-        visible={Boolean(verifyOrder)}
-        orderLabel={verifyOrder?.customerName ?? ''}
-        onVerify={handleVerify}
-        onCancel={() => setVerifyOrder(null)}
+      <DriverOrderAddressDialog
+        visible={Boolean(addressOrder)}
+        order={addressOrder}
+        onClose={() => setAddressOrder(null)}
       />
-      <View style={styles.header}>
-        <View style={styles.headerText}>
-          <Text style={styles.name} numberOfLines={1}>
-            {user?.name || '—'}
-          </Text>
-        </View>
-        <Pressable
-          style={styles.notifBtn}
-          onPress={() => navigation.navigate('DriverNotifications')}
-          accessibilityRole="button"
-          accessibilityLabel="Notifications"
-        >
-          <Ionicons name="notifications-outline" size={22} color={colors.text} />
-        </Pressable>
-      </View>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <Card style={styles.statusCard}>
-          <Text style={styles.statusLabel}>Your Status</Text>
-          <Badge label="Online · Accepting Orders" tone="green" />
-        </Card>
+
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <DriverScreenHeader
+          greetingName={firstName}
+          notificationCount={pending.length}
+          onNotificationsPress={() => navigation.navigate('DriverNotifications')}
+        />
+
+        <DriverKpiRow
+          items={[
+            {
+              label: 'Today Deliveries',
+              value: String(assignedToday),
+              tone: 'purple',
+              icon: 'clipboard-outline',
+            },
+            {
+              label: 'Completed Today',
+              value: `${completedToday.length}/${Math.max(assignedToday, 1)}`,
+              tone: 'green',
+              icon: 'checkmark-circle-outline',
+            },
+            {
+              label: "Today's Earnings",
+              value: `₹${todayEarnings.toLocaleString('en-IN')}`,
+              tone: 'pink',
+              icon: 'wallet-outline',
+            },
+          ]}
+        />
 
         {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 
-        {routePlan ? (
-          <Card flat>
-            <Text style={styles.routeTitle}>Optimized Route</Text>
-            <Text style={styles.muted}>
-              {routePlan.totalStops} stops · ETA {routePlan.etaMinutes} min · Planned {routePlan.plannedAt}
-            </Text>
+        <Text style={styles.section}>Next Pickup</Text>
+        {nextPickup ? (
+          <Card style={styles.nextCard}>
+            <View style={styles.nextTop}>
+              <View style={styles.nextIcon}>
+                <Ionicons name="time-outline" size={18} color={colors.orange} />
+              </View>
+              <View style={styles.nextMeta}>
+                <Text style={styles.nextTime}>{nextPickup.foodReadyAt ?? nextPickup.bookedAt ?? 'Ready now'}</Text>
+                <Text style={styles.nextAddress} numberOfLines={2}>
+                  {nextPickup.pickupAddress}
+                </Text>
+              </View>
+            </View>
+            <Button
+              title="Navigate"
+              variant="green"
+              small
+              onPress={() => openMapsNavigationToAddress(nextPickup.pickupAddress)}
+              style={styles.nextBtn}
+            />
           </Card>
-        ) : null}
+        ) : (
+          <Card flat>
+            <Text style={styles.muted}>No pickup scheduled right now.</Text>
+          </Card>
+        )}
+
+        <Card style={styles.tripBanner}>
+          <View style={styles.tripRow}>
+            <View style={styles.tripIcon}>
+              <Ionicons name="map-outline" size={22} color={colors.orange} />
+            </View>
+            <View style={styles.tripText}>
+              <Text style={styles.tripTitle}>Trip Optimization</Text>
+              <Text style={styles.tripSub}>
+                {routePlan
+                  ? `${routePlan.totalStops} stops · ETA ${routePlan.etaMinutes} min`
+                  : 'Plan your route for faster deliveries'}
+              </Text>
+            </View>
+          </View>
+          <Button title="Start Trip" onPress={handleStartTrip} style={{ marginTop: 12 }} />
+        </Card>
 
         <Text style={styles.section}>New Pickup Requests</Text>
         {pending.length === 0 ? (
@@ -214,72 +219,21 @@ export function DriverHomeScreen() {
             <Text style={styles.muted}>No new pickup requests.</Text>
           </Card>
         ) : (
-          pending.map((r) => (
-            <Card key={r.id}>
-              <View style={styles.row}>
-                <Text style={styles.orderId}>{r.id}</Text>
-                <Badge label="New" tone="orange" />
-              </View>
-              <Text style={styles.customer}>{r.customerName}</Text>
-              <Text style={styles.muted}>Pickup: {r.pickupAddress}</Text>
-              <Text style={styles.muted}>Drop: {getDropAddress(r)}</Text>
-              <View style={styles.actions}>
-                <Button title="Accept Pickup" variant="green" small onPress={() => handleAccept(r.id)} />
-              </View>
+          pending.map((order) => (
+            <Card key={order.id} style={styles.requestCard}>
+              <Pressable onPress={() => setAddressOrder(order)}>
+                <View style={styles.requestTop}>
+                  <Text style={styles.orderId}>{order.id}</Text>
+                  <Badge label="Food Ready" tone="green" />
+                </View>
+                <Text style={styles.routePreview} numberOfLines={2}>
+                  {order.pickupAddress} → {getDropAddress(order)}
+                </Text>
+              </Pressable>
+              <Button title="Accept" variant="green" small onPress={() => handleAccept(order.id)} style={{ marginTop: 12 }} />
             </Card>
           ))
         )}
-
-        {active.length > 0 ? (
-          <>
-            <Text style={styles.section}>At Pickup — Verify OTP/QR</Text>
-            {active.map((r) => (
-              <Card key={r.id}>
-                <View style={styles.row}>
-                  <Text style={styles.orderId}>{r.id}</Text>
-                  <Badge label="At Pickup" tone="orange" />
-                </View>
-                <Text style={styles.customer}>{r.customerName}</Text>
-                <Text style={styles.muted}>Pickup: {r.pickupAddress}</Text>
-                <Text style={styles.muted}>Ask customer for OTP or QR code</Text>
-                <Button title="Verify & Pick Up" onPress={() => openVerify(r)} style={{ marginTop: 12 }} />
-              </Card>
-            ))}
-          </>
-        ) : null}
-
-        {batches.length > 0 ? (
-          <>
-            <Text style={styles.section}>School Delivery Batches</Text>
-            {batches.map((batch) => (
-              <Card key={batch.id}>
-                <View style={styles.row}>
-                  <Text style={styles.orderId}>{batch.school}</Text>
-                  <Badge label={`${batch.orderIds.length} orders`} tone="blue" />
-                </View>
-                <Text style={styles.muted}>Drop: {batch.dropAddress}</Text>
-                <Button title="Deliver Entire Batch" variant="green" onPress={() => handleDeliverBatch(batch.id)} style={{ marginTop: 12 }} />
-              </Card>
-            ))}
-          </>
-        ) : null}
-
-        {inTransit.length > 0 ? (
-          <>
-            <Text style={styles.section}>Deliver to School/Office</Text>
-            {inTransit.map((r) => (
-              <Card key={r.id}>
-                <View style={styles.row}>
-                  <Text style={styles.orderId}>{r.id}</Text>
-                  <Badge label="In Transit" tone="green" />
-                </View>
-                <Text style={styles.customer}>{r.customerName}</Text>
-                <Text style={styles.muted}>Drop: {getDropAddress(r)}</Text>
-                <Button title="Mark Delivered" variant="green" onPress={() => handleDeliver(r.id)} style={{ marginTop: 12 }} />
-              </Card>
-            ))}
-          </>
-        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -287,37 +241,43 @@ export function DriverHomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  headerText: { flex: 1, minWidth: 0, marginRight: 12 },
-  name: { fontSize: 22, fontWeight: '800', color: colors.text },
-  notifBtn: {
+  scroll: { paddingHorizontal: spacing.md, paddingBottom: 28, gap: 14 },
+  section: { fontSize: 16, fontWeight: '800', color: colors.text, marginTop: 4 },
+  nextCard: { padding: spacing.md },
+  nextTop: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  nextIcon: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.orangeLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scroll: { padding: spacing.md, paddingBottom: 24 },
-  statusCard: { alignItems: 'flex-start', gap: 8 },
-  statusLabel: { fontSize: 13, color: colors.muted, fontWeight: '600' },
-  routeTitle: { fontWeight: '700', fontSize: 14 },
-  section: { fontSize: 16, fontWeight: '800', marginVertical: 12 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  orderId: { fontWeight: '800', fontSize: 15 },
-  customer: { fontWeight: '700', fontSize: 15, marginTop: 8 },
-  muted: { fontSize: 12, color: colors.muted, marginTop: 4 },
-  actions: { flexDirection: 'row', gap: 10, marginTop: 12 },
-  error: { color: colors.red, fontSize: 13, marginBottom: 8 },
+  nextMeta: { flex: 1, minWidth: 0 },
+  nextTime: { fontSize: 15, fontWeight: '800', color: colors.text },
+  nextAddress: { fontSize: 13, color: colors.muted, marginTop: 4, lineHeight: 18, fontWeight: '600' },
+  nextBtn: { alignSelf: 'flex-start', marginTop: 12 },
+  tripBanner: {
+    backgroundColor: '#FFF8E7',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 193, 7, 0.25)',
+  },
+  tripRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  tripIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tripText: { flex: 1, minWidth: 0 },
+  tripTitle: { fontSize: 15, fontWeight: '800', color: colors.text },
+  tripSub: { fontSize: 12, color: colors.muted, marginTop: 4, fontWeight: '600' },
+  requestCard: { padding: spacing.md },
+  requestTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  orderId: { fontSize: 14, fontWeight: '800', color: colors.text, flex: 1 },
+  routePreview: { fontSize: 12, color: colors.muted, marginTop: 8, lineHeight: 18, fontWeight: '600' },
+  muted: { fontSize: 13, color: colors.muted, fontWeight: '600' },
+  error: { color: colors.red, fontSize: 13 },
 });

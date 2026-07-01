@@ -19,6 +19,7 @@ import {
   subscribeToOrder,
 } from '../services/orderHubService';
 import { subscribeToOrderChanges } from '../services/orderSync';
+import { saveFoodReadyDefaults } from '../services/foodReadyDefaultsService';
 import { DeliveryOrder, FoodReadyDetails } from '../types/delivery';
 import { useAuth } from './AuthContext';
 import { useRatingOverlay } from './RatingOverlayContext';
@@ -35,7 +36,7 @@ type DeliveryContextValue = {
   getOrderSnapshot: () => DeliveryOrder | null;
   bookPickup: () => Promise<string | null>;
   markFoodReady: (details: FoodReadyDetails) => Promise<MarkFoodReadyResult>;
-  refreshDelivery: () => Promise<void>;
+  refreshDelivery: (options?: { force?: boolean }) => Promise<void>;
 };
 
 const DeliveryContext = createContext<DeliveryContextValue | null>(null);
@@ -112,7 +113,7 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
     promptRatingForOrder(remote, phoneRef.current);
   }, [promptRatingForOrder]);
 
-  const refreshDelivery = useCallback(async () => {
+  const refreshDelivery = useCallback(async (options?: { force?: boolean }) => {
     if (!isCustomer || !phoneRef.current) {
       syncOrder(null);
       setLoading(false);
@@ -120,7 +121,7 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (refreshInFlightRef.current) return;
+    if (refreshInFlightRef.current && !options?.force) return;
     refreshInFlightRef.current = true;
 
     if (!hasLoadedRef.current) {
@@ -219,12 +220,17 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
 
       if (current.status === 'booked' || current.status === 'awaiting_driver' || current.status === 'food_ready') {
         const updated = await markFoodReadyHub(phone, details);
+        await saveFoodReadyDefaults(phone, details);
         syncOrder(updated);
         return { error: null, order: updated };
       }
 
       if (current.status === 'delivered') {
         return { error: 'Today\'s delivery is already completed', order: null };
+      }
+
+      if (current.status === 'pickup_closed') {
+        return { error: 'This delivery was cancelled', order: null };
       }
 
       return { error: null, order: current };

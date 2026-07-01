@@ -6,6 +6,7 @@ import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
 import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
 import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
 import { AdminNotificationBell } from '../../components/admin/AdminNotificationBell';
+import { AdminLogoutButton } from '../../components/admin/AdminLogoutButton';
 import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { AdminPanel } from '../../components/admin/AdminPanel';
 import { Badge } from '../../components/Badge';
@@ -109,6 +110,7 @@ export function AdminDashboardScreen() {
             <Text style={styles.dateText}>{formatTodayDate()}</Text>
           </View>
           <AdminNotificationBell />
+          <AdminLogoutButton />
         </View>
       </View>
 

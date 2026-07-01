@@ -186,22 +186,50 @@ export function AdminDriversScreen() {
         <AdminKpiCard compact label="Inactive Drivers" value={String(tabCounts.inactive)} icon="person-remove" iconBg={colors.redLight} iconColor={colors.red} />
       </AdminKpiRow>
 
-      <View style={[styles.toolbar, isSidebarCollapsed && styles.toolbarMobile]}>
-        <AdminSearchField placeholder="Search Driver" value={query} onChangeText={setQuery} fullWidth={isSidebarCollapsed} />
-        <View style={[styles.toolbarFilters, isSidebarCollapsed && styles.toolbarFiltersMobile]}>
-          <AdminFilterSelect value={statusFilter} options={STATUS_OPTIONS} onChange={setStatusFilter} minWidth={130} fullWidth={isSidebarCollapsed} />
-          <AdminFilterSelect value={vehicleFilter} options={VEHICLE_OPTIONS} onChange={setVehicleFilter} minWidth={120} fullWidth={isSidebarCollapsed} />
+      {isSidebarCollapsed ? (
+        <View style={styles.toolbarMobile}>
+          <AdminSearchField placeholder="Search Driver" value={query} onChangeText={setQuery} fullWidth />
           <AdminFilterSelect
-            value={dutyFilter}
-            options={DUTY_OPTIONS}
-            onChange={(value) => setDutyFilter(value as 'all' | 'yes' | 'no')}
-            minWidth={110}
-            fullWidth={isSidebarCollapsed}
+            value={statusFilter}
+            options={STATUS_OPTIONS}
+            onChange={setStatusFilter}
+            minWidth={130}
+            fullWidth
           />
+          <View style={styles.filterPairRow}>
+            <AdminFilterSelect
+              value={vehicleFilter}
+              options={VEHICLE_OPTIONS}
+              onChange={setVehicleFilter}
+              minWidth={120}
+              flex
+            />
+            <AdminFilterSelect
+              value={dutyFilter}
+              options={DUTY_OPTIONS}
+              onChange={(value) => setDutyFilter(value as 'all' | 'yes' | 'no')}
+              minWidth={110}
+              flex
+            />
+          </View>
         </View>
-      </View>
+      ) : (
+        <View style={styles.toolbar}>
+          <AdminSearchField placeholder="Search Driver" value={query} onChangeText={setQuery} />
+          <View style={styles.toolbarFilters}>
+            <AdminFilterSelect value={statusFilter} options={STATUS_OPTIONS} onChange={setStatusFilter} minWidth={130} />
+            <AdminFilterSelect value={vehicleFilter} options={VEHICLE_OPTIONS} onChange={setVehicleFilter} minWidth={120} />
+            <AdminFilterSelect
+              value={dutyFilter}
+              options={DUTY_OPTIONS}
+              onChange={(value) => setDutyFilter(value as 'all' | 'yes' | 'no')}
+              minWidth={110}
+            />
+          </View>
+        </View>
+      )}
 
-      <View style={styles.contentRow}>
+      <View style={[styles.contentRow, isSidebarCollapsed && styles.contentRowMobile]}>
         <View style={styles.tableCard}>
           {loading ? (
             <View style={styles.emptyRow}>
@@ -390,7 +418,19 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     alignItems: 'center',
   },
-  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  toolbarMobile: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    flexGrow: 0,
+    gap: 8,
+    marginBottom: spacing.md,
+  },
+  filterPairRow: {
+    flexDirection: 'row',
+    gap: 8,
+    width: '100%',
+    flexGrow: 0,
+  },
   toolbarFilters: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -398,10 +438,11 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  toolbarFiltersMobile: { width: '100%', flexDirection: 'column', flex: 0 },
   contentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' },
+  contentRowMobile: { flexGrow: 0 },
   tableCard: {
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 0,
     minWidth: 0,
     width: '100%',
     backgroundColor: colors.white,

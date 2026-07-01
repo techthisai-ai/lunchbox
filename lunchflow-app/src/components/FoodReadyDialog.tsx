@@ -15,11 +15,13 @@ import {
   normalizeDeliveryType,
   normalizeDeliveryTypes,
 } from '../types/delivery';
+import { normalizeFoodReadyDetails } from '../services/foodReadyDefaultsService';
 import { Button } from './Button';
 
 type Props = {
   visible: boolean;
   initialValues?: Partial<FoodReadyDetails>;
+  startInReviewMode?: boolean;
   submitting?: boolean;
   onConfirm: (details: FoodReadyDetails) => void;
   onCancel: () => void;
@@ -52,10 +54,12 @@ function entryCardTitle(entry: FoodReadyStudentEntry, index: number, total: numb
 
 function DialogBody({
   initialValues,
+  startInReviewMode = false,
   submitting,
   onConfirm,
   onCancel,
 }: Omit<Props, 'visible'>) {
+  const [mode, setMode] = useState<'review' | 'edit'>(startInReviewMode ? 'review' : 'edit');
   const [name, setName] = useState('');
   const [pickupAddress, setPickupAddress] = useState('');
   const [students, setStudents] = useState<FoodReadyStudentEntry[]>([emptyFoodReadyStudent()]);
@@ -71,8 +75,169 @@ function DialogBody({
     setPickupAddress(initialValues?.pickupAddress ?? '');
     setSelectedWhere(where);
     setStudents(buildFoodReadyStudents(initialValues));
+    setMode(startInReviewMode ? 'review' : 'edit');
     setError('');
-  }, [initialValues]);
+  }, [initialValues, startInReviewMode]);
+
+  const buildConfirmedDetails = (): FoodReadyDetails | null => {
+    const trimmedName = name.trim();
+    const pickup = pickupAddress.trim();
+    const filledStudents = students
+      .map((entry) => ({
+        name: entry.name.trim(),
+        dropLocation: entry.dropLocation.trim(),
+        classSection: entry.classSection.trim(),
+        deliveryType:
+          selectedWhere.length === 1
+            ? selectedWhere[0]
+            : normalizeDeliveryType(entry.deliveryType),
+      }))
+      .filter((entry) => entry.name || entry.dropLocation || entry.classSection);
+
+    if (!trimmedName) {
+      setError('Enter your name');
+      return null;
+    }
+    if (!pickup) {
+      setError('Enter pickup address');
+      return null;
+    }
+    if (selectedWhere.length === 0) {
+      setError('Select at least one option under Where');
+      return null;
+    }
+    if (filledStudents.length === 0) {
+      setError('Add at least one student or employee');
+      return null;
+    }
+
+    for (let index = 0; index < filledStudents.length; index += 1) {
+      const entry = filledStudents[index];
+      const label = students.length > 1 ? ` ${index + 1}` : '';
+      if (!selectedWhere.includes(entry.deliveryType)) {
+        setError(`Choose a valid Where type for person${label}`);
+        return null;
+      }
+      if (!entry.name) {
+        setError(`Enter ${getPersonLabel(entry.deliveryType).toLowerCase()}${label}`);
+        return null;
+      }
+      if (!entry.dropLocation) {
+        setError(`Enter drop location for person${label}`);
+        return null;
+      }
+      if (!entry.classSection) {
+        setError(`Enter ${getDetailLabel(entry.deliveryType).toLowerCase()} for person${label}`);
+        return null;
+      }
+    }
+
+    const legacy = foodReadyStudentsToLegacy(filledStudents);
+    return {
+      name: trimmedName,
+      pickupAddress: pickup,
+      dropAddress: legacy.dropAddress,
+      person: legacy.person,
+      persons: legacy.persons,
+      students: filledStudents,
+      deliveryType: filledStudents[0]?.deliveryType ?? selectedWhere[0],
+      deliveryTypes: selectedWhere,
+    };
+  };
+
+  const handleReady = () => {
+    const details = buildConfirmedDetails();
+    if (!details) return;
+    setError('');
+    onConfirm(details);
+  };
+
+  const handleReviewConfirm = () => {
+    const details = normalizeFoodReadyDetails({
+      name,
+      pickupAddress,
+      deliveryType: selectedWhere[0],
+      deliveryTypes: selectedWhere,
+      students,
+    });
+    if (!details) {
+      setMode('edit');
+      setError('Saved details are incomplete. Please update them.');
+      return;
+    }
+    setError('');
+    onConfirm(details);
+  };
+
+  const reviewStudents = buildFoodReadyStudents({
+    name,
+    pickupAddress,
+    deliveryType: selectedWhere[0],
+    deliveryTypes: selectedWhere,
+    students,
+  }).filter((entry) => entry.name.trim() || entry.dropLocation.trim() || entry.classSection.trim());
+
+  if (mode === 'review') {
+    return (
+      <View style={styles.backdrop}>
+        <Pressable style={styles.backdropTap} onPress={onCancel} accessibilityLabel="Close dialog" />
+        <View style={styles.card}>
+          <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+            <Text style={styles.reviewTitle}>Confirm Delivery Details</Text>
+
+            <View style={styles.reviewBlock}>
+              <Text style={styles.reviewLabel}>Name</Text>
+              <Text style={styles.reviewValue}>{name.trim()}</Text>
+            </View>
+
+            <View style={styles.reviewBlock}>
+              <Text style={styles.reviewLabel}>Pickup Address</Text>
+              <Text style={styles.reviewValue}>{pickupAddress.trim()}</Text>
+            </View>
+
+            <View style={styles.reviewBlock}>
+              <Text style={styles.reviewLabel}>Where</Text>
+              <Text style={styles.reviewValue}>
+                {selectedWhere.map((type) => getDeliveryTypeLabel(type)).join(' · ')}
+              </Text>
+            </View>
+
+            {reviewStudents.map((student, index) => (
+              <View key={`review-${index}`} style={styles.reviewStudentCard}>
+                <Text style={styles.reviewStudentTitle}>{entryCardTitle(student, index, reviewStudents.length)}</Text>
+                <Text style={styles.reviewMeta}>
+                  {getPersonLabel(student.deliveryType)}: {student.name.trim()}
+                </Text>
+                <Text style={styles.reviewMeta}>Drop: {student.dropLocation.trim()}</Text>
+                <Text style={styles.reviewMeta}>
+                  {getDetailLabel(student.deliveryType)}: {student.classSection.trim()}
+                </Text>
+              </View>
+            ))}
+
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            <Button
+              title={submitting ? 'Sending...' : 'Food Ready'}
+              variant="green"
+              onPress={handleReviewConfirm}
+              style={{ marginTop: spacing.sm }}
+            />
+            <Button
+              title="Switch Details"
+              variant="outline"
+              onPress={() => {
+                setError('');
+                setMode('edit');
+              }}
+              style={{ marginTop: 10 }}
+            />
+            <Button title="Cancel" variant="outline" onPress={onCancel} style={{ marginTop: 10 }} />
+          </ScrollView>
+        </View>
+      </View>
+    );
+  }
 
   const handleToggleWhere = (type: DeliveryType) => {
     setSelectedWhere((current) => {
@@ -106,73 +271,6 @@ function DialogBody({
     setStudents((current) =>
       current.map((entry, i) => (i === index ? { ...entry, [field]: value } : entry)),
     );
-  };
-
-  const handleReady = () => {
-    const trimmedName = name.trim();
-    const pickup = pickupAddress.trim();
-    const filledStudents = students
-      .map((entry) => ({
-        name: entry.name.trim(),
-        dropLocation: entry.dropLocation.trim(),
-        classSection: entry.classSection.trim(),
-        deliveryType:
-          selectedWhere.length === 1
-            ? selectedWhere[0]
-            : normalizeDeliveryType(entry.deliveryType),
-      }))
-      .filter((entry) => entry.name || entry.dropLocation || entry.classSection);
-
-    if (!trimmedName) {
-      setError('Enter your name');
-      return;
-    }
-    if (!pickup) {
-      setError('Enter pickup address');
-      return;
-    }
-    if (selectedWhere.length === 0) {
-      setError('Select at least one option under Where');
-      return;
-    }
-    if (filledStudents.length === 0) {
-      setError('Add at least one student or employee');
-      return;
-    }
-
-    for (let index = 0; index < filledStudents.length; index += 1) {
-      const entry = filledStudents[index];
-      const label = students.length > 1 ? ` ${index + 1}` : '';
-      if (!selectedWhere.includes(entry.deliveryType)) {
-        setError(`Choose a valid Where type for person${label}`);
-        return;
-      }
-      if (!entry.name) {
-        setError(`Enter ${getPersonLabel(entry.deliveryType).toLowerCase()}${label}`);
-        return;
-      }
-      if (!entry.dropLocation) {
-        setError(`Enter drop location for person${label}`);
-        return;
-      }
-      if (!entry.classSection) {
-        setError(`Enter ${getDetailLabel(entry.deliveryType).toLowerCase()} for person${label}`);
-        return;
-      }
-    }
-
-    const legacy = foodReadyStudentsToLegacy(filledStudents);
-    setError('');
-    onConfirm({
-      name: trimmedName,
-      pickupAddress: pickup,
-      dropAddress: legacy.dropAddress,
-      person: legacy.person,
-      persons: legacy.persons,
-      students: filledStudents,
-      deliveryType: filledStudents[0]?.deliveryType ?? selectedWhere[0],
-      deliveryTypes: selectedWhere,
-    });
   };
 
   return (
@@ -450,4 +548,18 @@ const styles = StyleSheet.create({
   },
   addStudentText: { fontSize: 13, fontWeight: '700', color: colors.orange },
   error: { color: colors.red, fontSize: 13, marginBottom: 8 },
+  reviewTitle: { fontSize: 18, fontWeight: '800', color: colors.text, marginBottom: spacing.md },
+  reviewBlock: { marginBottom: spacing.sm },
+  reviewLabel: { fontSize: 11, fontWeight: '700', color: colors.muted, textTransform: 'uppercase', marginBottom: 4 },
+  reviewValue: { fontSize: 14, fontWeight: '600', color: colors.text, lineHeight: 20 },
+  reviewStudentCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+    backgroundColor: colors.bg,
+  },
+  reviewStudentTitle: { fontSize: 13, fontWeight: '800', color: colors.text, marginBottom: 6 },
+  reviewMeta: { fontSize: 13, color: colors.text, fontWeight: '600', lineHeight: 19 },
 });

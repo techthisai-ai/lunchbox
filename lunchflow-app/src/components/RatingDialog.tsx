@@ -5,14 +5,13 @@ import { Button } from './Button';
 
 type Props = {
   visible: boolean;
-  orderLabel: string;
   driverName?: string;
   submitting?: boolean;
   onSubmit: (stars: number, review: string) => Promise<string | null>;
   onSkip: () => void;
 };
 
-export function RatingDialog({ visible, orderLabel, driverName, submitting, onSubmit, onSkip }: Props) {
+export function RatingDialog({ visible, driverName, submitting, onSubmit, onSkip }: Props) {
   const [stars, setStars] = useState(5);
   const [review, setReview] = useState('');
   const [error, setError] = useState('');
@@ -35,9 +34,7 @@ export function RatingDialog({ visible, orderLabel, driverName, submitting, onSu
       <View style={styles.overlay}>
         <View style={styles.card}>
           <Text style={styles.title}>Rate your driver</Text>
-          <Text style={styles.subtitle}>
-            {driverName ? `${driverName} · ${orderLabel}` : orderLabel}
-          </Text>
+          {driverName ? <Text style={styles.subtitle}>{driverName}</Text> : null}
           <View style={styles.stars}>
             {[1, 2, 3, 4, 5].map((value) => (
               <Pressable key={value} onPress={() => setStars(value)}>

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { CommonActions } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useEffect } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -12,7 +13,7 @@ import { useDelivery } from '../context/DeliveryContext';
 import { useFoodReadyOverlay } from '../context/FoodReadyOverlayContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { HomeStackParamList } from '../navigation/types';
-import { getDeliveryTypeLabel, getDropAddress, normalizeDeliveryType, normalizeDeliveryTypes, buildFoodReadyStudents } from '../types/delivery';
+import { getDeliveryTypeLabel, getDropAddress, normalizeDeliveryType, normalizeDeliveryTypes, buildFoodReadyStudents, DeliveryOrder } from '../types/delivery';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'FoodReady'>;
 
@@ -40,6 +41,14 @@ function AddressRow({
       </View>
     </View>
   );
+}
+
+function formatDropDetails(order: Pick<DeliveryOrder, 'studentName' | 'dropAddress' | 'school'>): string {
+  const address = getDropAddress(order);
+  const name = order.studentName?.trim();
+  if (!name) return address;
+  if (address && address !== name) return `${name}\n${address}`;
+  return name;
 }
 
 export function FoodReadyScreen({ navigation }: Props) {
@@ -71,6 +80,69 @@ export function FoodReadyScreen({ navigation }: Props) {
           <Text style={styles.subtitle}>Mark food ready from the home screen first.</Text>
           <Button title="Back to Home" variant="outline" onPress={() => navigation.goBack()} style={styles.fullWidthBtn} />
         </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (displayOrder.status === 'pickup_closed') {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={[styles.header, { paddingHorizontal: horizontalPadding }]}>
+          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button">
+            <Ionicons name="arrow-back" size={20} color={colors.text} />
+          </Pressable>
+        </View>
+        <ScrollView
+          contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.body, { maxWidth: contentMaxWidth }]}>
+            <View style={styles.hero}>
+              <View style={[styles.ring, styles.cancelledRing, { width: ringSize, height: ringSize, borderRadius: ringSize / 2 }]}>
+                <Ionicons name="close" size={48} color={colors.red} />
+              </View>
+              <Text style={styles.title}>Order Cancelled</Text>
+            </View>
+
+            <Card
+              style={styles.card}
+              title="Delivery Details"
+              badge={<Badge label="Cancelled" tone="red" />}
+            >
+              <AddressRow
+                icon="home-outline"
+                iconBg={colors.orangeLight}
+                iconColor={colors.orange}
+                label="Pickup"
+                address={displayOrder.pickupAddress}
+              />
+              <View style={styles.divider} />
+              <AddressRow
+                icon="location-outline"
+                iconBg={colors.greenLight}
+                iconColor={colors.greenDark}
+                label="Drop"
+                address={formatDropDetails(displayOrder)}
+              />
+            </Card>
+
+            <View style={styles.actions}>
+              <Button
+                title="Track Live"
+                onPress={() => {
+                  navigation.getParent()?.dispatch(
+                    CommonActions.navigate({
+                      name: 'Track',
+                      params: { screen: 'Tracking' },
+                    }),
+                  );
+                }}
+                style={styles.fullWidthBtn}
+              />
+              <Button title="Back to Home" variant="outline" onPress={() => navigation.goBack()} style={styles.fullWidthBtn} />
+            </View>
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -116,8 +188,8 @@ export function FoodReadyScreen({ navigation }: Props) {
               icon="location-outline"
               iconBg={colors.greenLight}
               iconColor={colors.greenDark}
-              label={`Drop · ${displayOrder.studentName}`}
-              address={getDropAddress(displayOrder)}
+              label="Drop"
+              address={formatDropDetails(displayOrder)}
             />
           </Card>
 
@@ -201,7 +273,14 @@ export function FoodReadyScreen({ navigation }: Props) {
 
             <Button
               title="Track Live Delivery"
-              onPress={() => navigation.getParent()?.navigate('Track', { screen: 'Tracking' })}
+              onPress={() => {
+                navigation.getParent()?.dispatch(
+                  CommonActions.navigate({
+                    name: 'Track',
+                    params: { screen: 'Tracking' },
+                  }),
+                );
+              }}
               style={styles.fullWidthBtn}
               variant={hasDriver ? 'primary' : 'outline'}
             />
@@ -251,6 +330,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
+  },
+  cancelledRing: {
+    backgroundColor: colors.redLight,
+    borderColor: colors.red,
   },
   title: {
     fontSize: 22,

@@ -11,7 +11,7 @@ type Props = {
 
 export function AdminSearchField({ value, onChangeText, placeholder, fullWidth }: Props) {
   return (
-    <View style={[styles.search, fullWidth && styles.searchFull]}>
+    <View style={[styles.search, fullWidth ? styles.searchFull : styles.searchInline]}>
       <Ionicons name="search" size={16} color={colors.muted} style={styles.icon} />
       <TextInput
         placeholder={placeholder}
@@ -32,42 +32,46 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.sm,
     paddingHorizontal: 12,
+    minHeight: 44,
     height: 44,
-    flex: 1,
-    minWidth: 180,
-    overflow: 'hidden',
     ...Platform.select({
-      android: { elevation: 1 },
+      android: { elevation: 2 },
       ios: {
         shadowColor: colors.text,
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 2,
+        shadowOpacity: 0.08,
+        shadowRadius: 3,
       },
+      default: {},
     }),
+  },
+  searchInline: {
+    flex: 1,
+    minWidth: 180,
   },
   searchFull: {
     width: '100%',
     minWidth: 0,
     flexGrow: 0,
     flexShrink: 0,
+    flex: 0,
     alignSelf: 'stretch',
   },
   icon: { flexShrink: 0 },
   input: {
     flex: 1,
-    minWidth: 0,
+    minWidth: 48,
     fontSize: 14,
     color: colors.text,
-    paddingVertical: 0,
+    paddingVertical: Platform.OS === 'android' ? 8 : 0,
     paddingHorizontal: 0,
-    height: 42,
-    backgroundColor: '#FFFFFF',
+    minHeight: 40,
+    backgroundColor: 'transparent',
     borderWidth: 0,
   },
 });

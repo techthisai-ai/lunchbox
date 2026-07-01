@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 import { DEMO_DROP, DEMO_PICKUP } from '../constants/maps';
 import { colors } from '../constants/theme';
-import { resolveMapPoint, isTamilNaduPoint } from '../services/mapGeocoding';
+import { resolveMapPoint, isTamilNaduPoint, resolveOrderLocationsAsync } from '../services/mapGeocoding';
 import { DeliveryOrder, GeoPoint } from '../types/delivery';
 
 type Props = {
@@ -110,6 +110,22 @@ function WebLiveMap({ order, height = 280, fleetOrders = [] }: Props) {
   const fleetLayerRef = useRef<LeafletLayer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [resolvedPoints, setResolvedPoints] = useState(() => resolvePoints(order));
+
+  useEffect(() => {
+    let cancelled = false;
+    resolveOrderLocationsAsync(order).then((locations) => {
+      if (cancelled) return;
+      const pickup = locations.pickupLocation;
+      const drop = locations.dropLocation;
+      const driver =
+        order.driverLocation && isTamilNaduPoint(order.driverLocation) ? order.driverLocation : pickup;
+      setResolvedPoints({ pickup, drop, driver });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [order.id, order.pickupAddress, order.dropAddress, order.school, order.pickupLocation?.lat, order.pickupLocation?.lng, order.dropLocation?.lat, order.dropLocation?.lng]);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,7 +134,7 @@ function WebLiveMap({ order, height = 280, fleetOrders = [] }: Props) {
       .then((L) => {
         if (cancelled || !containerRef.current) return;
 
-        const { pickup, drop, driver } = resolvePoints(order);
+        const { pickup, drop, driver } = resolvedPoints;
         const map = L.map(containerRef.current, {
           zoomControl: true,
           attributionControl: true,
@@ -184,7 +200,7 @@ function WebLiveMap({ order, height = 280, fleetOrders = [] }: Props) {
       mapRef.current = null;
       layersRef.current = null;
     };
-  }, [order.id]);
+  }, [order.id, resolvedPoints.pickup.lat, resolvedPoints.pickup.lng, resolvedPoints.drop.lat, resolvedPoints.drop.lng]);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -215,20 +231,30 @@ function WebLiveMap({ order, height = 280, fleetOrders = [] }: Props) {
   useEffect(() => {
     if (!mapRef.current || !layersRef.current) return;
 
-    const { pickup, drop, driver } = resolvePoints(order);
-    const path = [toLatLng(pickup), toLatLng(driver), toLatLng(drop)];
+    const driver =
+      order.driverLocation && isTamilNaduPoint(order.driverLocation)
+        ? order.driverLocation
+        : resolvedPoints.pickup;
+    const path = [toLatLng(resolvedPoints.pickup), toLatLng(driver), toLatLng(resolvedPoints.drop)];
 
-    layersRef.current.pickup.setLatLng(toLatLng(pickup));
-    layersRef.current.drop.setLatLng(toLatLng(drop));
+    layersRef.current.pickup.setLatLng(toLatLng(resolvedPoints.pickup));
+    layersRef.current.drop.setLatLng(toLatLng(resolvedPoints.drop));
     layersRef.current.driver.setLatLng(toLatLng(driver));
     layersRef.current.route.setLatLngs?.(path);
+
+    loadLeaflet().then((L) => {
+      if (!mapRef.current) return;
+      const bounds = L.latLngBounds(path);
+      mapRef.current.fitBounds(bounds, { padding: [36, 36] });
+    });
   }, [
     order.driverLocation?.lat,
     order.driverLocation?.lng,
     order.status,
-    order.pickupAddress,
-    order.dropAddress,
-    order.school,
+    resolvedPoints.pickup.lat,
+    resolvedPoints.pickup.lng,
+    resolvedPoints.drop.lat,
+    resolvedPoints.drop.lng,
   ]);
 
   if (error) {

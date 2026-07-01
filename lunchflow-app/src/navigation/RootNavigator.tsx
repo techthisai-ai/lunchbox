@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../constants/theme';
+import { DriverChangePasswordScreen } from '../screens/driver/DriverChangePasswordScreen';
 import { DriverDeliveriesScreen } from '../screens/driver/DriverDeliveriesScreen';
 import { DriverHomeScreen } from '../screens/driver/DriverHomeScreen';
 import { DriverLoginScreen } from '../screens/driver/DriverLoginScreen';
@@ -216,6 +217,7 @@ export function RootNavigator() {
       <RootStack.Screen name="DriverTabs" component={DriverTabsNavigator} options={{ animation: 'fade_from_bottom' }} />
       <RootStack.Screen name="DriverPendingApproval" component={DriverPendingApprovalScreen} options={{ animation: 'fade' }} />
       <RootStack.Screen name="DriverNotifications" component={DriverNotificationsScreen} />
+      <RootStack.Screen name="DriverChangePassword" component={DriverChangePasswordScreen} />
       <RootStack.Screen
         name="AdminPortal"
         component={AdminPortalScreen}

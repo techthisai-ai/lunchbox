@@ -373,11 +373,11 @@ export async function registerCustomer(data: CustomerRegistration): Promise<Auth
       emergencyContact: data.emergencyContact.trim(),
       createdAt: new Date().toISOString(),
     });
-    const { saveTelecallerLead } = await import('./telecallerService');
+    const { saveTelecallerLead, UNASSIGNED_TELECALLER_ID } = await import('./telecallerService');
     await saveTelecallerLead({
       customerPhone: phone,
       customerName: data.name.trim(),
-      telecallerId: 'unassigned',
+      telecallerId: UNASSIGNED_TELECALLER_ID,
       status: 'new',
       notes: 'New customer registration',
     }).catch(() => undefined);

@@ -14,6 +14,15 @@ export function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, '').slice(-10);
 }
 
+/** Strip non-digits and cap at 10 characters while the user types. */
+export function formatPhoneInput(phone: string): string {
+  return phone.replace(/\D/g, '').slice(0, 10);
+}
+
+export function isValidPhone(phone: string): boolean {
+  return normalizePhone(phone).length === 10;
+}
+
 export function getInitials(name: string): string {
   return (
     name

@@ -58,7 +58,7 @@ export function RegisterScreen({ navigation, route }: Props) {
       <ScreenHeader title="Create Account" subtitle="Register for daily lunchbox delivery" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
         <Input label="Full Name" value={name} onChangeText={setName} placeholder="Enter your full name" />
-        <Input label="Mobile Number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Enter 10-digit mobile number" />
+        <Input label="Mobile Number" value={phone} onChangeText={setPhone} phone />
         <Input label="Home Address" value={address} onChangeText={setAddress} placeholder="Enter your home address" />
         <SelectField
           label="Registration Type"

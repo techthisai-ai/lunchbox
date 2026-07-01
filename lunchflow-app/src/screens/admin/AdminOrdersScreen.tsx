@@ -225,13 +225,23 @@ export function AdminOrdersScreen() {
         <AdminKpiCard compact label="Cancelled Orders" value={String(cancelled.length)} icon="close-circle" iconBg={colors.redLight} iconColor={colors.red} />
       </AdminKpiRow>
 
-      <View style={[styles.filtersCard, isSidebarCollapsed && styles.filtersCardMobile]}>
+      {isSidebarCollapsed ? (
         <AdminSearchField
           placeholder="Search Orders"
           value={query}
           onChangeText={setQuery}
-          fullWidth={isSidebarCollapsed}
+          fullWidth
         />
+      ) : null}
+
+      <View style={[styles.filtersCard, isSidebarCollapsed && styles.filtersCardMobile]}>
+        {!isSidebarCollapsed ? (
+          <AdminSearchField
+            placeholder="Search Orders"
+            value={query}
+            onChangeText={setQuery}
+          />
+        ) : null}
         <View style={[styles.toolbarFilters, isSidebarCollapsed && styles.toolbarFiltersMobile]}>
           <AdminFilterSelect
             label={isSidebarCollapsed ? 'Payment' : undefined}
@@ -425,7 +435,7 @@ const styles = StyleSheet.create({
   filtersCardMobile: {
     flexDirection: 'column',
     alignItems: 'stretch',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,

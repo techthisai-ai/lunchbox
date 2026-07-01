@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { CommonActions, useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useState } from 'react';
@@ -9,19 +9,20 @@ import { Avatar } from '../components/Avatar';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
-import { colors, spacing } from '../constants/theme';
+import { HomePromoBanner, type PromoAction } from '../components/HomePromoBanner';
+import { colors, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useDelivery } from '../context/DeliveryContext';
 import { useFoodReadyOverlay } from '../context/FoodReadyOverlayContext';
 import { useResponsive } from '../hooks/useResponsive';
-import { useLiveEta } from '../hooks/useLiveEta';
 import { HomeStackParamList } from '../navigation/types';
 import { DeliveryHistoryEntry, syncDeliveryHistory } from '../services/deliveryHistoryService';
-import { listCustomerOrders } from '../services/orderHubService';
+import { listCustomerOrders, loadCustomerProfile } from '../services/orderHubService';
+import { loadFoodReadyDefaults } from '../services/foodReadyDefaultsService';
 import { getStatusBadgeTone, getStatusLabel } from '../services/orderHubService';
 import { loadActiveSubscription, checkSubscriptionRenewalReminders } from '../services/subscriptionService';
 import { SubscriptionPlan } from '../constants/subscriptions';
-import { DeliveryProfile, FoodReadyDetails, getDropAddress, normalizeDeliveryType, normalizeDeliveryTypes, buildFoodReadyStudents } from '../types/delivery';
+import { DeliveryProfile, DeliveryOrder, FoodReadyDetails, getDropAddress, normalizeDeliveryType, normalizeDeliveryTypes, buildFoodReadyStudents } from '../types/delivery';
 import { getSubscriptionRenewalLabel } from '../utils/date';
 import { callDriver } from '../utils/phoneCall';
 
@@ -29,19 +30,25 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'HomeMain'>;
 
 const FOOD_READY_FORM_STATUSES = new Set(['booked', 'food_ready', 'awaiting_driver']);
 
-const quickActions = [
-  { icon: 'location' as const, label: 'Track', screen: true, bg: colors.orangeLight, color: colors.orange },
-  { icon: 'document-text' as const, label: 'History', tab: 'History' as const, bg: colors.greenLight, color: colors.green },
-  { icon: 'wallet' as const, label: 'Wallet', route: 'Wallet' as const, bg: colors.blueLight, color: colors.blue },
-  { icon: 'gift' as const, label: 'Refer', route: 'Referral' as const, bg: colors.purpleLight, color: colors.purple },
+type QuickAction = {
+  id: 'track' | 'book' | 'subscription' | 'wallet';
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  color: string;
+};
+
+const quickActions: QuickAction[] = [
+  { id: 'track', icon: 'navigate', label: 'Track Live', color: colors.orange },
+  { id: 'book', icon: 'briefcase', label: 'Book\nDelivery', color: '#F97316' },
+  { id: 'subscription', icon: 'calendar', label: 'Subscription', color: '#2563EB' },
+  { id: 'wallet', icon: 'wallet', label: 'Wallet', color: '#7C3AED' },
 ];
 
 export function HomeScreen({ navigation }: Props) {
   const { user } = useAuth();
   const { order, submitting, markFoodReady, refreshDelivery } = useDelivery();
   const { openFoodReadyDialog } = useFoodReadyOverlay();
-  const { foodReadySize, horizontalPadding } = useResponsive();
-  const liveEtaMinutes = useLiveEta(order);
+  const { foodReadySize, horizontalPadding, width: screenWidth } = useResponsive();
   const [errorMessage, setErrorMessage] = useState('');
   const [recentHistory, setRecentHistory] = useState<DeliveryHistoryEntry[]>([]);
   const [activePlan, setActivePlan] = useState<SubscriptionPlan | null>(null);
@@ -118,17 +125,40 @@ export function HomeScreen({ navigation }: Props) {
     [markFoodReady, goToFoodReady],
   );
 
-  const handleFoodReady = () => {
+  const handleFoodReady = async () => {
+    if (order?.status === 'pickup_closed') {
+      goToFoodReady();
+      return;
+    }
+
     const showForm = !order || FOOD_READY_FORM_STATUSES.has(order.status);
     if (!showForm) {
       goToFoodReady();
       return;
     }
 
+    if (!user?.phone) return;
+
     setErrorMessage('');
 
+    const [savedDefaults, profile] = await Promise.all([
+      loadFoodReadyDefaults(user.phone),
+      loadCustomerProfile(user.phone),
+    ]);
+
+    if (savedDefaults) {
+      openFoodReadyDialog({
+        initialValues: savedDefaults,
+        startInReviewMode: true,
+        submitting,
+        onConfirm: handleConfirmFoodReady,
+      });
+      return;
+    }
+
     openFoodReadyDialog({
-      initialValues: buildFoodReadyDefaults(),
+      initialValues: buildFoodReadyDefaults(profile),
+      startInReviewMode: false,
       submitting,
       onConfirm: handleConfirmFoodReady,
     });
@@ -137,26 +167,62 @@ export function HomeScreen({ navigation }: Props) {
   const isOrderCancelled = order?.status === 'pickup_closed';
   const statusLabel = order ? getStatusLabel(order.status) : 'Pending';
   const statusTone = order ? getStatusBadgeTone(order.status) : 'orange';
-  const deliveryLine = order
-    ? `${order.studentName} · ${order.school}`
-    : 'Book pickup & delivery to get started';
-  const etaDisplay = isOrderCancelled
-    ? 'Cancelled'
-    : liveEtaMinutes != null && order?.driver
-      ? `${liveEtaMinutes} min`
-      : order?.estimatedArrival ??
-        (order?.status === 'awaiting_driver' ? 'Finding driver...' : order?.status === 'booked' ? 'Mark food ready' : '—');
-  const etaLabel = isOrderCancelled
-    ? null
-    : liveEtaMinutes != null && order?.driver
-      ? 'Estimated arrival'
-      : order?.estimatedArrival
-        ? 'Estimated arrival'
-        : !order
-          ? 'Waiting for booking'
-          : null;
+  const todayDeliveryTime = getTodayDeliveryTime(order);
   const showDriverStatus = Boolean(
     order && order.status !== 'booked' && order.status !== 'delivered' && !isOrderCancelled,
+  );
+
+  const foodReadyButtonSize = Math.min(foodReadySize, 156);
+  const promoWidth = screenWidth - horizontalPadding * 2;
+
+  const goToTracking = useCallback(() => {
+    const tabNavigation = navigation.getParent();
+    if (!tabNavigation) return;
+
+    tabNavigation.dispatch(
+      CommonActions.navigate({
+        name: 'Track',
+        params: { screen: 'Tracking' },
+      }),
+    );
+  }, [navigation]);
+
+  const handleQuickAction = useCallback(
+    (action: QuickAction['id']) => {
+      if (action === 'track') {
+        setErrorMessage('');
+        if (!order || order.status === 'booked') {
+          setErrorMessage('Mark food ready first to start tracking.');
+          return;
+        }
+        goToTracking();
+        return;
+      }
+
+      if (action === 'book') {
+        void handleFoodReady();
+        return;
+      }
+
+      if (action === 'subscription') {
+        navigation.getParent()?.navigate('Profile', { screen: 'Subscription' });
+        return;
+      }
+
+      navigation.getParent()?.navigate('Profile', { screen: 'Wallet' });
+    },
+    [navigation, order, handleFoodReady, goToTracking],
+  );
+
+  const handlePromoAction = useCallback(
+    (action: PromoAction) => {
+      if (action === 'subscription' || action === 'track') {
+        navigation.getParent()?.navigate('Profile', { screen: 'Subscription' });
+        return;
+      }
+      navigation.getParent()?.navigate('Profile', { screen: 'Referral' });
+    },
+    [navigation],
   );
 
   return (
@@ -173,162 +239,158 @@ export function HomeScreen({ navigation }: Props) {
           </Pressable>
         </View>
       </View>
-      <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
-        showsVerticalScrollIndicator={false}
-        bounces
-      >
-        <LinearGradient colors={[colors.orangeLight, colors.white]} style={styles.statusCard}>
-          <View style={styles.statusHeader}>
-            <Text style={styles.cardTitle}>Today's Delivery</Text>
-            <Badge label={statusLabel} tone={statusTone} />
-          </View>
-          <Text style={styles.muted}>{deliveryLine}</Text>
-          <Text style={[styles.eta, isOrderCancelled && styles.cancelledEta]} numberOfLines={2}>
-            {etaDisplay}
-          </Text>
-          {etaLabel ? <Text style={styles.etaLabel}>{etaLabel}</Text> : null}
-        </LinearGradient>
-
-        {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
-
-        {!isOrderCancelled ? (
-        <Pressable
-          style={[
-            styles.foodReady,
-            {
-              width: foodReadySize,
-              height: foodReadySize,
-              borderRadius: foodReadySize / 2,
-            },
-            submitting && styles.foodReadyDisabled,
-          ]}
-          onPress={handleFoodReady}
-          disabled={submitting}
-          accessibilityRole="button"
+      <View style={styles.body}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, { paddingHorizontal: horizontalPadding }]}
+          showsVerticalScrollIndicator={false}
+          bounces
         >
-          <Ionicons name="fast-food" size={36} color={colors.white} />
-          <Text style={styles.foodReadyLabel}>Food Ready</Text>
-          <Text style={styles.foodReadySub}>Tap when lunch is packed</Text>
-        </Pressable>
-        ) : null}
+          <TodayDeliveryRow status={statusLabel} tone={statusTone} time={todayDeliveryTime} />
 
-        {showDriverStatus ? (
-          <Card
-            title="Driver Status"
-            badge={
-              <Badge
-                label={hasDriver ? (isInTransit ? 'En Route' : 'Assigned') : 'Waiting'}
-                tone={hasDriver ? 'green' : 'orange'}
-              />
-            }
-          >
-            <View style={styles.driverRow}>
-              <Avatar initials={order?.driver?.initials ?? '—'} large />
-              <View style={styles.driverInfo}>
-                {order?.driver ? (
-                  <>
-                    <Text style={styles.driverName} numberOfLines={1}>
-                      {order.driver.name}
-                    </Text>
-                    <Text style={styles.muted} numberOfLines={2}>
-                      {`${order.driver.vehicle} · ★ ${order.driver.rating}`}
-                    </Text>
-                  </>
-                ) : (
-                  <Text style={styles.driverName} numberOfLines={2}>
-                    Driver not assigned yet
-                  </Text>
-                )}
-              </View>
-              <Button
-                title="Call"
-                variant="outline"
-                small
-                onPress={() => {
-                  if (order) void callDriver(order);
-                }}
-              />
-            </View>
-            {order && order.status !== 'booked' && order.status !== 'delivered' ? (
-              <Button
-                title="Show Pickup QR / OTP"
-                variant="green"
-                onPress={() => navigation.getParent()?.navigate('Track', { screen: 'QRTracking' })}
-                style={{ marginTop: 12 }}
-              />
-            ) : null}
-          </Card>
-        ) : null}
+          <View style={styles.promoWrap}>
+            <HomePromoBanner width={promoWidth} onAction={handlePromoAction} />
+          </View>
 
-        <Card flat title="Active Subscription" badge={<Badge label={activePlan?.badgeLabel ?? 'Student · 1M'} tone="green" />}>
-          <Text style={styles.subText}>
-            {activePlan?.price ?? '₹699'}/month · Renews {getSubscriptionRenewalLabel()}
-          </Text>
-        </Card>
+          {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
 
-        <Text style={styles.section}>Quick Actions</Text>
-        <View style={styles.quickGrid}>
-          {quickActions.map((a) => (
-            <Pressable
-              key={a.label}
-              style={styles.quickItem}
-              onPress={() => {
-                if (a.screen) {
-                  setErrorMessage('');
-                  if (!order || order.status === 'booked') {
-                    setErrorMessage('Mark food ready first to start tracking.');
-                    return;
-                  }
-                  if (order.status === 'pickup_closed') {
-                    setErrorMessage('This delivery was cancelled.');
-                    return;
-                  }
-                  if (!order.driver) {
-                    setErrorMessage('Waiting for a driver to accept your pickup.');
-                    return;
-                  }
-                  navigation.getParent()?.navigate('Track', { screen: 'Tracking' });
-                } else if (a.tab) {
-                  navigation.getParent()?.navigate(a.tab);
-                } else if (a.route === 'Wallet') {
-                  navigation.getParent()?.navigate('Profile', { screen: 'Wallet' });
-                } else if (a.route === 'Referral') {
-                  navigation.getParent()?.navigate('Profile', { screen: 'Referral' });
-                }
-              }}
+          {showDriverStatus ? (
+            <Card
+              title="Driver Status"
+              badge={
+                <Badge
+                  label={hasDriver ? (isInTransit ? 'En Route' : 'Assigned') : 'Waiting'}
+                  tone={hasDriver ? 'green' : 'orange'}
+                />
+              }
             >
-              <View style={[styles.quickIcon, { backgroundColor: a.bg }]}>
-                <Ionicons name={a.icon} size={18} color={a.color} />
+              <View style={styles.driverRow}>
+                <Avatar initials={order?.driver?.initials ?? '—'} large />
+                <View style={styles.driverInfo}>
+                  {order?.driver ? (
+                    <>
+                      <Text style={styles.driverName} numberOfLines={1}>
+                        {order.driver.name}
+                      </Text>
+                      <Text style={styles.muted} numberOfLines={2}>
+                        {`${order.driver.vehicle} · ★ ${order.driver.rating}`}
+                      </Text>
+                    </>
+                  ) : (
+                    <Text style={styles.driverName} numberOfLines={2}>
+                      Driver not assigned yet
+                    </Text>
+                  )}
+                </View>
+                <Button
+                  title="Call"
+                  variant="outline"
+                  small
+                  onPress={() => {
+                    if (order) void callDriver(order);
+                  }}
+                />
               </View>
-              <Text style={styles.quickLabel}>{a.label}</Text>
-            </Pressable>
-          ))}
-        </View>
+            </Card>
+          ) : null}
 
-        <Text style={styles.section}>Recent Deliveries</Text>
-        {recentHistory.length > 0 ? (
-          recentHistory.map((item) => (
-            <DeliveryRow key={item.id} date={item.date} route={item.route} status={item.status} time={item.time} />
-          ))
-        ) : (
-          <Card flat style={{ paddingVertical: 12 }}>
-            <Text style={styles.emptyHistory}>Your completed deliveries will appear here.</Text>
+          <View style={styles.foodReadyWrap}>
+            <Pressable
+              style={[
+                styles.foodReady,
+                {
+                  width: foodReadyButtonSize,
+                  height: foodReadyButtonSize,
+                  borderRadius: foodReadyButtonSize / 2,
+                },
+                submitting && styles.foodReadyDisabled,
+              ]}
+              onPress={handleFoodReady}
+              disabled={submitting}
+              accessibilityRole="button"
+            >
+              <Ionicons name="fast-food" size={34} color={colors.white} />
+              <Text style={styles.foodReadyLabel}>Food Ready</Text>
+              <Text style={styles.foodReadySub}>Tap when lunch is packed</Text>
+            </Pressable>
+          </View>
+
+          <Card flat title="Active Subscription" badge={<Badge label={activePlan?.badgeLabel ?? 'Student · 1M'} tone="green" />}>
+            <Text style={styles.subText}>
+              {activePlan?.price ?? '₹699'}/month · Renews {getSubscriptionRenewalLabel()}
+            </Text>
           </Card>
-        )}
-      </ScrollView>
+
+          <Text style={styles.section}>Quick Actions</Text>
+          <View style={styles.quickGrid}>
+            {quickActions.map((action) => (
+              <Pressable
+                key={action.id}
+                style={styles.quickItem}
+                onPress={() => handleQuickAction(action.id)}
+              >
+                <Ionicons name={action.icon} size={28} color={action.color} />
+                <Text style={styles.quickLabel}>{action.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Text style={styles.section}>Recent Deliveries</Text>
+          {recentHistory.length > 0 ? (
+            recentHistory.map((item) => (
+              <DeliveryRow key={item.id} date={item.date} status={item.status} time={item.time} />
+            ))
+          ) : (
+            <Card flat style={{ paddingVertical: 12 }}>
+              <Text style={styles.emptyHistory}>Your completed deliveries will appear here.</Text>
+            </Card>
+          )}
+        </ScrollView>
+      </View>
     </SafeAreaView>
+  );
+}
+
+function getTodayDeliveryTime(order: DeliveryOrder | null): string | null {
+  if (!order) return null;
+  return order.deliveredAt ?? order.pickedUpAt ?? order.foodReadyAt ?? order.bookedAt ?? null;
+}
+
+function TodayDeliveryRow({
+  status,
+  tone,
+  time,
+}: {
+  status: string;
+  tone: 'orange' | 'green' | 'blue' | 'red';
+  time: string | null;
+}) {
+  return (
+    <LinearGradient
+      colors={['#FFF5F9', '#FFFFFF', '#FFFFFF']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 0.5 }}
+      style={styles.todayDeliveryCard}
+    >
+      <View style={styles.deliveryRow}>
+        <View style={styles.deliveryInfo}>
+          <Text style={styles.todayDeliveryTitle}>Today&apos;s Delivery</Text>
+        </View>
+        <View style={styles.deliveryMeta}>
+          <Badge label={status} tone={tone} />
+          {time ? <Text style={styles.deliveryTime}>{time}</Text> : null}
+        </View>
+      </View>
+    </LinearGradient>
   );
 }
 
 function DeliveryRow({
   date,
-  route,
   status,
   time,
 }: {
   date: string;
-  route: string;
   status: string;
   time: string;
 }) {
@@ -337,9 +399,6 @@ function DeliveryRow({
       <View style={styles.deliveryRow}>
         <View style={styles.deliveryInfo}>
           <Text style={styles.deliveryDate}>{date}</Text>
-          <Text style={styles.muted} numberOfLines={2}>
-            {route}
-          </Text>
         </View>
         <View style={styles.deliveryMeta}>
           <Badge label={status} tone={status === 'Delivered' ? 'green' : status === 'Cancelled' ? 'red' : 'orange'} />
@@ -371,30 +430,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scroll: { paddingTop: spacing.md, paddingBottom: 32, flexGrow: 1 },
-  statusCard: {
-    borderRadius: 16,
-    padding: spacing.md,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
+  scroll: { flex: 1 },
+  scrollContent: { paddingTop: spacing.md, paddingBottom: 32, flexGrow: 1 },
+  body: { flex: 1 },
+  foodReadyWrap: {
+    width: '100%',
+    alignItems: 'center',
+    marginVertical: spacing.lg,
   },
-  statusHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  cardTitle: { fontSize: 15, fontWeight: '700', flex: 1, marginRight: 8 },
+  todayDeliveryCard: {
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(233, 30, 99, 0.07)',
+    ...shadow.subtle,
+  },
+  todayDeliveryTitle: { fontWeight: '800', fontSize: 15, color: colors.text },
+  promoWrap: { width: '100%', alignItems: 'center' },
   muted: { fontSize: 12, color: colors.muted },
-  eta: { fontSize: 28, fontWeight: '800', color: colors.orange, textAlign: 'center', marginTop: 8 },
-  cancelledEta: { color: colors.text, fontSize: 24 },
-  etaLabel: { textAlign: 'center', fontSize: 12, color: colors.muted },
+  deliveryTime: { fontSize: 11, color: colors.muted, marginTop: 4 },
   foodReady: {
     backgroundColor: colors.orange,
-    alignSelf: 'center',
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: spacing.lg,
     shadowColor: colors.orange,
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
     elevation: 8,
   },
   foodReadyDisabled: { opacity: 0.7 },
@@ -405,21 +469,29 @@ const styles = StyleSheet.create({
   driverInfo: { flex: 1, minWidth: 0 },
   driverName: { fontWeight: '700', fontSize: 15 },
   subText: { fontSize: 14, fontWeight: '600' },
-  section: { fontSize: 16, fontWeight: '800', marginVertical: 12 },
-  quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 8 },
+  section: { fontSize: 16, fontWeight: '800', marginTop: 12, marginBottom: 12 },
+  quickGrid: { flexDirection: 'row', gap: 10, marginBottom: 8 },
   quickItem: {
-    flexGrow: 1,
-    flexBasis: '22%',
-    minWidth: 72,
+    flex: 1,
+    minWidth: 0,
     backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: 14,
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 8,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: colors.border,
+    minHeight: 96,
+    gap: 10,
   },
-  quickIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  quickLabel: { fontSize: 10, fontWeight: '600', color: colors.muted, textAlign: 'center' },
+  quickLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.text,
+    textAlign: 'center',
+    lineHeight: 15,
+  },
   deliveryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   deliveryInfo: { flex: 1, minWidth: 0 },
   deliveryMeta: { alignItems: 'flex-end' },

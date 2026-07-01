@@ -5,7 +5,7 @@ import { Button } from '../Button';
 import { Input } from '../Input';
 import { colors, radius, spacing } from '../../constants/theme';
 import { saveTelecaller } from '../../services/telecallerService';
-import { normalizePhone } from '../../constants/auth';
+import { isValidPhone, normalizePhone } from '../../constants/auth';
 
 type Props = {
   visible: boolean;
@@ -39,15 +39,14 @@ export function AdminAddTelecallerModal({ visible, onClose, onAdded }: Props) {
       setError('Enter telecaller name');
       return;
     }
-    const normalizedPhone = normalizePhone(phone);
-    if (normalizedPhone.length < 10) {
+    if (!isValidPhone(phone)) {
       setError('Enter a valid 10-digit phone number');
       return;
     }
 
     setSaving(true);
     try {
-      await saveTelecaller({ name: name.trim(), phone: normalizedPhone, status: 'Active', assignedLeads: 0 });
+      await saveTelecaller({ name: name.trim(), phone: normalizePhone(phone), status: 'Active', assignedLeads: 0 });
       onAdded();
       onClose();
     } catch {
@@ -78,9 +77,8 @@ export function AdminAddTelecallerModal({ visible, onClose, onAdded }: Props) {
               label="Phone Number"
               value={phone}
               onChangeText={setPhone}
-              keyboardType="phone-pad"
-              placeholder="Enter mobile number"
-              maxLength={15}
+              phone
+              placeholder="Enter 10-digit mobile number"
             />
             {error ? <Text style={styles.error}>{error}</Text> : null}
           </ScrollView>

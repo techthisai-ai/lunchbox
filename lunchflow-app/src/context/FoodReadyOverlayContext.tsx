@@ -4,6 +4,7 @@ import { FoodReadyDetails } from '../types/delivery';
 
 type OpenArgs = {
   initialValues: Partial<FoodReadyDetails>;
+  startInReviewMode?: boolean;
   submitting?: boolean;
   onConfirm: (details: FoodReadyDetails) => void | Promise<void>;
 };
@@ -49,6 +50,7 @@ export function FoodReadyOverlayProvider({ children }: { children: ReactNode }) 
         key={dialogKey}
         visible={Boolean(openArgs)}
         initialValues={openArgs?.initialValues}
+        startInReviewMode={openArgs?.startInReviewMode}
         submitting={openArgs?.submitting}
         onConfirm={handleConfirm}
         onCancel={closeFoodReadyDialog}
