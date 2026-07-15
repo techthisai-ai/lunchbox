@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { CHENNAI_SERVICE_RADIUS_KM, DEFAULT_MAP_CENTER, DEMO_DROP, DEMO_PICKUP } from '../constants/maps';
+import { CHENNAI_SERVICE_RADIUS_KM, DEFAULT_MAP_CENTER, DEMO_DROP, DEMO_PICKUP, resolveAddressLocalityAnchor, resolveKnownLocalityPoint } from '../constants/maps';
 import { db } from '../lib/firebase';
 import { DeliveryOrder, GeoPoint, getDropAddress } from '../types/delivery';
 
@@ -66,6 +66,20 @@ export function isTrustedMapPoint(stored: GeoPoint | null | undefined, address: 
   if (addressMentions(addr, 'trichy') || addressMentions(addr, 'tiruchirappalli')) return distFromChennai < 380;
   if (addressMentions(addr, 'chennai')) return distFromChennai < CHENNAI_SERVICE_RADIUS_KM;
 
+  const localityAnchor = resolveAddressLocalityAnchor(address);
+  if (localityAnchor) {
+    return haversineDistanceKm(stored, localityAnchor.point) <= localityAnchor.radiusKm;
+  }
+
+  if (
+    addressMentions(addr, 'kanyakumari') ||
+    addressMentions(addr, 'nagercoil') ||
+    addressMentions(addr, 'thisaiyan') ||
+    addressMentions(addr, 'idaichivil')
+  ) {
+    return stored.lat >= 8 && stored.lat <= 9.5 && stored.lng >= 76.5 && stored.lng <= 78.2;
+  }
+
   return distFromChennai <= CHENNAI_SERVICE_RADIUS_KM;
 }
 
@@ -95,18 +109,26 @@ export function geocodeAddress(address: string, fallback: GeoPoint): GeoPoint {
   const cached = MEMORY_CACHE.get(normalized);
   if (cached && isTrustedMapPoint(cached, address)) return cached;
 
-  if (normalized.includes('stella') || normalized.includes('school') || normalized.includes('college')) {
+  if (normalized.includes('stella') || (normalized.includes('school') && normalized.includes('chennai'))) {
     return DEMO_DROP;
   }
   if (
-    normalized.includes('north street') ||
-    normalized.includes('anna nagar') ||
-    normalized.includes('t nagar') ||
-    normalized.includes('mc nichols') ||
-    normalized.includes('mcnichols') ||
-    normalized.includes('home')
+    (normalized.includes('north street') ||
+      normalized.includes('anna nagar') ||
+      normalized.includes('t nagar') ||
+      normalized.includes('mc nichols') ||
+      normalized.includes('mcnichols')) &&
+    !resolveKnownLocalityPoint(normalized)
   ) {
     return DEMO_PICKUP;
+  }
+  if (normalized.includes('home') && normalized.includes('chennai')) {
+    return DEMO_PICKUP;
+  }
+
+  const knownLocality = resolveKnownLocalityPoint(normalized);
+  if (knownLocality) {
+    return knownLocality;
   }
   if (normalized.includes('chennai') || normalized.includes('coimbatore') || normalized.includes('madurai')) {
     const cityHash = hashAddress(normalized);
@@ -139,7 +161,7 @@ async function writeStorageCache(cache: Record<string, GeoPoint>): Promise<void>
   await AsyncStorage.setItem(STORAGE_CACHE_KEY, JSON.stringify(cache));
 }
 
-async function fetchNominatimGeocode(address: string): Promise<GeoPoint | null> {
+async function fetchNominatimGeocode(address: string, tripMode = false): Promise<GeoPoint | null> {
   const query = formatGeocodeQuery(address);
   const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=in&q=${encodeURIComponent(query)}`;
   try {
@@ -157,6 +179,9 @@ async function fetchNominatimGeocode(address: string): Promise<GeoPoint | null> 
     const lng = Number(hit.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
     const point = { lat, lng };
+    if (tripMode) {
+      return isTamilNaduPoint(point) ? point : null;
+    }
     if (!isTrustedMapPoint(point, address)) return null;
     return point;
   } catch {
@@ -192,6 +217,66 @@ async function cacheGeocodeResult(key: string, point: GeoPoint, address: string)
     // Ignore.
   }
   return point;
+}
+
+export async function geocodeTripStopAddress(address: string): Promise<GeoPoint> {
+  const trimmed = address.trim();
+  if (!trimmed) return DEFAULT_MAP_CENTER;
+
+  const key = cacheKey(trimmed);
+
+  const knownLocality = resolveKnownLocalityPoint(trimmed);
+  if (knownLocality) {
+    return cacheGeocodeResult(key, knownLocality, trimmed);
+  }
+
+  const memoryHit = MEMORY_CACHE.get(key);
+  if (memoryHit && isTrustedMapPoint(memoryHit, trimmed)) return memoryHit;
+
+  const localCache = await readStorageCache();
+  if (localCache[key] && isTrustedMapPoint(localCache[key], trimmed)) {
+    MEMORY_CACHE.set(key, localCache[key]);
+    return localCache[key];
+  }
+
+  try {
+    const snap = await getDoc(doc(db, 'geocodeCache', encodeURIComponent(key).slice(0, 500)));
+    if (snap.exists()) {
+      const point = snap.data() as GeoPoint;
+      if (isTrustedMapPoint(point, trimmed)) {
+        MEMORY_CACHE.set(key, point);
+        return point;
+      }
+    }
+  } catch {
+    // Ignore.
+  }
+
+  const nominatimPoint = await fetchNominatimGeocode(trimmed, true);
+  if (nominatimPoint && isTrustedMapPoint(nominatimPoint, trimmed)) {
+    return cacheGeocodeResult(key, nominatimPoint, trimmed);
+  }
+
+  const apiKey = getGoogleMapsApiKey();
+  if (apiKey) {
+    try {
+      const googlePoint = await fetchGoogleGeocode(trimmed, apiKey);
+      if (googlePoint && isTrustedMapPoint(googlePoint, trimmed)) {
+        return cacheGeocodeResult(key, googlePoint, trimmed);
+      }
+    } catch {
+      // Fall through.
+    }
+  }
+
+  const localityFallback = resolveKnownLocalityPoint(trimmed);
+  if (localityFallback) {
+    return cacheGeocodeResult(key, localityFallback, trimmed);
+  }
+
+  const fallback = geocodeAddress(trimmed, DEFAULT_MAP_CENTER);
+  MEMORY_CACHE.set(key, fallback);
+  return fallback;
 }
 
 export async function geocodeAddressAsync(address: string, fallback: GeoPoint): Promise<GeoPoint> {

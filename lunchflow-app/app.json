@@ -32,7 +32,11 @@
         "POST_NOTIFICATIONS",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "CAMERA"
+        "CAMERA",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "plugins": [
@@ -67,7 +71,10 @@
       ]
     ],
     "extra": {
-      "googleMapsApiKey": ""
+      "googleMapsApiKey": "",
+      "eas": {
+        "projectId": "bc03c5e8-dc13-4ea9-9ae2-94ad08cec08d"
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"

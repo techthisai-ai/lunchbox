@@ -3,31 +3,43 @@ import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Badge } from '../../components/Badge';
-import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
 import { PickupVerifyDialog } from '../../components/PickupVerifyDialog';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { DriverBulkDeliveryCard } from '../../components/driver/DriverBulkDeliveryCard';
+import { DriverTripCompletedDialog } from '../../components/driver/DriverTripCompletedDialog';
 import { DriverKpiRow } from '../../components/driver/DriverKpiRow';
 import { DriverScreenHeader } from '../../components/driver/DriverScreenHeader';
 import { DriverOrderAddressDialog } from '../../components/DriverOrderAddressDialog';
-import { colors, radius, spacing } from '../../constants/theme';
+import { colors, radius, shadow, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
+import { useDriverTrip } from '../../context/DriverTripContext';
 import { DriverTabParamList, RootStackParamList } from '../../navigation/types';
+import { openDriverRouteMap } from '../../navigation/driverRoutes';
 import {
   listDriverActiveOrders,
   listDriverCompletedToday,
   listPendingPickups,
   markAtDrop,
   markAtPickup,
+  markBatchOrdersDelivered,
   markDelivered,
   markPickedUp,
   verifyPickup,
 } from '../../services/orderHubService';
 import { openMapsNavigationToAddress } from '../../services/mapsNavigation';
+import { isNearStop } from '../../services/enfieldMapsService';
 import { subscribeToOrderChanges } from '../../services/orderSync';
-import { DeliveryOrder } from '../../types/delivery';
+import { buildSchoolBatches } from '../../services/batchDeliveryService';
+import { DeliveryBatch } from '../../types/batch';
+import { DeliveryOrder, getDropAddress } from '../../types/delivery';
 import { buildDriverDeliveryStops, DriverDeliveryStop } from '../../utils/driverDeliveryStops';
+import { buildDriverLocationGroups, buildCompletedLocationGroups, DriverLocationGroup, getLocationGroupKey } from '../../utils/driverLocationGroups';
+import { getAssignedDriverOrders } from '../../utils/driverTripNavigation';
+import { DRIVER_EARNING_PER_ORDER } from '../../utils/adminDriverHelpers';
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<DriverTabParamList, 'DriverDeliveries'>,
@@ -48,15 +60,64 @@ function phaseLabel(phase: DriverDeliveryStop['phase']): string {
   return 'Delivered';
 }
 
+function StopAction({
+  label,
+  onPress,
+  variant = 'outline',
+}: {
+  label: string;
+  onPress: () => void;
+  variant?: 'outline' | 'green';
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.stopActionBtn,
+        variant === 'green' && styles.stopActionBtnGreen,
+        pressed && styles.stopActionBtnPressed,
+      ]}
+    >
+      <Text style={[styles.stopActionText, variant === 'green' && styles.stopActionTextGreen]} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 export function DriverDeliveriesScreen() {
   const { user } = useAuth();
   const navigation = useNavigation<Nav>();
+  const {
+    trip,
+    tripActive,
+    driverLocation,
+    stats,
+    activeRoute,
+    currentPickupStop,
+    currentDeliveryStop,
+    refreshTripRoutes,
+    startTrip,
+    completePickupStop,
+    markPickupStopReached,
+    markDeliveryStopReached,
+    completeDeliveryStop,
+    resetTrip,
+  } = useDriverTrip();
   const [activeOrders, setActiveOrders] = useState<DeliveryOrder[]>([]);
   const [completed, setCompleted] = useState<DeliveryOrder[]>([]);
   const [pending, setPending] = useState<DeliveryOrder[]>([]);
   const [verifyOrder, setVerifyOrder] = useState<DeliveryOrder | null>(null);
+  const [tripPickupVerify, setTripPickupVerify] = useState(false);
+  const [showTripCompleted, setShowTripCompleted] = useState(false);
   const [addressOrder, setAddressOrder] = useState<DeliveryOrder | null>(null);
   const [actionError, setActionError] = useState('');
+  const [batches, setBatches] = useState<DeliveryBatch[]>([]);
+  const [bulkLoadingGroupId, setBulkLoadingGroupId] = useState<string | null>(null);
+  const [singleDeliveringId, setSingleDeliveringId] = useState<string | null>(null);
+  const [confirmGroup, setConfirmGroup] = useState<DriverLocationGroup | null>(null);
+  const [successGroups, setSuccessGroups] = useState<Record<string, string>>({});
+  const [justDeliveredGroup, setJustDeliveredGroup] = useState<DriverLocationGroup | null>(null);
 
   const refresh = useCallback(async () => {
     if (!user?.id) return;
@@ -68,6 +129,7 @@ export function DriverDeliveriesScreen() {
     setActiveOrders(activeList);
     setCompleted(done);
     setPending(pendingList);
+    setBatches(await buildSchoolBatches([...activeList, ...done]));
   }, [user?.id]);
 
   useFocusEffect(
@@ -80,6 +142,44 @@ export function DriverDeliveriesScreen() {
 
   useEffect(() => subscribeToOrderChanges(refresh), [refresh]);
 
+  const assignedOrders = useMemo(() => getAssignedDriverOrders(activeOrders), [activeOrders]);
+
+  useEffect(() => {
+    if (trip.phase === 'idle') return undefined;
+    const orders = [...assignedOrders, ...completed];
+    void refreshTripRoutes(orders);
+    if (!tripActive) return undefined;
+    const interval = setInterval(() => {
+      void refreshTripRoutes([...assignedOrders, ...completed]);
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [trip.phase, tripActive, assignedOrders, completed, refreshTripRoutes]);
+
+  useEffect(() => {
+    if (!tripActive || !driverLocation) return;
+    if (trip.phase === 'pickup' && currentPickupStop && isNearStop(driverLocation, currentPickupStop.point)) {
+      markPickupStopReached(currentPickupStop.id);
+      setTripPickupVerify(true);
+    }
+    if (trip.phase === 'delivery' && currentDeliveryStop && isNearStop(driverLocation, currentDeliveryStop.point)) {
+      markDeliveryStopReached(currentDeliveryStop.id);
+    }
+  }, [
+    tripActive,
+    trip.phase,
+    driverLocation,
+    currentPickupStop,
+    currentDeliveryStop,
+    markPickupStopReached,
+    markDeliveryStopReached,
+  ]);
+
+  useEffect(() => {
+    if (trip.phase === 'completed' && !showTripCompleted) {
+      setShowTripCompleted(true);
+    }
+  }, [trip.phase, showTripCompleted]);
+
   const pickupPendingCount = activeOrders.filter((o) =>
     ['driver_assigned', 'at_pickup', 'pickup_verified'].includes(o.status),
   ).length;
@@ -88,8 +188,34 @@ export function DriverDeliveriesScreen() {
   ).length;
 
   const stops = useMemo(
-    () => buildDriverDeliveryStops(pending, activeOrders),
+    () => buildDriverDeliveryStops(pending, activeOrders).filter((stop) => stop.phase !== 'active'),
     [pending, activeOrders],
+  );
+
+  const locationGroups = useMemo(
+    () => buildDriverLocationGroups(activeOrders, batches),
+    [activeOrders, batches],
+  );
+
+  const displayLocationGroups = useMemo(() => {
+    if (!justDeliveredGroup) return locationGroups;
+    return [
+      justDeliveredGroup,
+      ...locationGroups.filter((group) => group.id !== justDeliveredGroup.id),
+    ];
+  }, [locationGroups, justDeliveredGroup]);
+
+  const pickupStops = useMemo(
+    () => stops.filter((stop) => stop.type === 'pickup'),
+    [stops],
+  );
+
+  const hasPickupQueue = pickupStops.length > 0;
+  const hasDeliveryStops = displayLocationGroups.length > 0;
+
+  const completedLocationGroups = useMemo(
+    () => buildCompletedLocationGroups(completed),
+    [completed],
   );
 
   const openVerify = async (order: DeliveryOrder) => {
@@ -104,6 +230,24 @@ export function DriverDeliveriesScreen() {
   };
 
   const handleVerify = async (code: string) => {
+    if (tripPickupVerify && currentPickupStop) {
+      const error = await completePickupStop(currentPickupStop.id, code, assignedOrders);
+      if (error) return error;
+      setTripPickupVerify(false);
+      const nextPickup = trip.pickupGroups.find(
+        (group) => group.status === 'pending' && group.id !== currentPickupStop.id,
+      );
+      if (nextPickup) {
+        void openMapsNavigationToAddress(nextPickup.address);
+      } else {
+        const nextDrop = trip.deliveryGroups.find((group) => group.status === 'pending');
+        if (nextDrop) void openMapsNavigationToAddress(nextDrop.address);
+      }
+      await refresh();
+      await refreshTripRoutes(assignedOrders);
+      return null;
+    }
+
     if (!verifyOrder) return 'No order selected';
     try {
       await verifyPickup(verifyOrder.id, code);
@@ -117,13 +261,86 @@ export function DriverDeliveriesScreen() {
   };
 
   const handleDeliver = async (orderId: string) => {
+    const order = activeOrders.find((entry) => entry.id === orderId);
+    if (!order || order.status === 'delivered') return;
+
     setActionError('');
+    setSingleDeliveringId(orderId);
     try {
-      await markAtDrop(orderId);
+      if (order.status !== 'at_drop') {
+        await markAtDrop(orderId);
+      }
       await markDelivered(orderId);
       await refresh();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Could not mark delivered');
+    } finally {
+      setSingleDeliveringId(null);
+    }
+  };
+
+  const executeBulkDeliver = async (group: DriverLocationGroup) => {
+    if (group.pendingCount === 0 || bulkLoadingGroupId) return;
+
+    setBulkLoadingGroupId(group.id);
+    setActionError('');
+    try {
+      const pendingOrders = group.pendingOrders.filter((order) => order.status !== 'delivered');
+      if (pendingOrders.length === 0) return;
+
+      for (const order of pendingOrders) {
+        if (order.status !== 'at_drop') {
+          await markAtDrop(order.id);
+        }
+      }
+
+      if (group.batchId) {
+        await markBatchOrdersDelivered(group.batchId);
+      } else {
+        for (let index = 0; index < pendingOrders.length; index += 1) {
+          await markDelivered(pendingOrders[index].id, { silent: index < pendingOrders.length - 1 });
+        }
+      }
+
+      const deliveredAt = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      setSuccessGroups((current) => ({ ...current, [group.id]: deliveredAt }));
+      setJustDeliveredGroup({
+        ...group,
+        orders: group.orders.map((order) => ({ ...order, status: 'delivered' as const, deliveredAt })),
+        pendingOrders: [],
+        deliveredOrders: group.orders,
+        pendingCount: 0,
+        deliveredCount: group.totalCount,
+        isFullyDelivered: true,
+      });
+      setTimeout(() => {
+        setJustDeliveredGroup((current) => (current?.id === group.id ? null : current));
+        setSuccessGroups((current) => {
+          const next = { ...current };
+          delete next[group.id];
+          return next;
+        });
+      }, 4000);
+
+      if (tripActive && group.orders[0]) {
+        completeDeliveryStop(`drop-${getLocationGroupKey(group.orders[0])}`);
+        const nextDrop = trip.deliveryGroups.find(
+          (entry) => entry.status === 'pending' && entry.id !== `drop-${getLocationGroupKey(group.orders[0])}`,
+        );
+        if (nextDrop) {
+          void openMapsNavigationToAddress(nextDrop.address);
+        }
+      }
+
+      await refresh();
+      if (tripActive) {
+        await refreshTripRoutes(assignedOrders);
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not deliver all lunchboxes');
+    } finally {
+      setBulkLoadingGroupId(null);
+      setConfirmGroup(null);
     }
   };
 
@@ -133,18 +350,68 @@ export function DriverDeliveriesScreen() {
     void Linking.openURL(`tel:+91${normalized}`);
   };
 
+  const handleNavigateToRoute = async () => {
+    setActionError('');
+    try {
+      await openDriverRouteMap(navigation, {
+        tripActive,
+        startTrip,
+        refreshTripRoutes,
+        assignedOrders,
+      });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not open route map');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <PickupVerifyDialog
-        visible={Boolean(verifyOrder)}
-        orderLabel={verifyOrder?.customerName ?? ''}
+        visible={Boolean(verifyOrder) || tripPickupVerify}
+        orderLabel={
+          tripPickupVerify && currentPickupStop
+            ? `${currentPickupStop.orders.length} lunchbox${currentPickupStop.orders.length === 1 ? '' : 'es'} at ${currentPickupStop.locationName}`
+            : verifyOrder?.customerName ?? ''
+        }
         onVerify={handleVerify}
-        onCancel={() => setVerifyOrder(null)}
+        onCancel={() => {
+          setVerifyOrder(null);
+          setTripPickupVerify(false);
+        }}
+      />
+      <DriverTripCompletedDialog
+        visible={showTripCompleted}
+        ordersDelivered={stats.ordersDelivered || completed.length}
+        totalDistanceKm={stats.totalDistanceKm || trip.totalDistanceKm}
+        totalDurationMinutes={stats.totalDurationMinutes || trip.totalDurationMinutes}
+        totalEarnings={stats.totalEarnings || completed.length * DRIVER_EARNING_PER_ORDER}
+        completedAt={stats.completedAt}
+        onClose={() => {
+          setShowTripCompleted(false);
+          resetTrip();
+        }}
       />
       <DriverOrderAddressDialog
         visible={Boolean(addressOrder)}
         order={addressOrder}
         onClose={() => setAddressOrder(null)}
+      />
+      <ConfirmDialog
+        visible={Boolean(confirmGroup)}
+        title="Confirm Delivery"
+        message={
+          confirmGroup
+            ? `Are you sure you have delivered all lunchboxes at ${confirmGroup.locationName}?`
+            : ''
+        }
+        confirmLabel="Confirm Delivery"
+        cancelLabel="Cancel"
+        onConfirm={() => {
+          if (confirmGroup) void executeBulkDeliver(confirmGroup);
+        }}
+        onCancel={() => {
+          if (!bulkLoadingGroupId) setConfirmGroup(null);
+        }}
       />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -166,19 +433,38 @@ export function DriverDeliveriesScreen() {
 
         {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 
-        <Text style={styles.section}>Delivery Sequence</Text>
-        {stops.length === 0 ? (
-          <Card flat>
-            <Text style={styles.muted}>No deliveries in your queue.</Text>
-          </Card>
+        {tripActive ? (
+          <Pressable style={styles.routeLink} onPress={() => navigation.navigate('DriverRoute')}>
+            <View style={styles.routeLinkIcon}>
+              <Ionicons name="map" size={20} color={colors.orange} />
+            </View>
+            <View style={styles.routeLinkMeta}>
+              <Text style={styles.routeLinkTitle}>View Delivery Route</Text>
+              <Text style={styles.routeLinkSub}>
+                {activeRoute
+                  ? `${trip.phase === 'pickup' ? 'Pickup' : 'Delivery'} · ${activeRoute.totalDistanceKm.toFixed(1)} km · ${activeRoute.totalDurationMinutes} min`
+                  : 'Open map & navigation'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.muted} />
+          </Pressable>
+        ) : null}
+
+        <Text style={styles.section}>Pickup Sequence</Text>
+        {!hasPickupQueue ? (
+          hasDeliveryStops ? null : (
+            <Card flat>
+              <Text style={styles.muted}>No pickups in your queue.</Text>
+            </Card>
+          )
         ) : (
-          stops.map((stop, index) => (
+          pickupStops.map((stop, index) => (
             <View key={stop.key} style={styles.stopRow}>
               <View style={styles.timelineCol}>
                 <View style={styles.stopNumber}>
                   <Text style={styles.stopNumberText}>{stop.stopNumber}</Text>
                 </View>
-                {index < stops.length - 1 ? <View style={styles.timelineLine} /> : null}
+                {index < pickupStops.length - 1 ? <View style={styles.timelineLine} /> : null}
               </View>
 
               <Card style={styles.stopCard}>
@@ -189,7 +475,10 @@ export function DriverDeliveriesScreen() {
                   </View>
                   <Text style={styles.stopTitle}>{stop.title}</Text>
                   <Text style={styles.stopAddress} numberOfLines={3}>
-                    {stop.address || '—'}
+                    Pickup: {stop.address || '—'}
+                  </Text>
+                  <Text style={styles.dropHint} numberOfLines={2}>
+                    Deliver to: {getDropAddress(stop.order)}
                   </Text>
                   <Text style={styles.stopTime}>{stop.timeLabel}</Text>
                 </Pressable>
@@ -197,51 +486,74 @@ export function DriverDeliveriesScreen() {
                 <View style={styles.stopActions}>
                   {stop.phase === 'pickup_pending' ? (
                     <>
-                      <Button title="Verify OTP" variant="outline" small onPress={() => openVerify(stop.order)} />
-                      <Button title="Scan QR" variant="outline" small onPress={() => openVerify(stop.order)} />
-                      <Button
-                        title="Navigate"
+                      <StopAction
+                        label="OTP"
+                        onPress={() => {
+                          if (tripActive && currentPickupStop) {
+                            setTripPickupVerify(true);
+                            return;
+                          }
+                          void openVerify(stop.order);
+                        }}
+                      />
+                      <StopAction
+                        label="QR"
+                        onPress={() => {
+                          if (tripActive && currentPickupStop) {
+                            setTripPickupVerify(true);
+                            return;
+                          }
+                          void openVerify(stop.order);
+                        }}
+                      />
+                      <StopAction
+                        label="Nav"
                         variant="green"
-                        small
-                        onPress={() => openMapsNavigationToAddress(stop.order.pickupAddress)}
+                        onPress={() => void handleNavigateToRoute()}
                       />
                     </>
                   ) : null}
-                  {stop.phase === 'active' ? (
-                    <>
-                      <Button title="Navigate" variant="outline" small onPress={() => openMapsNavigationToAddress(stop.address)} />
-                      <Button title="Mark Delivered" variant="green" small onPress={() => handleDeliver(stop.order.id)} />
-                    </>
-                  ) : null}
                   {stop.phase === 'pending' ? (
-                    <Button title="View Details" variant="outline" small onPress={() => setAddressOrder(stop.order)} />
+                    <StopAction label="Details" onPress={() => setAddressOrder(stop.order)} />
                   ) : null}
-                  <Button
-                    title="Call Customer"
-                    variant="outline"
-                    small
-                    onPress={() => callCustomer(stop.order.customerPhone)}
-                  />
+                  <StopAction label="Call" onPress={() => callCustomer(stop.order.customerPhone)} />
                 </View>
               </Card>
             </View>
           ))
         )}
 
+        {hasDeliveryStops ? (
+          <>
+            <Text style={styles.section}>Delivery Stops</Text>
+            {displayLocationGroups.map((group) => (
+              <DriverBulkDeliveryCard
+                key={group.id}
+                group={group}
+                deliveredAt={successGroups[group.id]}
+                bulkLoading={bulkLoadingGroupId === group.id}
+                singleDeliveringId={singleDeliveringId}
+                onNavigate={openMapsNavigationToAddress}
+                onDeliverAll={setConfirmGroup}
+                onDeliverOne={(order) => void handleDeliver(order.id)}
+              />
+            ))}
+          </>
+        ) : null}
+
         <Text style={styles.section}>Completed Today</Text>
-        {completed.length === 0 ? (
+        {completedLocationGroups.length === 0 ? (
           <Card flat>
             <Text style={styles.muted}>No completed deliveries yet today.</Text>
           </Card>
         ) : (
-          completed.map((order) => (
-            <Card flat key={order.id} style={styles.completedCard}>
-              <View style={styles.stopHeader}>
-                <Text style={styles.stopId}>{order.id}</Text>
-                <Badge label="Delivered" tone="green" />
-              </View>
-              {order.deliveredAt ? <Text style={styles.stopTime}>Delivered at {order.deliveredAt}</Text> : null}
-            </Card>
+          completedLocationGroups.map((group) => (
+            <DriverBulkDeliveryCard
+              key={group.id}
+              group={group}
+              deliveredAt={group.orders.find((order) => order.deliveredAt)?.deliveredAt}
+              readOnly
+            />
           ))
         )}
       </ScrollView>
@@ -276,9 +588,58 @@ const styles = StyleSheet.create({
   stopId: { fontSize: 13, fontWeight: '800', color: colors.text, flex: 1 },
   stopTitle: { fontSize: 14, fontWeight: '800', color: colors.text, marginTop: 8 },
   stopAddress: { fontSize: 12, color: colors.muted, marginTop: 4, lineHeight: 18, fontWeight: '600' },
+  dropHint: { fontSize: 12, color: colors.orangeDark, marginTop: 6, lineHeight: 18, fontWeight: '700' },
   stopTime: { fontSize: 11, color: colors.muted, marginTop: 6, fontWeight: '600' },
-  stopActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  stopActions: { flexDirection: 'row', gap: 6, marginTop: 12 },
+  stopActionBtn: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    paddingHorizontal: 4,
+    borderRadius: radius.sm,
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: colors.orange,
+  },
+  stopActionBtnGreen: {
+    backgroundColor: colors.green,
+    borderColor: colors.green,
+  },
+  stopActionBtnPressed: { opacity: 0.92, transform: [{ scale: 0.98 }] },
+  stopActionText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.orange,
+    textAlign: 'center',
+  },
+  stopActionTextGreen: {
+    color: colors.onPrimary,
+  },
   completedCard: { paddingVertical: 12 },
+  routeLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    ...shadow.card,
+  },
+  routeLinkIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.orangeLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  routeLinkMeta: { flex: 1 },
+  routeLinkTitle: { fontSize: 15, fontWeight: '800', color: colors.text },
+  routeLinkSub: { fontSize: 12, color: colors.muted, marginTop: 2, fontWeight: '600' },
   muted: { fontSize: 13, color: colors.muted, fontWeight: '600' },
   error: { color: colors.red, fontSize: 13 },
 });

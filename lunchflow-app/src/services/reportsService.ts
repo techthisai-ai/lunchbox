@@ -1,5 +1,5 @@
 import { DeliveryOrder } from '../types/delivery';
-import { countActiveSubscriptions, listExpenseRecords, listSalaryRecords } from './adminFinanceService';
+import { countActiveSubscriptions, getCurrentFinanceMonth, listExpenseRecords, listSalaryRecords } from './adminFinanceService';
 import { listAllOrdersToday, listOrdersByDateRange } from './orderHubService';
 import { loadSubscriptionHistory, resolveCustomerSubscriptionAmount } from './subscriptionService';
 
@@ -57,15 +57,17 @@ export async function buildMonthlyRevenueReport(month = new Date().toISOString()
   };
 }
 
-export async function buildSalaryReport() {
+export async function buildSalaryReport(month = getCurrentFinanceMonth()) {
   const salaries = await listSalaryRecords();
-  const paid = salaries.filter((s) => s.status === 'paid');
-  const unpaid = salaries.filter((s) => s.status === 'unpaid');
+  const monthRecords = salaries.filter((record) => record.month === month);
+  const paid = monthRecords.filter((record) => record.status === 'paid');
+  const unpaid = monthRecords.filter((record) => record.status === 'unpaid');
   return {
-    total: salaries.reduce((sum, s) => sum + s.amount, 0),
-    paid: paid.reduce((sum, s) => sum + s.amount, 0),
-    unpaid: unpaid.reduce((sum, s) => sum + s.amount, 0),
-    records: salaries,
+    month,
+    total: monthRecords.reduce((sum, record) => sum + record.amount, 0),
+    paid: paid.reduce((sum, record) => sum + record.amount, 0),
+    unpaid: unpaid.reduce((sum, record) => sum + record.amount, 0),
+    records: monthRecords,
   };
 }
 
@@ -87,7 +89,7 @@ export async function buildProfitLossReport(): Promise<ProfitLossReport> {
   const salary = await buildSalaryReport();
   const expense = await buildExpenseReport();
   const revenue = daily.revenue;
-  const salaries = salary.total;
+  const salaries = salary.paid;
   const expenses = expense.total;
   return { revenue, salaries, expenses, profit: revenue - salaries - expenses };
 }

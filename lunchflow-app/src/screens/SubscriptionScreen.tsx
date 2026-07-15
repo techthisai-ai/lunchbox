@@ -1,193 +1,77 @@
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Button } from '../components/Button';
 import { OnlinePaymentDialog } from '../components/OnlinePaymentDialog';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { SUBSCRIPTION_PLANS, SUBSCRIPTION_SECTIONS, getDefaultPlanIdForRegistrationType } from '../constants/subscriptions';
+import { SubscriptionPlan, getSubscriptionDetailLineLabel, isAddonSubscriptionPlan } from '../constants/subscriptions';
 import { colors, radius, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
-import { useDelivery } from '../context/DeliveryContext';
-import { ProfileStackParamList, RootStackParamList } from '../navigation/types';
+import { useSubscriptionDetailPlans } from '../hooks/useSubscriptionDetailPlans';
+import { useSubscriptionPayment } from '../hooks/useSubscriptionPayment';
+import { RootStackParamList } from '../navigation/types';
 import { goToCustomerHome } from '../navigation/customerRoutes';
-import { loadActiveSubscription, saveActiveSubscription, checkSubscriptionRenewalReminders, hasActiveSubscription } from '../services/subscriptionService';
-import { loadCustomerRegistration } from '../services/userRegistryService';
-import { getPlanBaseAmount, getPlanBillingMonths } from '../utils/subscription';
-import { getAutoCouponForPlan, redeemCoupon, validateCoupon } from '../services/couponService';
-import { launchOnlinePayment, processOnlinePayment } from '../services/paymentService';
-import { sendCustomerSmsAndWhatsApp } from '../services/messagingService';
+import { hasActiveMonthlySubscription, hasActiveSubscription } from '../services/subscriptionService';
 
-type SubscriptionNavigation = NativeStackNavigationProp<RootStackParamList & ProfileStackParamList>;
-
-type PaymentDraft = {
-  amountPaid: number;
-  discountAmount: number;
-  couponCode?: string;
-  description: string;
-};
+type SubscriptionNavigation = NativeStackNavigationProp<RootStackParamList>;
 
 export function SubscriptionScreen() {
   const navigation = useNavigation<SubscriptionNavigation>();
   const route = useRoute();
   const isOnboarding = route.name === 'SubscriptionOnboarding';
   const { user } = useAuth();
-  const { bookPickup } = useDelivery();
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
-  const [paymentVisible, setPaymentVisible] = useState(false);
-  const [paymentDraft, setPaymentDraft] = useState<PaymentDraft | null>(null);
-  const [paying, setPaying] = useState(false);
   const [checkingAccess, setCheckingAccess] = useState(isOnboarding);
+  const [monthlyActive, setMonthlyActive] = useState(false);
+  const { plans } = useSubscriptionDetailPlans();
 
-  const selectedPlan = SUBSCRIPTION_PLANS.find((p) => p.id === selectedPlanId);
+  const {
+    paymentVisible,
+    paymentDraft,
+    paying,
+    message,
+    startPaymentForPlan,
+    handlePaymentSelect,
+    closePayment,
+  } = useSubscriptionPayment({
+    bookPickupAfterPurchase: true,
+    onSuccess: () => {
+      if (isOnboarding) {
+        goToCustomerHome(navigation);
+      }
+    },
+  });
 
   useFocusEffect(
     useCallback(() => {
       if (!user?.phone) return;
 
       if (isOnboarding) {
-        const phone = user.phone;
         setCheckingAccess(true);
-        hasActiveSubscription(phone).then(async (active) => {
+        hasActiveSubscription(user.phone).then((active) => {
           if (active) {
             goToCustomerHome(navigation);
             return;
           }
-          const registration = await loadCustomerRegistration(phone);
-          const defaultPlanId = getDefaultPlanIdForRegistrationType(registration?.registrationType);
-          setSelectedPlanId((current) => current ?? defaultPlanId);
           setCheckingAccess(false);
         });
         return;
       }
 
       setCheckingAccess(false);
-
-      loadActiveSubscription(user.phone).then((plan) => {
-        setSelectedPlanId(plan.id);
-      });
+      void hasActiveMonthlySubscription(user.phone).then(setMonthlyActive);
     }, [user?.phone, isOnboarding, navigation]),
   );
 
-  const buildPaymentDraft = async (): Promise<PaymentDraft | null> => {
-    if (!selectedPlan || !user?.phone) return null;
-
-    const months = getPlanBillingMonths(selectedPlan);
-    const baseAmount = getPlanBaseAmount(selectedPlan);
-    let amountPaid = baseAmount;
-    let discountAmount = 0;
-    let couponCode: string | undefined;
-
-    const autoCode = getAutoCouponForPlan(selectedPlan.id, months);
-    if (autoCode) {
-      const coupon = await validateCoupon(autoCode, months, baseAmount);
-      if (coupon.valid && coupon.offer) {
-        discountAmount = coupon.discount;
-        amountPaid = baseAmount - discountAmount;
-        couponCode = coupon.offer.code;
-      }
-    }
-
-    return {
-      amountPaid,
-      discountAmount,
-      couponCode,
-      description: `${SUBSCRIPTION_SECTIONS.find((s) => s.category === selectedPlan.category)?.title ?? 'Plan'} · ${selectedPlan.name} subscription`,
-    };
-  };
-
-  const handleSubscribe = async () => {
-    if (!selectedPlan || !user?.phone) {
-      setMessage('Please select a subscription plan first.');
+  const handlePlanPress = async (plan: SubscriptionPlan) => {
+    if (isAddonSubscriptionPlan(plan) && !monthlyActive) {
+      Alert.alert(
+        'Monthly plan required',
+        'Add-on plans are available only when you have an active monthly subscription.',
+      );
       return;
     }
-
-    const draft = await buildPaymentDraft();
-    if (!draft) return;
-
-    setMessage('');
-    setPaymentDraft(draft);
-    setPaymentVisible(true);
-  };
-
-  const handlePaymentSelect = async (methodId: string) => {
-    if (!selectedPlan || !user?.phone || !paymentDraft) return;
-
-    setPaying(true);
-    setMessage('');
-
-    try {
-      const { launched, methodLabel } = await launchOnlinePayment(
-        methodId,
-        paymentDraft.amountPaid,
-        paymentDraft.description,
-      );
-
-      if (!launched) {
-        setMessage('Could not open payment app. Please try another method.');
-        setPaying(false);
-        return;
-      }
-
-      if (paymentDraft.couponCode) {
-        const months = getPlanBillingMonths(selectedPlan);
-        const baseAmount = getPlanBaseAmount(selectedPlan);
-        const coupon = await validateCoupon(paymentDraft.couponCode, months, baseAmount);
-        if (coupon.valid && coupon.offer) {
-          await redeemCoupon(user.phone, coupon.offer);
-        }
-      }
-
-      await processOnlinePayment(
-        user.phone,
-        paymentDraft.amountPaid,
-        paymentDraft.description,
-        methodLabel,
-        selectedPlan.id,
-      );
-
-      await saveActiveSubscription(
-        user.phone,
-        selectedPlan.id,
-        paymentDraft.amountPaid,
-        paymentDraft.couponCode,
-        paymentDraft.discountAmount,
-      );
-
-      const pickupError = await bookPickup();
-      if (pickupError) {
-        setMessage(`Payment received via ${methodLabel}, but pickup booking failed: ${pickupError}`);
-        setPaymentVisible(false);
-        setPaying(false);
-        return;
-      }
-
-      await checkSubscriptionRenewalReminders(user.phone);
-
-      const discountNote =
-        paymentDraft.discountAmount > 0 ? ` (₹${paymentDraft.discountAmount} off applied)` : '';
-
-      await sendCustomerSmsAndWhatsApp(
-        user.phone,
-        `LunchFlow: Payment of ₹${paymentDraft.amountPaid} received via ${methodLabel} for ${selectedPlan.name}${discountNote}.`,
-        `Your ${selectedPlan.name} subscription payment was successful.`,
-      );
-
-      setPaymentVisible(false);
-      if (isOnboarding) {
-        goToCustomerHome(navigation);
-        return;
-      }
-      setMessage(
-        `Paid ₹${paymentDraft.amountPaid} via ${methodLabel}. ${selectedPlan.name} active. Pickup booked for today.`,
-      );
-    } catch {
-      setMessage('Payment could not be completed. Please try again.');
-    } finally {
-      setPaying(false);
-    }
+    await startPaymentForPlan(plan);
   };
 
   if (isOnboarding && checkingAccess) {
@@ -208,142 +92,84 @@ export function SubscriptionScreen() {
         description={paymentDraft?.description ?? 'Subscription payment'}
         paying={paying}
         onSelect={handlePaymentSelect}
-        onCancel={() => {
-          if (!paying) {
-            setPaymentVisible(false);
-          }
-        }}
+        onCancel={closePayment}
       />
       <ScreenHeader
-        title="Subscription Plans"
+        title="Choose Plan"
+        subtitle="Tap a plan to pay with GPay, UPI, or PhonePe"
         onBack={isOnboarding ? undefined : () => navigation.goBack()}
       />
       <ScrollView contentContainerStyle={styles.scroll}>
-        {SUBSCRIPTION_SECTIONS.map((section) => (
-          <View key={section.category}>
-            <Text style={styles.section}>{section.title}</Text>
-            {SUBSCRIPTION_PLANS.filter((plan) => plan.category === section.category).map((plan) => (
-              <PlanCard
-                key={plan.id}
-                name={plan.name}
-                price={plan.price}
-                period={plan.period}
-                selected={selectedPlanId === plan.id}
-                onPress={() => {
-                  setSelectedPlanId(plan.id);
-                  setMessage('');
-                }}
-              />
-            ))}
-          </View>
+        {plans.map((plan) => (
+          <PlanCard
+            key={plan.id}
+            label={getSubscriptionDetailLineLabel(plan)}
+            disabled={isAddonSubscriptionPlan(plan) && !monthlyActive}
+            onPress={() => void handlePlanPress(plan)}
+          />
         ))}
-        {message ? <Text style={[styles.message, message.includes('select') ? styles.messageHint : null]}>{message}</Text> : null}
-        <Button title="Subscribe Now" onPress={handleSubscribe} style={{ marginTop: 8 }} />
+        {message ? <Text style={styles.message}>{message}</Text> : null}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 function PlanCard({
-  name,
-  price,
-  period,
-  selected,
+  label,
+  disabled,
   onPress,
 }: {
-  name: string;
-  price: string;
-  period: string;
-  selected: boolean;
+  label: string;
+  disabled?: boolean;
   onPress: () => void;
 }) {
+  const dashIndex = label.lastIndexOf(' - ');
+  const titlePart = dashIndex >= 0 ? label.slice(0, dashIndex) : label;
+  const pricePart = dashIndex >= 0 ? label.slice(dashIndex + 3) : '';
+
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.plan,
-        selected && styles.selected,
-        pressed && styles.pressed,
-      ]}
+      disabled={disabled}
+      style={({ pressed }) => [styles.plan, disabled && styles.planDisabled, pressed && !disabled && styles.pressed]}
       accessibilityRole="button"
-      accessibilityState={{ selected }}
     >
-      {selected ? <Text style={styles.selectedBadge}>Selected</Text> : null}
-      <View style={styles.planRow}>
-        <Text style={styles.planName}>{name}</Text>
-        <View style={styles.priceBlock}>
-          <Text style={styles.price}>{price}</Text>
-          <Text style={styles.period}>/ {period}</Text>
-        </View>
-      </View>
+      <Text style={styles.planLine} numberOfLines={2}>
+        <Text style={styles.planLabel}>{titlePart}</Text>
+        {pricePart ? <Text style={styles.planPrice}> - {pricePart}</Text> : null}
+      </Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  scroll: { padding: spacing.md, paddingBottom: 32 },
-  section: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: colors.text,
-    marginBottom: 8,
-    marginTop: spacing.sm,
-  },
+  scroll: { padding: spacing.md, paddingBottom: 32, gap: 8 },
   plan: {
     borderWidth: 1.5,
     borderColor: colors.border,
     borderRadius: radius.sm,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    marginBottom: 8,
     backgroundColor: colors.white,
-    minHeight: 52,
+    minHeight: 48,
     justifyContent: 'center',
   },
-  selected: {
-    borderColor: colors.orange,
-    borderWidth: 2,
-    backgroundColor: colors.orangeLight,
-  },
+  planDisabled: { opacity: 0.65 },
   pressed: { opacity: 0.92 },
-  selectedBadge: {
-    position: 'absolute',
-    top: -9,
-    right: 12,
-    backgroundColor: colors.orange,
-    color: colors.onPrimary,
-    fontSize: 9,
-    fontWeight: '700',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radius.full,
-    overflow: 'hidden',
-  },
-  planRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  planName: {
-    fontWeight: '700',
+  planLine: {
     fontSize: 14,
+    lineHeight: 20,
+  },
+  planLabel: {
+    fontWeight: '700',
     color: colors.text,
-    flexShrink: 0,
   },
-  priceBlock: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-    flex: 1,
-    gap: 4,
+  planPrice: {
+    fontWeight: '800',
+    color: colors.orange,
   },
-  price: { fontSize: 20, fontWeight: '800', color: colors.orange },
-  period: { fontSize: 12, fontWeight: '600', color: colors.muted },
   message: { fontSize: 13, color: colors.green, marginTop: 8, fontWeight: '600' },
-  messageHint: { color: colors.orange },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
   loadingText: { fontSize: 14, color: colors.muted, fontWeight: '600' },
 });

@@ -10,7 +10,7 @@ import {
   signInWithPhoneNumber,
   signOut,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import {
   AuthUser,
@@ -201,11 +201,6 @@ export async function loginDriver(phone: string): Promise<AuthUser> {
     throw new Error('Enter a valid 10-digit mobile number');
   }
 
-  const registered = await isDriverRegistered(normalized);
-  if (!registered) {
-    throw new RegistrationRequiredError('driver');
-  }
-
   const driver = await loadDriverByPhone(normalized);
   if (!driver) {
     throw new RegistrationRequiredError('driver');
@@ -227,6 +222,13 @@ export async function loginCustomer(phone: string): Promise<AuthUser> {
 
   const registration = await loadCustomerRegistration(normalized);
   const name = registration?.name?.trim() || 'Customer';
+
+  // Backfill Firestore profile so admin Customers list stays in sync
+  // (registration may have only been saved locally under older rules).
+  if (registration) {
+    void saveCustomerRegistration(registration);
+  }
+
   return customerAuthUser(normalized, name);
 }
 
@@ -236,8 +238,8 @@ export async function sendDriverOtp(phone: string): Promise<void> {
     throw new Error('Enter a valid 10-digit mobile number');
   }
 
-  const registered = await isDriverRegistered(normalized);
-  if (!registered) {
+  const driver = await loadDriverByPhone(normalized);
+  if (!driver) {
     throw new RegistrationRequiredError('driver');
   }
 
@@ -346,7 +348,9 @@ export async function registerCustomer(data: CustomerRegistration): Promise<Auth
 
   const alreadyRegistered = await isCustomerRegistered(phone);
   if (alreadyRegistered) {
-    throw new Error('This mobile number is already registered. Please login.');
+    // Never force re-registration — just restore the existing account.
+    const registration = await loadCustomerRegistration(phone);
+    return customerAuthUser(phone, registration?.name?.trim() || data.name.trim() || 'Customer');
   }
 
   await saveCustomerRegistration({
@@ -361,18 +365,6 @@ export async function registerCustomer(data: CustomerRegistration): Promise<Auth
   });
 
   try {
-    await setDoc(doc(db, 'users', phone), {
-      role: 'customer',
-      name: data.name.trim(),
-      phone,
-      address: data.address.trim(),
-      registrationType,
-      school: data.school.trim(),
-      studentName: data.studentName.trim(),
-      classSection: data.classSection.trim(),
-      emergencyContact: data.emergencyContact.trim(),
-      createdAt: new Date().toISOString(),
-    });
     const { saveTelecallerLead, UNASSIGNED_TELECALLER_ID } = await import('./telecallerService');
     await saveTelecallerLead({
       customerPhone: phone,
@@ -390,7 +382,7 @@ export async function registerCustomer(data: CustomerRegistration): Promise<Auth
       deliveryType: registrationType,
     });
   } catch {
-    // Local registration is enough for login when remote write fails.
+    // Local registration is enough for login when remote side-effects fail.
   }
 
   try {

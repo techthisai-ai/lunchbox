@@ -13,17 +13,19 @@ import { DriverScreenHeader } from '../../components/driver/DriverScreenHeader';
 import { DriverOrderAddressDialog } from '../../components/DriverOrderAddressDialog';
 import { colors, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
-import { navigateAfterDriverLogin } from '../../navigation/driverRoutes';
+import { navigateAfterDriverLogin, openDriverRouteMap } from '../../navigation/driverRoutes';
 import { DriverTabParamList, RootStackParamList } from '../../navigation/types';
 import {
   acceptPickup,
+  countDriverTotalDeliveries,
   listDriverActiveOrders,
   listDriverCompletedToday,
   subscribeToDriverOrdersToday,
   subscribeToPendingPickups,
 } from '../../services/orderHubService';
 import { refreshDriverLocationForOrders, stopDriverLocationTracking } from '../../services/driverLocationService';
-import { openMapsNavigationToAddress } from '../../services/mapsNavigation';
+import { useDriverTrip } from '../../context/DriverTripContext';
+import { getAssignedDriverOrders } from '../../utils/driverTripNavigation';
 import { subscribeToOrderChanges } from '../../services/orderSync';
 import { DeliveryOrder, getDropAddress } from '../../types/delivery';
 import { DRIVER_EARNING_PER_ORDER } from '../../utils/adminDriverHelpers';
@@ -41,17 +43,21 @@ export function DriverHomeScreen() {
   const [completedToday, setCompletedToday] = useState<DeliveryOrder[]>([]);
   const [addressOrder, setAddressOrder] = useState<DeliveryOrder | null>(null);
   const [actionError, setActionError] = useState('');
+  const [startingTrip, setStartingTrip] = useState(false);
   const [todayEarnings, setTodayEarnings] = useState(0);
+  const [totalDeliveries, setTotalDeliveries] = useState(0);
 
   const refresh = useCallback(async () => {
     if (!user?.id) return;
-    const [mine, done] = await Promise.all([
+    const [mine, done, total] = await Promise.all([
       listDriverActiveOrders(user.id),
       listDriverCompletedToday(user.id),
+      countDriverTotalDeliveries(user.id),
     ]);
     setActiveOrders(mine);
     setCompletedToday(done);
     setTodayEarnings(done.length * DRIVER_EARNING_PER_ORDER);
+    setTotalDeliveries(total);
   }, [user?.id]);
 
   useFocusEffect(
@@ -84,14 +90,22 @@ export function DriverHomeScreen() {
   useEffect(() => {
     if (!user?.id) return undefined;
     const orderIds = activeOrders.map((o) => o.id);
-    refreshDriverLocationForOrders(user.id, orderIds);
-    return () => {
-      stopDriverLocationTracking();
-    };
+    void refreshDriverLocationForOrders(user.id, orderIds);
+    // Keep tracking across tab switches while orders remain active.
+    // Stopping happens only when orderIds becomes empty (handled above).
   }, [user?.id, activeOrders]);
 
+  useEffect(() => {
+    return () => {
+      // On full unmount (logout / leave driver area), stop GPS.
+      void stopDriverLocationTracking();
+    };
+  }, []);
+
+  const { startTrip, refreshTripRoutes, tripActive, activeRoute, trip } = useDriverTrip();
   const assignedToday = pending.length + activeOrders.length + completedToday.length;
   const routePlan = activeOrders.find((o) => o.routePlan)?.routePlan;
+  const assignedOrders = useMemo(() => getAssignedDriverOrders(activeOrders), [activeOrders]);
 
   const nextPickup = useMemo(() => {
     const atPickup = activeOrders.find((o) =>
@@ -104,13 +118,12 @@ export function DriverHomeScreen() {
     if (!user?.id || !user.name) return;
     setActionError('');
     try {
-      const accepted = await acceptPickup(orderId, {
+      await acceptPickup(orderId, {
         id: user.id,
         name: user.name,
         vehicle: user.vehicle,
         phone: user.phone,
       });
-      await openMapsNavigationToAddress(accepted.pickupAddress);
       await refresh();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Could not accept pickup');
@@ -118,12 +131,39 @@ export function DriverHomeScreen() {
     }
   };
 
-  const handleStartTrip = () => {
-    if (nextPickup) {
-      void openMapsNavigationToAddress(nextPickup.pickupAddress);
+  const handleStartTrip = async () => {
+    setActionError('');
+    const pickupOrders = assignedOrders.filter((order) =>
+      ['driver_assigned', 'at_pickup', 'pickup_verified'].includes(order.status),
+    );
+    if (pickupOrders.length === 0) {
+      setActionError('Accept at least one pickup before starting the trip.');
       return;
     }
-    navigation.navigate('DriverDeliveries');
+
+    setStartingTrip(true);
+    try {
+      await startTrip(pickupOrders);
+      navigation.navigate('DriverRoute');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not start trip');
+    } finally {
+      setStartingTrip(false);
+    }
+  };
+
+  const handleNavigateToRoute = async () => {
+    setActionError('');
+    try {
+      await openDriverRouteMap(navigation, {
+        tripActive,
+        startTrip,
+        refreshTripRoutes,
+        assignedOrders,
+      });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not open route map');
+    }
   };
 
   const firstName = user?.name?.trim().split(' ')[0] || 'Driver';
@@ -146,22 +186,24 @@ export function DriverHomeScreen() {
         <DriverKpiRow
           items={[
             {
-              label: 'Today Deliveries',
+              label: 'Total Deliveries',
+              value: String(totalDeliveries),
+              tone: 'blue',
+            },
+            {
+              label: 'Today',
               value: String(assignedToday),
               tone: 'purple',
-              icon: 'clipboard-outline',
             },
             {
-              label: 'Completed Today',
+              label: 'Completed',
               value: `${completedToday.length}/${Math.max(assignedToday, 1)}`,
               tone: 'green',
-              icon: 'checkmark-circle-outline',
             },
             {
-              label: "Today's Earnings",
+              label: 'Earnings',
               value: `₹${todayEarnings.toLocaleString('en-IN')}`,
               tone: 'pink',
-              icon: 'wallet-outline',
             },
           ]}
         />
@@ -181,14 +223,14 @@ export function DriverHomeScreen() {
                   {nextPickup.pickupAddress}
                 </Text>
               </View>
+              <Button
+                title="Navigate"
+                variant="green"
+                small
+                onPress={() => void handleNavigateToRoute()}
+                style={styles.nextBtn}
+              />
             </View>
-            <Button
-              title="Navigate"
-              variant="green"
-              small
-              onPress={() => openMapsNavigationToAddress(nextPickup.pickupAddress)}
-              style={styles.nextBtn}
-            />
           </Card>
         ) : (
           <Card flat>
@@ -204,13 +246,20 @@ export function DriverHomeScreen() {
             <View style={styles.tripText}>
               <Text style={styles.tripTitle}>Trip Optimization</Text>
               <Text style={styles.tripSub}>
-                {routePlan
-                  ? `${routePlan.totalStops} stops · ETA ${routePlan.etaMinutes} min`
-                  : 'Plan your route for faster deliveries'}
+                {tripActive && activeRoute
+                  ? `${trip.phase === 'pickup' ? 'Pickup' : 'Delivery'} route · ${activeRoute.totalDistanceKm.toFixed(1)} km · ${activeRoute.totalDurationMinutes} min`
+                  : routePlan
+                    ? `${routePlan.totalStops} stops · ETA ${routePlan.etaMinutes} min`
+                    : 'Plan your route for faster deliveries'}
               </Text>
             </View>
           </View>
-          <Button title="Start Trip" onPress={handleStartTrip} style={{ marginTop: 12 }} />
+          <Button
+            title={startingTrip ? 'Starting Trip...' : 'Start Trip'}
+            onPress={handleStartTrip}
+            disabled={startingTrip}
+            style={{ marginTop: 12 }}
+          />
         </Card>
 
         <Text style={styles.section}>New Pickup Requests</Text>
@@ -244,7 +293,7 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: spacing.md, paddingBottom: 28, gap: 14 },
   section: { fontSize: 16, fontWeight: '800', color: colors.text, marginTop: 4 },
   nextCard: { padding: spacing.md },
-  nextTop: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  nextTop: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   nextIcon: {
     width: 40,
     height: 40,
@@ -256,7 +305,7 @@ const styles = StyleSheet.create({
   nextMeta: { flex: 1, minWidth: 0 },
   nextTime: { fontSize: 15, fontWeight: '800', color: colors.text },
   nextAddress: { fontSize: 13, color: colors.muted, marginTop: 4, lineHeight: 18, fontWeight: '600' },
-  nextBtn: { alignSelf: 'flex-start', marginTop: 12 },
+  nextBtn: { flexShrink: 0, alignSelf: 'center' },
   tripBanner: {
     backgroundColor: '#FFF8E7',
     borderWidth: 1,

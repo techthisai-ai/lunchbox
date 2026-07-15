@@ -15,11 +15,13 @@ import {
   RoutePlan,
   formatStudentDisplayName,
   formatStudentDropAddresses,
+  buildFoodReadyStudents,
+  foodReadyStudentsToLegacy,
   getDropAddress,
   normalizeDeliveryType,
   normalizeDeliveryTypes,
 } from '../types/delivery';
-import { loadCustomerRegistration, loadRegisteredDrivers, incrementDriverCompletedDeliveries } from './userRegistryService';
+import { loadCustomerRegistration, loadRegisteredDrivers, incrementDriverCompletedDeliveries, updateCustomerRegistration } from './userRegistryService';
 import { getDriverRatingSummary } from './ratingService';
 import {
   geocodeAddressAsync,
@@ -42,6 +44,35 @@ const ORDERS_INDEX_KEY = '@lunchflow_orders_index';
 
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function orderStatusRank(status: DeliveryOrder['status']): number {
+  switch (status) {
+    case 'booked':
+      return 1;
+    case 'food_ready':
+      return 2;
+    case 'awaiting_driver':
+      return 3;
+    case 'driver_assigned':
+      return 4;
+    case 'at_pickup':
+      return 5;
+    case 'pickup_verified':
+      return 6;
+    case 'picked_up':
+      return 7;
+    case 'in_transit':
+      return 8;
+    case 'at_drop':
+      return 9;
+    case 'delivered':
+      return 10;
+    case 'pickup_closed':
+      return 0;
+    default:
+      return 0;
+  }
 }
 
 function formatTime(date: Date): string {
@@ -128,9 +159,10 @@ async function loadOrderLocal(orderId: string): Promise<DeliveryOrder | null> {
 }
 
 async function persistOrder(order: DeliveryOrder): Promise<void> {
-  await saveOrderLocal(order);
+  const payload = { ...order, updatedAt: new Date().toISOString() };
+  await saveOrderLocal(payload);
   try {
-    await setDoc(doc(db, 'orders', order.id), { ...order, updatedAt: new Date().toISOString() });
+    await setDoc(doc(db, 'orders', order.id), payload);
   } catch {
     // Local cache is the fallback data source.
   }
@@ -139,14 +171,18 @@ async function persistOrder(order: DeliveryOrder): Promise<void> {
 
 async function loadOrder(orderId: string): Promise<DeliveryOrder | null> {
   await syncFromFirestore();
+  return loadOrderById(orderId);
+}
+
+async function loadOrderById(orderId: string): Promise<DeliveryOrder | null> {
   const local = await loadOrderLocal(orderId);
   if (local) return hydrateOrderLocations(local);
   try {
     const snap = await getDoc(doc(db, 'orders', orderId));
     if (!snap.exists()) return null;
     const remote = snap.data() as DeliveryOrder;
-    await saveOrderLocal(remote);
-    return hydrateOrderLocations(remote);
+    await stashOrderFromRemote(remote);
+    return hydrateOrderLocations((await loadOrderLocal(orderId)) ?? remote);
   } catch {
     return null;
   }
@@ -172,6 +208,49 @@ function withLocations(order: DeliveryOrder): DeliveryOrder {
     pickupLocation: resolveMapPoint(order.pickupLocation, order.pickupAddress, DEMO_PICKUP),
     dropLocation: resolveMapPoint(order.dropLocation, getDropAddress(order), DEMO_DROP),
   };
+}
+
+function mergeOrderState(local: DeliveryOrder | null, remote: DeliveryOrder): DeliveryOrder {
+  const hydratedRemote = withLocations(remote);
+  if (!local) return hydratedRemote;
+
+  const hydratedLocal = withLocations(local);
+
+  if (hydratedLocal.status === 'pickup_closed' && hydratedRemote.status !== 'pickup_closed') {
+    return {
+      ...hydratedRemote,
+      status: 'pickup_closed',
+      pickupClosedAt: hydratedLocal.pickupClosedAt ?? hydratedRemote.pickupClosedAt,
+      driver: null,
+    };
+  }
+
+  if (hydratedLocal.status === 'delivered' && hydratedRemote.status !== 'delivered') {
+    return { ...hydratedRemote, ...hydratedLocal, status: 'delivered' };
+  }
+
+  if (hydratedRemote.status === 'pickup_closed' || hydratedRemote.status === 'delivered') {
+    return hydratedRemote;
+  }
+
+  const localUpdated = (local as DeliveryOrder & { updatedAt?: string }).updatedAt;
+  const remoteUpdated = (remote as DeliveryOrder & { updatedAt?: string }).updatedAt;
+  const localTime = localUpdated ? Date.parse(localUpdated) : 0;
+  const remoteTime = remoteUpdated ? Date.parse(remoteUpdated) : 0;
+  if (localTime > remoteTime) return hydratedLocal;
+  return hydratedRemote;
+}
+
+async function stashOrderFromRemote(remote: DeliveryOrder): Promise<DeliveryOrder> {
+  const local = await loadOrderLocal(remote.id);
+  const merged = mergeOrderState(local, remote);
+  await saveOrderLocal(merged);
+
+  if (local && merged.status === 'pickup_closed' && remote.status !== 'pickup_closed') {
+    await persistOrder(merged);
+  }
+
+  return merged;
 }
 
 async function hydrateOrderLocations(order: DeliveryOrder): Promise<DeliveryOrder> {
@@ -265,8 +344,46 @@ export async function listOrdersByDateRange(startDate: string, endDate: string):
 
 export function listActiveFleetOrders(orders: DeliveryOrder[]): DeliveryOrder[] {
   return orders.filter(
-    (o) => o.driver && !['delivered', 'booked', 'pickup_closed', 'awaiting_driver'].includes(o.status),
+    (o) =>
+      o.driver &&
+      !['delivered', 'booked', 'pickup_closed', 'awaiting_driver', 'food_ready'].includes(o.status),
   );
+}
+
+/** Unique drivers currently on accepted pickups/deliveries for the admin live map. */
+export function listLiveFleetDrivers(orders: DeliveryOrder[]): Array<{
+  driverId: string;
+  name: string;
+  location: GeoPoint | null;
+  orderCount: number;
+  status: DeliveryStatus;
+}> {
+  const byDriver = new Map<
+    string,
+    { driverId: string; name: string; location: GeoPoint | null; orderCount: number; status: DeliveryStatus }
+  >();
+
+  for (const order of listActiveFleetOrders(orders)) {
+    const driverId = order.driver?.id;
+    if (!driverId) continue;
+    const existing = byDriver.get(driverId);
+    const location =
+      order.driverLocation &&
+      Number.isFinite(order.driverLocation.lat) &&
+      Number.isFinite(order.driverLocation.lng)
+        ? order.driverLocation
+        : existing?.location ?? order.pickupLocation;
+
+    byDriver.set(driverId, {
+      driverId,
+      name: order.driver?.name ?? 'Driver',
+      location,
+      orderCount: (existing?.orderCount ?? 0) + 1,
+      status: order.status,
+    });
+  }
+
+  return Array.from(byDriver.values());
 }
 
 export function subscribeToOrder(orderId: string, onOrder: (order: DeliveryOrder | null) => void): () => void {
@@ -277,8 +394,7 @@ export function subscribeToOrder(orderId: string, onOrder: (order: DeliveryOrder
         onOrder(null);
         return;
       }
-      const order = withLocations(snap.data() as DeliveryOrder);
-      await saveOrderLocal(order);
+      const order = await stashOrderFromRemote(snap.data() as DeliveryOrder);
       onOrder(order);
     },
     () => onOrder(null),
@@ -304,8 +420,7 @@ export function subscribeToCustomerOrderToday(
         onOrder(local);
         return;
       }
-      const order = withLocations(snap.docs[0].data() as DeliveryOrder);
-      await saveOrderLocal(order);
+      const order = await stashOrderFromRemote(snap.docs[0].data() as DeliveryOrder);
       onOrder(order);
     },
     async () => {
@@ -315,19 +430,28 @@ export function subscribeToCustomerOrderToday(
   );
 }
 
+function sortOrdersByBookedDesc(orders: DeliveryOrder[]): DeliveryOrder[] {
+  return [...orders].sort((a, b) => (b.bookedAt ?? '').localeCompare(a.bookedAt ?? ''));
+}
+
+async function publishTodayOrders(onOrders: (orders: DeliveryOrder[]) => void): Promise<void> {
+  await processExpiredPickupOrders();
+  const orders = sortOrdersByBookedDesc((await loadAllOrdersLocal()).map(withLocations));
+  onOrders(orders);
+}
+
 export function subscribeToAllOrdersToday(onOrders: (orders: DeliveryOrder[]) => void): () => void {
   const q = query(collection(db, 'orders'), where('date', '==', todayKey()));
   return onSnapshot(
     q,
     async (snap) => {
       for (const docSnap of snap.docs) {
-        await saveOrderLocal(withLocations(docSnap.data() as DeliveryOrder));
+        await stashOrderFromRemote(docSnap.data() as DeliveryOrder);
       }
-      const orders = await loadAllOrdersLocal();
-      onOrders(orders.map(withLocations));
+      await publishTodayOrders(onOrders);
     },
     async () => {
-      onOrders(await loadAllOrdersLocal());
+      await publishTodayOrders(onOrders);
     },
   );
 }
@@ -343,8 +467,7 @@ async function syncFromFirestore(): Promise<void> {
     const q = query(collection(db, 'orders'), where('date', '==', todayKey()));
     const snap = await getDocs(q);
     for (const docSnap of snap.docs) {
-      const order = docSnap.data() as DeliveryOrder;
-      await saveOrderLocal(order);
+      await stashOrderFromRemote(docSnap.data() as DeliveryOrder);
     }
   } catch {
     // Ignore remote sync failures.
@@ -441,7 +564,7 @@ export async function createBooking(
 ): Promise<DeliveryOrder> {
   const normalizedPhone = normalizePhone(phone);
   const existing = await getCustomerOrderToday(normalizedPhone);
-  if (existing && existing.status !== 'delivered') return existing;
+  if (existing && existing.status !== 'delivered' && existing.status !== 'pickup_closed') return existing;
 
   const now = new Date();
   const id = generateOrderId();
@@ -556,7 +679,114 @@ export async function markFoodReady(phone: string, details?: FoodReadyDetails): 
 export async function getCustomerOrderToday(phone: string): Promise<DeliveryOrder | null> {
   await syncFromFirestore();
   const orders = await loadAllOrdersLocal();
-  return orders.find((o) => phoneMatches(o.customerPhone, phone)) ?? null;
+  const mine = orders.filter((o) => phoneMatches(o.customerPhone, phone));
+  if (mine.length === 0) return null;
+
+  // Prefer the furthest-along active order so home does not flip between a
+  // newly auto-created "booked" row and an existing "food_ready" trip.
+  const active = mine
+    .filter((o) => o.status !== 'delivered' && o.status !== 'pickup_closed')
+    .sort((a, b) => {
+      const rankDiff = orderStatusRank(b.status) - orderStatusRank(a.status);
+      if (rankDiff !== 0) return rankDiff;
+      return (b.bookedAt ?? '').localeCompare(a.bookedAt ?? '');
+    })[0];
+  if (active) return active;
+
+  const delivered = mine.find((o) => o.status === 'delivered');
+  if (delivered) return delivered;
+
+  return sortOrdersByBookedDesc(mine)[0] ?? null;
+}
+
+export async function updateCustomerHomeAddress(phone: string, homeAddress: string): Promise<void> {
+  const trimmed = homeAddress.trim();
+  if (!trimmed) throw new Error('Enter your home address');
+
+  await updateCustomerRegistration(phone, { address: trimmed });
+
+  const order = await getCustomerOrderToday(phone);
+  if (!order) return;
+
+  const locations = await resolveOrderLocationsAsync({
+    pickupAddress: trimmed,
+    dropAddress: getDropAddress(order),
+    school: order.school,
+    pickupLocation: null,
+    dropLocation: order.dropLocation,
+  });
+
+  await persistOrder({
+    ...order,
+    pickupAddress: trimmed,
+    pickupLocation: locations.pickupLocation,
+  });
+}
+
+export async function updateCustomerDeliveryAddress(
+  phone: string,
+  index: number,
+  fields: { name?: string; dropLocation?: string; classSection?: string },
+): Promise<void> {
+  const registration = await loadCustomerRegistration(phone);
+  if (!registration) throw new Error('Customer registration not found');
+
+  const order = await getCustomerOrderToday(phone);
+  const profile = await loadCustomerProfile(phone);
+
+  if (order) {
+    const students = buildFoodReadyStudents({
+      studentEntries: order.studentEntries,
+      students: order.studentEntries,
+      person: order.studentName || profile.studentName,
+      dropAddress: getDropAddress(order),
+      deliveryType: order.deliveryType,
+      deliveryTypes: order.deliveryTypes,
+    });
+
+    if (!students[index]) throw new Error('Delivery address not found');
+
+    students[index] = {
+      ...students[index],
+      name: fields.name?.trim() ?? students[index].name,
+      dropLocation: fields.dropLocation?.trim() ?? students[index].dropLocation,
+      classSection: fields.classSection?.trim() ?? students[index].classSection,
+    };
+
+    const legacy = foodReadyStudentsToLegacy(students);
+    const dropAddress = formatStudentDropAddresses(students) || students[0]?.dropLocation || order.dropAddress;
+    const primary = students[0];
+
+    const locations = await resolveOrderLocationsAsync({
+      pickupAddress: order.pickupAddress,
+      dropAddress,
+      school: dropAddress,
+      pickupLocation: order.pickupLocation,
+      dropLocation: null,
+    });
+
+    await persistOrder({
+      ...order,
+      studentEntries: students,
+      studentName: legacy.person,
+      dropAddress,
+      school: dropAddress,
+      dropLocation: locations.dropLocation,
+    });
+
+    await updateCustomerRegistration(phone, {
+      school: primary?.dropLocation?.trim() || registration.school,
+      studentName: primary?.name?.trim() || registration.studentName,
+      classSection: primary?.classSection?.trim() || registration.classSection,
+    });
+    return;
+  }
+
+  await updateCustomerRegistration(phone, {
+    school: fields.dropLocation?.trim() || registration.school,
+    studentName: fields.name?.trim() || registration.studentName,
+    classSection: fields.classSection?.trim() || registration.classSection,
+  });
 }
 
 export async function listCustomerOrders(phone: string): Promise<DeliveryOrder[]> {
@@ -593,11 +823,53 @@ export async function listDriverCompletedToday(driverId: string): Promise<Delive
   );
 }
 
+export async function countDriverTotalDeliveries(driverId: string): Promise<number> {
+  await syncFromFirestore();
+  const orders = await loadAllOrdersLocal();
+  return orders.filter((o) => o.driver?.id === driverId && o.status === 'delivered').length;
+}
+
 export async function listAllOrdersToday(): Promise<DeliveryOrder[]> {
   await syncFromFirestore();
+  await processExpiredPickupOrders();
   const orders = await loadAllOrdersLocal();
   await buildSchoolBatches(orders);
   return orders;
+}
+
+export async function cancelCustomerOrder(phone: string): Promise<DeliveryOrder> {
+  const order = await getCustomerOrderToday(phone);
+  if (!order) {
+    throw new Error('No active order found');
+  }
+  if (order.status === 'delivered') {
+    throw new Error('Cannot cancel a completed delivery');
+  }
+  if (order.status === 'pickup_closed') {
+    return order;
+  }
+
+  const cancellable: DeliveryStatus[] = [
+    'booked',
+    'food_ready',
+    'awaiting_driver',
+    'driver_assigned',
+    'at_pickup',
+    'pickup_verified',
+  ];
+  if (!cancellable.includes(order.status)) {
+    throw new Error('This order cannot be cancelled');
+  }
+
+  const updated: DeliveryOrder = {
+    ...order,
+    status: 'pickup_closed',
+    pickupClosedAt: formatTime(new Date()),
+    driver: null,
+  };
+
+  await persistOrder(updated);
+  return updated;
 }
 
 export async function processExpiredPickupOrders(): Promise<DeliveryOrder[]> {
@@ -615,6 +887,7 @@ export async function processExpiredPickupOrders(): Promise<DeliveryOrder[]> {
       ...order,
       status: 'pickup_closed',
       pickupClosedAt: formatTime(new Date()),
+      driver: null,
     };
     await persistOrder(updated);
     closed.push(updated);
@@ -743,6 +1016,22 @@ export async function acceptPickup(
 
   await persistOrder(updated);
 
+  try {
+    const { setDriverDutyStatus } = await import('./userRegistryService');
+    await setDriverDutyStatus(driver.id, 'On Route');
+  } catch {
+    // Availability update is best-effort for admin live map.
+  }
+
+  // Kick live GPS for this driver as soon as they accept.
+  try {
+    const { refreshDriverLocationForOrders } = await import('./driverLocationService');
+    const activeIds = allActive.map((entry) => entry.id);
+    await refreshDriverLocationForOrders(driver.id, activeIds);
+  } catch {
+    // Location permission may be denied.
+  }
+
   for (const activeOrder of allActive) {
     if (activeOrder.id !== order.id) {
       await persistOrder({ ...activeOrder, routePlan });
@@ -832,8 +1121,11 @@ export async function markAtDrop(orderId: string): Promise<DeliveryOrder> {
   return updated;
 }
 
-export async function markDelivered(orderId: string, options?: { silent?: boolean }): Promise<DeliveryOrder> {
-  const order = await loadOrder(orderId);
+export async function markDelivered(
+  orderId: string,
+  options?: { silent?: boolean; proofImageUrl?: string },
+): Promise<DeliveryOrder> {
+  const order = await loadOrderById(orderId);
   if (!order) throw new Error('Order not found');
 
   const updated: DeliveryOrder = {
@@ -846,12 +1138,32 @@ export async function markDelivered(orderId: string, options?: { silent?: boolea
       ...(order.deliveryProof ?? {}),
       otpVerified: Boolean(order.pickupVerifiedAt),
       qrVerified: Boolean(order.qrCode),
+      ...(options?.proofImageUrl?.trim()
+        ? { proofImageUrl: options.proofImageUrl.trim(), proofCapturedAt: new Date().toISOString() }
+        : {}),
     },
   };
   await persistOrder(updated);
 
+  if (order.customerPhone) {
+    const { expireSubscriptionAfterDelivery } = await import('./subscriptionService');
+    await expireSubscriptionAfterDelivery(order.customerPhone, order.students);
+  }
+
   if (order.driver?.id) {
     await incrementDriverCompletedDeliveries(order.driver.id);
+    try {
+      const remaining = await listDriverActiveOrders(order.driver.id);
+      const stillActive = remaining.filter((entry) => entry.id !== orderId);
+      const { setDriverDutyStatus } = await import('./userRegistryService');
+      await setDriverDutyStatus(order.driver.id, stillActive.length > 0 ? 'On Route' : 'Available');
+      if (stillActive.length === 0) {
+        const { refreshDriverLocationForOrders } = await import('./driverLocationService');
+        await refreshDriverLocationForOrders(order.driver.id, []);
+      }
+    } catch {
+      // Duty status is best-effort.
+    }
   }
 
   if (!options?.silent) {
@@ -866,6 +1178,10 @@ export async function markDelivered(orderId: string, options?: { silent?: boolea
   }
 
   return updated;
+}
+
+export async function completeDeliveryWithProof(orderId: string, proofImageUrl: string): Promise<DeliveryOrder> {
+  return markDelivered(orderId, { proofImageUrl });
 }
 
 export async function markBatchOrdersDelivered(batchId: string): Promise<DeliveryOrder[]> {

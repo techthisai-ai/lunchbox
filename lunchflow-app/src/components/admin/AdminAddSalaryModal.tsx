@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { addSalaryRecord } from '../../services/adminFinanceService';
+import { addSalaryRecord, listSalaryRecords } from '../../services/adminFinanceService';
+import { listTelecallers } from '../../services/telecallerService';
+import { loadRegisteredDrivers } from '../../services/userRegistryService';
 import { Button } from '../Button';
 import { Input } from '../Input';
 import { SelectField } from '../SelectField';
@@ -23,10 +25,41 @@ const ROLE_OPTIONS = [
   { id: 'Staff', label: 'Staff' },
 ] as const;
 
+type RoleId = (typeof ROLE_OPTIONS)[number]['id'];
+
 function formatMonthLabel(month: string): string {
   const [year, monthPart] = month.split('-');
   const date = new Date(Number(year), Number(monthPart) - 1, 1);
   return date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+}
+
+async function loadEmployeeNamesForRole(role: RoleId): Promise<string[]> {
+  if (role === 'Driver' || role === 'Delivery Boy') {
+    const drivers = await loadRegisteredDrivers();
+    return drivers
+      .filter((driver) => (driver.approvalStatus ?? 'approved') === 'approved')
+      .map((driver) => driver.name.trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+  }
+
+  if (role === 'Telecaller') {
+    const telecallers = await listTelecallers();
+    return telecallers
+      .map((telecaller) => telecaller.name.trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+  }
+
+  // Staff: unique names previously saved under Staff role
+  const records = await listSalaryRecords();
+  const names = new Set<string>();
+  for (const record of records) {
+    if (record.role.trim().toLowerCase() !== 'staff') continue;
+    const name = record.employeeName.trim();
+    if (name) names.add(name);
+  }
+  return Array.from(names).sort((a, b) => a.localeCompare(b));
 }
 
 export function AdminAddSalaryModal({
@@ -38,10 +71,12 @@ export function AdminAddSalaryModal({
   defaultRole = 'Driver',
 }: Props) {
   const [employeeName, setEmployeeName] = useState('');
-  const [role, setRole] = useState<(typeof ROLE_OPTIONS)[number]['id']>('Driver');
+  const [role, setRole] = useState<RoleId>('Driver');
   const [amount, setAmount] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [employeeNames, setEmployeeNames] = useState<string[]>([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
 
   useEffect(() => {
     if (!visible) {
@@ -50,21 +85,59 @@ export function AdminAddSalaryModal({
       setAmount('');
       setError('');
       setSaving(false);
+      setEmployeeNames([]);
       return;
     }
+    const nextRole = ROLE_OPTIONS.some((option) => option.id === defaultRole)
+      ? (defaultRole as RoleId)
+      : 'Driver';
+    setRole(nextRole);
     setEmployeeName(defaultEmployeeName);
-    setRole(
-      ROLE_OPTIONS.some((option) => option.id === defaultRole)
-        ? (defaultRole as (typeof ROLE_OPTIONS)[number]['id'])
-        : 'Driver',
-    );
     setAmount('');
     setError('');
   }, [visible, defaultEmployeeName, defaultRole]);
 
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    setLoadingEmployees(true);
+    loadEmployeeNamesForRole(role)
+      .then((names) => {
+        if (cancelled) return;
+        setEmployeeNames(names);
+        setEmployeeName((current) => {
+          if (current && names.includes(current)) return current;
+          if (defaultEmployeeName && names.includes(defaultEmployeeName) && role === defaultRole) {
+            return defaultEmployeeName;
+          }
+          return '';
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setEmployeeNames([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingEmployees(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, role, defaultEmployeeName, defaultRole]);
+
+  const employeeOptions = useMemo(
+    () => employeeNames.map((name) => ({ id: name, label: name })),
+    [employeeNames],
+  );
+
   const handleClose = () => {
     if (saving) return;
     onClose();
+  };
+
+  const handleRoleChange = (nextRole: RoleId) => {
+    setRole(nextRole);
+    setEmployeeName('');
+    setError('');
   };
 
   const handleSubmit = async () => {
@@ -72,7 +145,7 @@ export function AdminAddSalaryModal({
     setError('');
     const parsedAmount = Number(amount.replace(/,/g, '').trim());
     if (!employeeName.trim()) {
-      setError('Enter employee name');
+      setError(loadingEmployees ? 'Loading employees…' : 'Select an employee name');
       return;
     }
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
@@ -90,8 +163,8 @@ export function AdminAddSalaryModal({
       });
       onAdded();
       onClose();
-    } catch {
-      setError('Could not add salary record. Please try again.');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not add salary record. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -113,8 +186,20 @@ export function AdminAddSalaryModal({
           </View>
 
           <ScrollView style={styles.formScroll} contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
-            <Input label="Employee Name" value={employeeName} onChangeText={setEmployeeName} placeholder="Enter employee name" />
-            <SelectField label="Role" value={role} options={[...ROLE_OPTIONS]} onChange={setRole} />
+            <SelectField label="Role" value={role} options={[...ROLE_OPTIONS]} onChange={handleRoleChange} />
+            <SelectField
+              label="Employee Name"
+              value={(employeeName || '') as string}
+              options={employeeOptions}
+              onChange={setEmployeeName}
+              placeholder={
+                loadingEmployees
+                  ? 'Loading employees…'
+                  : employeeOptions.length === 0
+                    ? `No ${role.toLowerCase()}s found`
+                    : 'Select employee name'
+              }
+            />
             <Input
               label="Amount (₹)"
               value={amount}

@@ -84,7 +84,9 @@ export function buildStatusMessage(status: OrderStatus, order: OrderDoc): Status
       return {
         title: 'Delivered',
         sms: `LunchFlow: Delivered to ${drop}${order.deliveredAt ? ` at ${order.deliveredAt}` : ''}.`,
-        whatsapp: `Lunchbox delivered successfully to ${drop}. Thank you for using LunchFlow!`,
+        whatsapp: `Lunchbox delivered successfully to ${drop}. Thank you for using LunchFlow!${
+          order.deliveryProof?.proofImageUrl ? ' Photo proof is attached below.' : ''
+        }`,
         push: `Delivered to ${drop}.`,
       };
     default:

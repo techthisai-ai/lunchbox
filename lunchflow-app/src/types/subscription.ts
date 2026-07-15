@@ -1,4 +1,4 @@
-export type BillingPeriod = '1_month' | '3_month' | 'custom';
+export type BillingPeriod = '1_month' | '3_month' | 'per_delivery' | 'custom';
 
 export type SubscriptionStatus = 'active' | 'expired' | 'cancelled' | 'pending';
 
@@ -15,6 +15,7 @@ export type CustomerSubscription = {
   amountPaid: number;
   couponCode?: string;
   discountAmount?: number;
+  expiresOnDelivery?: boolean;
   createdAt: string;
   updatedAt: string;
 };

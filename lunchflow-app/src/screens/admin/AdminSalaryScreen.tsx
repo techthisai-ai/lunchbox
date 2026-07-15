@@ -1,7 +1,7 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AdminAddSalaryModal } from '../../components/admin/AdminAddSalaryModal';
 import { AdminFilterSelect } from '../../components/admin/AdminFilterSelect';
 import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
@@ -10,7 +10,7 @@ import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
 import { Badge } from '../../components/Badge';
 import { colors, radius, spacing } from '../../constants/theme';
-import { listSalaryRecords } from '../../services/adminFinanceService';
+import { listSalaryRecords, markSalaryPaid } from '../../services/adminFinanceService';
 import { SalaryRecord } from '../../types/finance';
 import { buildMonthFilterOptions, currentMonthKey, formatMonthLabel } from '../../utils/adminMonthHelpers';
 
@@ -37,21 +37,11 @@ function initials(name: string): string {
 export function AdminSalaryScreen() {
   const [records, setRecords] = useState<SalaryRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [payingId, setPayingId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [monthFilter, setMonthFilter] = useState(currentMonthKey());
   const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'unpaid'>('all');
   const [addSalaryOpen, setAddSalaryOpen] = useState(false);
-  const [salaryDefaults, setSalaryDefaults] = useState<{ employeeName: string; role: string } | null>(null);
-
-  const openAddSalary = (defaults?: { employeeName: string; role: string }) => {
-    setSalaryDefaults(defaults ?? null);
-    setAddSalaryOpen(true);
-  };
-
-  const closeAddSalary = () => {
-    setAddSalaryOpen(false);
-    setSalaryDefaults(null);
-  };
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -67,6 +57,19 @@ export function AdminSalaryScreen() {
       refresh();
     }, [refresh]),
   );
+
+  const handlePaySalary = async (record: SalaryRecord) => {
+    if (record.status === 'paid' || payingId) return;
+    setPayingId(record.id);
+    try {
+      await markSalaryPaid(record.id);
+      await refresh();
+    } catch (error) {
+      Alert.alert('Payment failed', error instanceof Error ? error.message : 'Could not mark salary as paid.');
+    } finally {
+      setPayingId(null);
+    }
+  };
 
   const monthOptions = useMemo(
     () => buildMonthFilterOptions(records.map((record) => record.month)),
@@ -101,15 +104,13 @@ export function AdminSalaryScreen() {
     <AdminPageLayout wide>
       <AdminAddSalaryModal
         visible={addSalaryOpen}
-        onClose={closeAddSalary}
+        onClose={() => setAddSalaryOpen(false)}
         onAdded={refresh}
         defaultMonth={monthFilter}
-        defaultEmployeeName={salaryDefaults?.employeeName}
-        defaultRole={salaryDefaults?.role}
       />
 
       <View style={styles.header}>
-        <Pressable style={styles.addBtn} onPress={() => openAddSalary()}>
+        <Pressable style={styles.addBtn} onPress={() => setAddSalaryOpen(true)}>
           <Ionicons name="add" size={18} color={colors.white} />
           <Text style={styles.addBtnText}>Add Salary</Text>
         </Pressable>
@@ -152,63 +153,65 @@ export function AdminSalaryScreen() {
           <View style={styles.tableWrap}>
             <AdminTableScroll minWidth={900}>
               <View style={styles.table}>
-              <View style={styles.tableHead}>
-                <Text style={[styles.th, styles.colName]}>Employee Name</Text>
-                <Text style={[styles.th, styles.colRole]}>Role</Text>
-                <Text style={[styles.th, styles.colMonth]}>Month</Text>
-                <Text style={[styles.th, styles.colAmount]}>Amount</Text>
-                <Text style={[styles.th, styles.colDate]}>Payment Date</Text>
-                <Text style={[styles.th, styles.colStatus]}>Status</Text>
-                <Text style={[styles.th, styles.colAction]}>Action</Text>
-              </View>
-
-              {filtered.length > 0 ? (
-                filtered.map((record) => (
-                  <View key={record.id} style={styles.tableRow}>
-                    <View style={[styles.colName, styles.personCell]}>
-                      <View style={styles.avatar}>
-                        <Text style={styles.avatarText}>{initials(record.employeeName)}</Text>
-                      </View>
-                      <Text style={[styles.td, styles.nameText]} numberOfLines={1}>
-                        {record.employeeName}
-                      </Text>
-                    </View>
-                    <Text style={[styles.td, styles.colRole]} numberOfLines={1}>
-                      {record.role}
-                    </Text>
-                    <Text style={[styles.td, styles.colMonth]} numberOfLines={1}>
-                      {formatMonthLabel(record.month)}
-                    </Text>
-                    <Text style={[styles.td, styles.colAmount, styles.amountText]}>
-                      ₹{record.amount.toLocaleString('en-IN')}
-                    </Text>
-                    <Text style={[styles.td, styles.colDate]} numberOfLines={1}>
-                      {formatPaymentDate(record.paidAt)}
-                    </Text>
-                    <View style={styles.colStatus}>
-                      <Badge
-                        label={record.status === 'paid' ? 'Paid' : 'Pending'}
-                        tone={record.status === 'paid' ? 'green' : 'orange'}
-                      />
-                    </View>
-                    <View style={styles.colAction}>
-                      <Pressable
-                        style={styles.rowSalaryBtn}
-                        onPress={() =>
-                          openAddSalary({ employeeName: record.employeeName, role: record.role })
-                        }
-                      >
-                        <Text style={styles.rowSalaryBtnText}>Salary</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                ))
-              ) : (
-                <View style={styles.emptyRow}>
-                  <Text style={styles.emptyTitle}>No salary records</Text>
-                  <Text style={styles.emptyText}>Add salary entries for employees using the button above.</Text>
+                <View style={styles.tableHead}>
+                  <Text style={[styles.th, styles.colName]}>Employee Name</Text>
+                  <Text style={[styles.th, styles.colRole]}>Role</Text>
+                  <Text style={[styles.th, styles.colMonth]}>Month</Text>
+                  <Text style={[styles.th, styles.colAmount]}>Amount</Text>
+                  <Text style={[styles.th, styles.colDate]}>Payment Date</Text>
+                  <Text style={[styles.th, styles.colStatus]}>Status</Text>
+                  <Text style={[styles.th, styles.colAction]}>Action</Text>
                 </View>
-              )}
+
+                {filtered.length > 0 ? (
+                  filtered.map((record) => {
+                    const isPaid = record.status === 'paid';
+                    const isPaying = payingId === record.id;
+                    return (
+                      <View key={record.id} style={styles.tableRow}>
+                        <View style={[styles.colName, styles.personCell]}>
+                          <View style={styles.avatar}>
+                            <Text style={styles.avatarText}>{initials(record.employeeName)}</Text>
+                          </View>
+                          <Text style={[styles.td, styles.nameText]} numberOfLines={1}>
+                            {record.employeeName}
+                          </Text>
+                        </View>
+                        <Text style={[styles.td, styles.colRole]} numberOfLines={1}>
+                          {record.role}
+                        </Text>
+                        <Text style={[styles.td, styles.colMonth]} numberOfLines={1}>
+                          {formatMonthLabel(record.month)}
+                        </Text>
+                        <Text style={[styles.td, styles.colAmount, styles.amountText]}>
+                          ₹{record.amount.toLocaleString('en-IN')}
+                        </Text>
+                        <Text style={[styles.td, styles.colDate]} numberOfLines={1}>
+                          {formatPaymentDate(record.paidAt)}
+                        </Text>
+                        <View style={styles.colStatus}>
+                          <Badge label={isPaid ? 'Paid' : 'Pending'} tone={isPaid ? 'green' : 'orange'} />
+                        </View>
+                        <View style={styles.colAction}>
+                          <Pressable
+                            style={[styles.rowSalaryBtn, (isPaid || isPaying) && styles.rowSalaryBtnDisabled]}
+                            disabled={isPaid || !!payingId}
+                            onPress={() => handlePaySalary(record)}
+                          >
+                            <Text style={[styles.rowSalaryBtnText, isPaid && styles.rowSalaryBtnTextDisabled]}>
+                              {isPaid ? 'Paid' : isPaying ? 'Paying…' : 'Pay'}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    );
+                  })
+                ) : (
+                  <View style={styles.emptyRow}>
+                    <Text style={styles.emptyTitle}>No salary records</Text>
+                    <Text style={styles.emptyText}>Add salary entries for employees using the button above.</Text>
+                  </View>
+                )}
               </View>
             </AdminTableScroll>
           </View>
@@ -303,7 +306,11 @@ const styles = StyleSheet.create({
     minWidth: 58,
     alignItems: 'center',
   },
+  rowSalaryBtnDisabled: {
+    backgroundColor: colors.borderSubtle,
+  },
   rowSalaryBtnText: { fontSize: 11, fontWeight: '800', color: colors.onPrimary },
+  rowSalaryBtnTextDisabled: { color: colors.muted },
   personCell: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
   avatar: {
     width: 32,

@@ -32,7 +32,6 @@ function formatDriverDisplayId(driverId: string): string {
 const menuItems = [
   { icon: 'time-outline' as const, label: 'Delivery History', action: 'history' as const },
   { icon: 'help-circle-outline' as const, label: 'Help & Support', action: 'support' as const },
-  { icon: 'lock-closed-outline' as const, label: 'Change Password', action: 'password' as const },
 ];
 
 export function DriverProfileScreen() {
@@ -76,11 +75,7 @@ export function DriverProfileScreen() {
       navigation.navigate('DriverDeliveries');
       return;
     }
-    if (action === 'support') {
-      void openSupportCall();
-      return;
-    }
-    navigation.navigate('DriverChangePassword');
+    void openSupportCall();
   };
 
   const driverId = user?.id ? formatDriverDisplayId(user.id) : '—';

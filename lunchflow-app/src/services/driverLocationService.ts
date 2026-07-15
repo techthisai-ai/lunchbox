@@ -1,5 +1,5 @@
 import * as Location from 'expo-location';
-import { doc, setDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { Platform } from 'react-native';
 import { db } from '../lib/firebase';
 import { GeoPoint } from '../types/delivery';
@@ -7,14 +7,33 @@ import { updateDriverLocation } from './orderHubService';
 
 type TrackingState = {
   driverId: string;
-  subscription: Location.LocationSubscription | null;
+  subscription: Location.LocationSubscription | { remove: () => void } | null;
+  watchId: number | null;
   activeOrderIds: string[];
 };
 
 let tracking: TrackingState | null = null;
 
+export type DriverLiveLocation = GeoPoint & {
+  updatedAt?: string;
+  driverId: string;
+  name?: string;
+};
+
+function isUsablePoint(point: GeoPoint | null | undefined): point is GeoPoint {
+  return Boolean(
+    point &&
+      Number.isFinite(point.lat) &&
+      Number.isFinite(point.lng) &&
+      Math.abs(point.lat) <= 90 &&
+      Math.abs(point.lng) <= 180,
+  );
+}
+
 export async function requestLocationPermission(): Promise<boolean> {
-  if (Platform.OS === 'web') return false;
+  if (Platform.OS === 'web') {
+    return typeof navigator !== 'undefined' && Boolean(navigator.geolocation);
+  }
   const { status } = await Location.requestForegroundPermissionsAsync();
   return status === 'granted';
 }
@@ -26,6 +45,7 @@ async function publishDriverLiveLocation(driverId: string, point: GeoPoint): Pro
       {
         liveLocation: { ...point, updatedAt: new Date().toISOString() },
         lastSeenAt: new Date().toISOString(),
+        status: 'On Route',
       },
       { merge: true },
     );
@@ -34,15 +54,47 @@ async function publishDriverLiveLocation(driverId: string, point: GeoPoint): Pro
   }
 }
 
-export async function startDriverLocationTracking(driverId: string, orderIds: string[]): Promise<void> {
-  if (Platform.OS === 'web') return;
+async function publishPoint(driverId: string, orderIds: string[], point: GeoPoint): Promise<void> {
+  await publishDriverLiveLocation(driverId, point);
+  await Promise.all(orderIds.map((orderId) => updateDriverLocation(orderId, point).catch(() => undefined)));
+}
 
+function startWebWatch(driverId: string, orderIds: string[]): { remove: () => void; watchId: number } | null {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return null;
+  const watchId = navigator.geolocation.watchPosition(
+    (position) => {
+      if (!tracking || tracking.driverId !== driverId) return;
+      const point: GeoPoint = { lat: position.coords.latitude, lng: position.coords.longitude };
+      void publishPoint(driverId, tracking.activeOrderIds, point);
+    },
+    () => undefined,
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+  );
+  return {
+    watchId,
+    remove: () => navigator.geolocation.clearWatch(watchId),
+  };
+}
+
+export async function startDriverLocationTracking(driverId: string, orderIds: string[]): Promise<void> {
   const granted = await requestLocationPermission();
   if (!granted) return;
 
   await stopDriverLocationTracking();
 
-  tracking = { driverId, subscription: null, activeOrderIds: orderIds };
+  tracking = { driverId, subscription: null, watchId: null, activeOrderIds: [...orderIds] };
+
+  if (Platform.OS === 'web') {
+    const web = startWebWatch(driverId, orderIds);
+    if (web) {
+      tracking.subscription = web;
+      tracking.watchId = web.watchId;
+    }
+    // Immediate fix for admin map
+    const immediate = await getCurrentDeviceLocation();
+    if (immediate) await publishPoint(driverId, orderIds, immediate);
+    return;
+  }
 
   tracking.subscription = await Location.watchPositionAsync(
     {
@@ -53,33 +105,36 @@ export async function startDriverLocationTracking(driverId: string, orderIds: st
     async (position) => {
       if (!tracking) return;
       const point: GeoPoint = { lat: position.coords.latitude, lng: position.coords.longitude };
-      await publishDriverLiveLocation(tracking.driverId, point);
-      await Promise.all(
-        tracking.activeOrderIds.map((orderId) =>
-          updateDriverLocation(orderId, point).catch(() => undefined),
-        ),
-      );
+      await publishPoint(tracking.driverId, tracking.activeOrderIds, point);
     },
   );
+
+  const immediate = await getCurrentDeviceLocation();
+  if (immediate) await publishPoint(driverId, orderIds, immediate);
 }
 
 export async function stopDriverLocationTracking(): Promise<void> {
   if (tracking?.subscription) {
     tracking.subscription.remove();
   }
+  if (tracking?.watchId != null && typeof navigator !== 'undefined') {
+    navigator.geolocation.clearWatch(tracking.watchId);
+  }
   tracking = null;
 }
 
+/**
+ * Keep GPS publishing while the driver has accepted active orders.
+ * Call with empty orderIds to stop. Safe to call repeatedly when order list changes.
+ */
 export async function refreshDriverLocationForOrders(driverId: string, orderIds: string[]): Promise<void> {
-  if (Platform.OS === 'web') return;
-
-  if (tracking?.driverId === driverId) {
-    tracking.activeOrderIds = orderIds;
+  if (orderIds.length === 0) {
+    await stopDriverLocationTracking();
     return;
   }
 
-  if (orderIds.length === 0) {
-    await stopDriverLocationTracking();
+  if (tracking?.driverId === driverId) {
+    tracking.activeOrderIds = [...orderIds];
     return;
   }
 
@@ -87,9 +142,52 @@ export async function refreshDriverLocationForOrders(driverId: string, orderIds:
 }
 
 export async function getCurrentDeviceLocation(): Promise<GeoPoint | null> {
-  if (Platform.OS === 'web') return null;
+  if (Platform.OS === 'web') {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return null;
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({ lat: position.coords.latitude, lng: position.coords.longitude });
+        },
+        () => resolve(null),
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 },
+      );
+    });
+  }
+
   const granted = await requestLocationPermission();
   if (!granted) return null;
   const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
   return { lat: position.coords.latitude, lng: position.coords.longitude };
 }
+
+/** Live subscribe to drivers that have published a liveLocation (admin map). */
+export function subscribeToDriverLiveLocations(
+  onUpdate: (locations: DriverLiveLocation[]) => void,
+): () => void {
+  return onSnapshot(
+    collection(db, 'drivers'),
+    (snap) => {
+      const locations: DriverLiveLocation[] = [];
+      for (const docSnap of snap.docs) {
+        const data = docSnap.data() as Record<string, unknown>;
+        const live = data.liveLocation as { lat?: number; lng?: number; updatedAt?: string } | undefined;
+        if (!isUsablePoint(live as GeoPoint | undefined)) continue;
+        const approval = data.approvalStatus;
+        if (approval === 'pending' || approval === 'rejected') continue;
+        if (data.status === 'Offline') continue;
+        locations.push({
+          driverId: String(data.id ?? docSnap.id),
+          name: data.name ? String(data.name) : undefined,
+          lat: live!.lat!,
+          lng: live!.lng!,
+          updatedAt: live?.updatedAt ? String(live.updatedAt) : undefined,
+        });
+      }
+      onUpdate(locations);
+    },
+    () => onUpdate([]),
+  );
+}
+
+export { isUsablePoint };

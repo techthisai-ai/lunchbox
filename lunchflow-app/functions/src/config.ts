@@ -31,6 +31,10 @@ export type OrderDoc = {
   assignedDriverPhone?: string;
   estimatedArrival?: string | null;
   deliveredAt?: string | null;
+  deliveryProof?: {
+    proofImageUrl?: string;
+    proofCapturedAt?: string;
+  };
 };
 
 export type UserDoc = {

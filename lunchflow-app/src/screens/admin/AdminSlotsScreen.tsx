@@ -7,8 +7,20 @@ import { Button } from '../../components/Button';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
 import { useAdminTableColumn } from '../../hooks/useAdminTableColumn';
+import { LEGACY_CATEGORY_PLAN_IDS } from '../../constants/subscriptions';
 import { DEFAULT_DELIVERY_SLOTS, DeliverySlot, loadDeliverySlots, saveDeliverySlot } from '../../services/deliverySlotService';
-import { loadPricingPlans, savePricingPlans, PricingPlan } from '../../services/slotPricingService';
+import {
+  defaultAdminPricingPlans,
+  filterAdminPricingPlans,
+  loadPricingPlans,
+  PricingPlan,
+  savePricingPlans,
+} from '../../services/slotPricingService';
+
+function slugifyPlanId(label: string): string {
+  const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return slug || `plan-${Date.now()}`;
+}
 
 function slugifySlotId(label: string): string {
   const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -29,7 +41,8 @@ export function AdminSlotsScreen() {
     input: col(0.5, 85, { alignItems: 'flex-start' }),
   };
   const planCols = {
-    plan: col(1, 140),
+    plan: col(1.2, 180),
+    type: col(0.8, 110),
     duration: col(0.85, 100),
     input: col(0.5, 85, { alignItems: 'flex-start' }),
   };
@@ -41,11 +54,31 @@ export function AdminSlotsScreen() {
   const [newSlotCapacity, setNewSlotCapacity] = useState('');
   const [slotError, setSlotError] = useState('');
   const [addingSlot, setAddingSlot] = useState(false);
+  const [newPlanName, setNewPlanName] = useState('');
+  const [newPlanType, setNewPlanType] = useState('');
+  const [newPlanDuration, setNewPlanDuration] = useState('');
+  const [newPlanAmount, setNewPlanAmount] = useState('');
+  const [planError, setPlanError] = useState('');
+  const [addingPlan, setAddingPlan] = useState(false);
 
   const refresh = useCallback(async () => {
     const loadedSlots = await loadDeliverySlots();
     setSlots(loadedSlots.length ? loadedSlots : DEFAULT_DELIVERY_SLOTS);
-    setPlans(await loadPricingPlans());
+
+    const loadedPlans = filterAdminPricingPlans(await loadPricingPlans());
+    const defaults = defaultAdminPricingPlans();
+    const defaultIds = new Set(defaults.map((plan) => plan.id));
+    const mergedDefaults = defaults.map(
+      (defaultPlan) => loadedPlans.find((plan) => plan.id === defaultPlan.id) ?? defaultPlan,
+    );
+    const customPlans = loadedPlans.filter((plan) => !defaultIds.has(plan.id));
+    const visiblePlans = [...mergedDefaults, ...customPlans];
+    setPlans(visiblePlans);
+
+    const rawPlans = await loadPricingPlans();
+    if (rawPlans.length !== visiblePlans.length || rawPlans.some((plan) => LEGACY_CATEGORY_PLAN_IDS.has(plan.id))) {
+      await savePricingPlans(visiblePlans);
+    }
   }, []);
 
   useFocusEffect(
@@ -64,6 +97,57 @@ export function AdminSlotsScreen() {
     const nextPlans = plans.map((p) => (p.id === plan.id ? { ...p, amount: Number(amount) || p.amount } : p));
     await savePricingPlans(nextPlans);
     setPlans(nextPlans);
+  };
+
+  const handleAddPlan = async () => {
+    if (addingPlan) return;
+    setPlanError('');
+
+    const name = newPlanName.trim();
+    const planType = newPlanType.trim() || 'Custom plan';
+    const durationDays = Number(newPlanDuration);
+    const amount = Number(newPlanAmount);
+
+    if (!name) {
+      setPlanError('Enter a plan name');
+      return;
+    }
+    if (!amount || amount < 1) {
+      setPlanError('Enter a valid amount');
+      return;
+    }
+    if (!durationDays || durationDays < 1) {
+      setPlanError('Enter a valid duration in days');
+      return;
+    }
+
+    const baseId = slugifyPlanId(name);
+    const id = plans.some((plan) => plan.id === baseId) ? `${baseId}-${Date.now()}` : baseId;
+
+    setAddingPlan(true);
+    try {
+      const nextPlans: PricingPlan[] = [
+        ...plans,
+        {
+          id,
+          name,
+          amount,
+          durationDays,
+          active: true,
+          planType,
+        },
+      ];
+      await savePricingPlans(nextPlans);
+      setPlans(nextPlans);
+      setNewPlanName('');
+      setNewPlanType('');
+      setNewPlanDuration('');
+      setNewPlanAmount('');
+    } catch {
+      setPlanError('Could not add pricing plan');
+    } finally {
+      setAddingPlan(false);
+    }
   };
 
   const handleAddSlot = async () => {
@@ -225,14 +309,20 @@ export function AdminSlotsScreen() {
               <View style={styles.table}>
                 <View style={styles.headerRow}>
                   <View style={planCols.plan}><Text style={styles.th}>Plan</Text></View>
+                  <View style={planCols.type}><Text style={styles.th}>Type</Text></View>
                   <View style={planCols.duration}><Text style={styles.th}>Duration</Text></View>
                   <View style={planCols.input}><Text style={styles.th}>Amount (₹)</Text></View>
                 </View>
                 {plans.map((plan) => (
                   <View key={plan.id} style={styles.row}>
                     <View style={planCols.plan}>
-                      <Text style={styles.td} numberOfLines={1}>
+                      <Text style={styles.td} numberOfLines={2}>
                         {plan.name}
+                      </Text>
+                    </View>
+                    <View style={planCols.type}>
+                      <Text style={styles.td} numberOfLines={1}>
+                        {plan.planType ?? 'Plan'}
                       </Text>
                     </View>
                     <View style={planCols.duration}>
@@ -252,6 +342,61 @@ export function AdminSlotsScreen() {
                 ))}
               </View>
             </AdminTableScroll>
+          </View>
+
+          <View style={[styles.addForm, isSidebarCollapsed && styles.addFormCompact]}>
+            <Text style={styles.addFormTitle}>Add Subscription Plan</Text>
+            <View style={[styles.addFormRow, isSidebarCollapsed && styles.addFormRowCompact]}>
+              <View style={[styles.addFieldWide, isSidebarCollapsed && styles.addFieldFull]}>
+                <Text style={styles.addLabel}>Plan Name</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={newPlanName}
+                  onChangeText={setNewPlanName}
+                  placeholder="e.g. Weekend plan"
+                  placeholderTextColor={colors.muted}
+                />
+              </View>
+              <View style={[styles.addFieldWide, isSidebarCollapsed && styles.addFieldFull]}>
+                <Text style={styles.addLabel}>Type</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={newPlanType}
+                  onChangeText={setNewPlanType}
+                  placeholder="Single order / Monthly"
+                  placeholderTextColor={colors.muted}
+                />
+              </View>
+              <View style={[styles.addFieldTime, isSidebarCollapsed && styles.addFieldHalf]}>
+                <Text style={styles.addLabel}>Duration</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={newPlanDuration}
+                  onChangeText={setNewPlanDuration}
+                  keyboardType="number-pad"
+                  placeholder="30"
+                  placeholderTextColor={colors.muted}
+                />
+              </View>
+              <View style={[styles.addFieldCapacity, isSidebarCollapsed && styles.addFieldHalf]}>
+                <Text style={styles.addLabel}>Amount (₹)</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={newPlanAmount}
+                  onChangeText={setNewPlanAmount}
+                  keyboardType="number-pad"
+                  placeholder="499"
+                  placeholderTextColor={colors.muted}
+                />
+              </View>
+              <Button
+                title={addingPlan ? 'Adding...' : 'Add Plan'}
+                onPress={handleAddPlan}
+                small
+                style={[styles.addBtn, isSidebarCollapsed && styles.addBtnFull]}
+              />
+            </View>
+            {planError ? <Text style={styles.addError}>{planError}</Text> : null}
           </View>
         </View>
       </View>

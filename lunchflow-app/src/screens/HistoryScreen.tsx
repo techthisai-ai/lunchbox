@@ -1,183 +1,112 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useRef, useState } from 'react';
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Badge } from '../components/Badge';
 import { colors, radius, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { DeliveryHistoryEntry, syncDeliveryHistory } from '../services/deliveryHistoryService';
+import { buildMonthlyInvoiceText, downloadMonthlyInvoice } from '../services/invoiceService';
 import { listCustomerOrders } from '../services/orderHubService';
+import { DeliveryType } from '../types/delivery';
 import {
-  isHistoryThisMonth,
-  isHistoryThisWeek,
-  isHistoryToday,
+  HistoryPeriodFilter,
+  historyPeriodLabel,
+  isHistoryInPeriod,
   resolveHistoryDateKey,
 } from '../utils/date';
 
-const statusFilters = ['All', 'Delivered', 'Cancelled'] as const;
-const periodFilters = ['Today', 'This Week', 'This Month'] as const;
+const PERIOD_FILTERS: { id: HistoryPeriodFilter; label: string }[] = [
+  { id: 'today', label: 'Today' },
+  { id: 'week', label: 'Week' },
+  { id: 'month', label: 'Month' },
+  { id: 'year', label: 'Year' },
+];
 
-type StatusFilter = (typeof statusFilters)[number];
-type PeriodFilter = (typeof periodFilters)[number];
-
-function matchesPeriod(entry: DeliveryHistoryEntry, period: PeriodFilter): boolean {
-  const dateKey = resolveHistoryDateKey(entry);
-  if (period === 'Today') return isHistoryToday(dateKey);
-  if (period === 'This Week') return isHistoryThisWeek(dateKey);
-  return isHistoryThisMonth(dateKey);
+function deliveryTitle(type: DeliveryType): string {
+  if (type === 'office') return 'Home to Office Delivery';
+  if (type === 'college') return 'Home to Workplace Delivery';
+  return 'Home to School Delivery';
 }
 
-function statusTone(status: string): 'green' | 'red' | 'orange' {
-  if (status === 'Delivered') return 'green';
-  if (status === 'Cancelled') return 'red';
-  return 'orange';
+function statusBadgeStyle(status: string) {
+  if (status === 'Delivered') {
+    return { bg: colors.greenLight, text: colors.green, iconBg: colors.greenLight, iconColor: colors.green, icon: 'checkmark-circle-outline' as const };
+  }
+  if (status === 'In Transit') {
+    return { bg: colors.orangeLight, text: colors.orange, iconBg: colors.orangeLight, iconColor: colors.orange, icon: 'time-outline' as const };
+  }
+  return { bg: colors.redLight, text: colors.red, iconBg: colors.redLight, iconColor: colors.red, icon: 'close-circle-outline' as const };
 }
 
-function PeriodDropdown({
-  value,
-  onChange,
-}: {
-  value: PeriodFilter;
-  onChange: (period: PeriodFilter) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [menuTop, setMenuTop] = useState(0);
-  const [menuLeft, setMenuLeft] = useState(0);
-  const [menuWidth, setMenuWidth] = useState(148);
-  const triggerRef = useRef<View>(null);
-  const { width: windowWidth } = useWindowDimensions();
-
-  const closeMenu = () => setOpen(false);
-
-  const openMenu = () => {
-    triggerRef.current?.measureInWindow((x, y, width, height) => {
-      const dropdownWidth = Math.max(width, 148);
-      const left = Math.max(8, Math.min(x + width - dropdownWidth, windowWidth - dropdownWidth - 8));
-      setMenuTop(y + height + 6);
-      setMenuLeft(left);
-      setMenuWidth(dropdownWidth);
-      setOpen(true);
-    });
-  };
-
+function InfoBox({ label, value }: { label: string; value: string }) {
   return (
-    <>
-      <View ref={triggerRef} collapsable={false} style={styles.periodWrap}>
-        <Pressable style={styles.periodChip} onPress={() => (open ? closeMenu() : openMenu())}>
-          <Text style={styles.periodChipText}>{value}</Text>
-          <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color={colors.orange} />
-        </Pressable>
-      </View>
-      <Modal visible={open} transparent animationType="fade" onRequestClose={closeMenu}>
-        <View style={styles.dropdownOverlay}>
-          <Pressable style={styles.dropdownDismissArea} onPress={closeMenu} />
-          <View style={[styles.dropdownMenu, { top: menuTop, left: menuLeft, width: menuWidth }]}>
-            {periodFilters.map((option, index) => {
-              const active = value === option;
-              const isLast = index === periodFilters.length - 1;
-              return (
-                <Pressable
-                  key={option}
-                  style={[styles.dropdownOption, active && styles.dropdownOptionActive, isLast && styles.dropdownOptionLast]}
-                  onPress={() => {
-                    onChange(option);
-                    closeMenu();
-                  }}
-                >
-                  <Text style={[styles.dropdownOptionText, active && styles.dropdownOptionTextActive]}>
-                    {option}
-                  </Text>
-                  {active ? <Ionicons name="checkmark" size={14} color={colors.onPrimary} /> : null}
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-      </Modal>
-    </>
-  );
-}
-
-function RouteTimeline({
-  pickupLabel,
-  destinationName,
-  destinationAddress,
-}: {
-  pickupLabel: string;
-  destinationName: string;
-  destinationAddress: string;
-}) {
-  const showAddress = Boolean(destinationAddress && destinationAddress !== destinationName);
-
-  return (
-    <View style={styles.routeTimeline}>
-      <View style={styles.routeStopRow}>
-        <View style={styles.routePinCol}>
-          <View style={[styles.routePin, styles.pickupPin]}>
-            <Ionicons name="location" size={12} color={colors.onPrimary} />
-          </View>
-        </View>
-        <Text style={styles.routeStopLabel} numberOfLines={1}>
-          {pickupLabel}
-        </Text>
-      </View>
-
-      <View style={styles.routeConnectorRow}>
-        <View style={styles.routePinCol}>
-          <View style={styles.routeLine} />
-        </View>
-      </View>
-
-      <View style={[styles.routeStopRow, styles.routeStopRowDrop]}>
-        <View style={styles.routePinCol}>
-          <View style={[styles.routePin, styles.dropPin]}>
-            <Ionicons name="location" size={12} color={colors.onPrimary} />
-          </View>
-        </View>
-        <View style={styles.routeStopText}>
-          <Text style={styles.routeDestination} numberOfLines={3}>
-            {destinationName}
-          </Text>
-          {showAddress ? (
-            <Text style={styles.routeAddress} numberOfLines={2}>
-              {destinationAddress}
-            </Text>
-          ) : null}
-        </View>
-      </View>
+    <View style={styles.infoBox}>
+      <Text style={styles.infoBoxLabel}>{label}</Text>
+      <Text style={styles.infoBoxValue}>{value}</Text>
     </View>
   );
 }
 
-function HistoryCard({ entry }: { entry: DeliveryHistoryEntry }) {
+function HistoryOrderCard({ entry }: { entry: DeliveryHistoryEntry }) {
+  const tone = statusBadgeStyle(entry.status);
+  const subtitle = entry.destinationAddress
+    ? `${entry.destinationName}, ${entry.destinationAddress}`
+    : entry.destinationName;
+
   return (
-    <View style={styles.historyCard}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardDate}>{entry.date}</Text>
-        <Badge label={entry.status} tone={statusTone(entry.status)} />
+    <View style={styles.orderCard}>
+      <View style={styles.orderTop}>
+        <View style={[styles.orderIcon, { backgroundColor: tone.iconBg }]}>
+          <Ionicons name={tone.icon} size={18} color={tone.iconColor} />
+        </View>
+        <View style={styles.orderCopy}>
+          <Text style={styles.orderTitle}>{deliveryTitle(entry.deliveryType)}</Text>
+          <Text style={styles.orderSubtitle} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        </View>
+        <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
+          <Text style={[styles.statusPillText, { color: tone.text }]}>{entry.status}</Text>
+        </View>
       </View>
 
-      <RouteTimeline
-        pickupLabel={entry.pickupLabel}
-        destinationName={entry.destinationName}
-        destinationAddress={entry.destinationAddress}
-      />
-
-      <View style={styles.cardFooter}>
-        <Text style={styles.cardTime}>{entry.time}</Text>
-        <Text style={styles.cardPrice}>{entry.price}</Text>
-      </View>
+      {entry.status === 'Delivered' ? (
+        <>
+          <View style={styles.infoRow}>
+            <InfoBox label="Date" value={entry.date} />
+            <InfoBox label="Time" value={entry.time} />
+          </View>
+          <View style={styles.orderFooter}>
+            <Text style={styles.footerMuted}>Amount paid</Text>
+            <Text style={styles.footerPrice}>{entry.price}</Text>
+          </View>
+        </>
+      ) : entry.status === 'In Transit' ? (
+        <>
+          <View style={styles.infoRow}>
+            <InfoBox label="Pickup Slot" value={entry.time} />
+            <InfoBox label="ETA" value="Soon" />
+          </View>
+          <View style={styles.orderFooter}>
+            <Text style={styles.footerMuted}>Live updates sent by SMS & WhatsApp</Text>
+            <Text style={styles.footerOrderId}>#{entry.id.slice(-6).toUpperCase()}</Text>
+          </View>
+        </>
+      ) : (
+        <>
+          <View style={styles.infoRow}>
+            <InfoBox label="Date" value={entry.date} />
+            <InfoBox label="Time" value={entry.time} />
+          </View>
+          <View style={styles.orderFooter}>
+            <Text style={styles.footerMuted}>Trip cancelled</Text>
+            <Text style={styles.footerOrderId}>#{entry.id.slice(-6).toUpperCase()}</Text>
+          </View>
+        </>
+      )}
     </View>
   );
 }
@@ -186,10 +115,8 @@ export function HistoryScreen() {
   const { user } = useAuth();
   const { horizontalPadding } = useResponsive();
   const [history, setHistory] = useState<DeliveryHistoryEntry[]>([]);
-  const [query, setQuery] = useState('');
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<StatusFilter>('All');
-  const [activePeriod, setActivePeriod] = useState<PeriodFilter>('This Week');
+  const [period, setPeriod] = useState<HistoryPeriodFilter>('month');
+  const [downloadingInvoice, setDownloadingInvoice] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!user?.phone) {
@@ -206,80 +133,102 @@ export function HistoryScreen() {
     }, [refresh]),
   );
 
-  const filtered = history.filter((item) => {
-    const matchesStatus =
-      activeFilter === 'All' ||
-      item.status.toLowerCase() === activeFilter.toLowerCase();
-    const haystack = [
-      item.route,
-      item.date,
-      item.destinationName,
-      item.destinationAddress,
-      item.pickupLabel,
-    ]
-      .join(' ')
-      .toLowerCase();
-    const matchesQuery = !query.trim() || haystack.includes(query.toLowerCase());
-    return matchesPeriod(item, activePeriod) && matchesStatus && matchesQuery;
-  });
+  const filteredHistory = useMemo(
+    () =>
+      history.filter((entry) => isHistoryInPeriod(resolveHistoryDateKey(entry), period)),
+    [history, period],
+  );
+
+  const totalDeliveries = filteredHistory.length;
+  const cancelledCount = useMemo(
+    () => filteredHistory.filter((entry) => entry.status === 'Cancelled').length,
+    [filteredHistory],
+  );
+
+  const periodEyebrow = historyPeriodLabel(period).toUpperCase();
+
+  const handleDownloadInvoice = async () => {
+    if (!user?.phone) return;
+
+    const deliveredInPeriod = filteredHistory.filter((entry) => entry.status === 'Delivered');
+    if (deliveredInPeriod.length === 0) {
+      Alert.alert('No invoice', `No delivered orders for ${historyPeriodLabel(period).toLowerCase()} to download yet.`);
+      return;
+    }
+
+    setDownloadingInvoice(true);
+    try {
+      const result = await downloadMonthlyInvoice(filteredHistory, user.name || 'Customer', user.phone);
+      if (result === 'downloaded') {
+        Alert.alert('Invoice downloaded', 'Your monthly invoice file has been saved.');
+        return;
+      }
+      if (result === 'shared') return;
+      if (result === 'failed') {
+        Alert.alert('Invoice', buildMonthlyInvoiceText(filteredHistory, user.name || 'Customer', user.phone));
+      }
+    } finally {
+      setDownloadingInvoice(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={[styles.header, { paddingHorizontal: horizontalPadding }]}>
-        <Text style={styles.headerTitle}>Delivery History</Text>
-        <Pressable
-          style={styles.searchBtn}
-          onPress={() => setSearchOpen((open) => !open)}
-          accessibilityRole="button"
-          accessibilityLabel="Search deliveries"
-        >
-          <Ionicons name="search" size={20} color={colors.text} />
-        </Pressable>
-      </View>
-
-      {searchOpen ? (
-        <View style={[styles.search, { marginHorizontal: horizontalPadding }]}>
-          <Ionicons name="search" size={18} color={colors.muted} />
-          <TextInput
-            placeholder="Search deliveries..."
-            placeholderTextColor={colors.muted}
-            style={styles.searchInput}
-            value={query}
-            onChangeText={setQuery}
-            underlineColorAndroid="transparent"
-            autoFocus
-          />
-        </View>
-      ) : null}
-
       <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterScroll}
-        contentContainerStyle={[styles.filterRow, { paddingHorizontal: horizontalPadding }]}
-      >
-        {statusFilters.map((filter) => (
-          <Pressable
-            key={filter}
-            style={[styles.chip, activeFilter === filter && styles.chipActive]}
-            onPress={() => setActiveFilter(filter)}
-          >
-            <Text style={[styles.chipText, activeFilter === filter && styles.chipTextActive]}>{filter}</Text>
-          </Pressable>
-        ))}
-        <PeriodDropdown value={activePeriod} onChange={setActivePeriod} />
-      </ScrollView>
-
-      <ScrollView
-        style={styles.listScroll}
-        contentContainerStyle={[styles.listContent, { paddingHorizontal: horizontalPadding }]}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
       >
-        {filtered.length > 0 ? (
-          filtered.map((entry) => <HistoryCard key={entry.id} entry={entry} />)
+        <LinearGradient colors={['#E91E63', '#C2185B']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroBanner}>
+          <View style={styles.heroCopy}>
+            <Text style={styles.heroEyebrow}>{periodEyebrow}</Text>
+            <View style={styles.heroStatsRow}>
+              <View style={styles.heroStat}>
+                <Text style={styles.heroStatValue}>{totalDeliveries}</Text>
+                <Text style={styles.heroStatLabel}>Total Deliveries</Text>
+              </View>
+              <View style={styles.heroStatDivider} />
+              <View style={styles.heroStat}>
+                <Text style={styles.heroStatValue}>{cancelledCount}</Text>
+                <Text style={styles.heroStatLabel}>Cancelled Orders</Text>
+              </View>
+            </View>
+          </View>
+          <Ionicons name="clipboard-outline" size={54} color="rgba(255,255,255,0.22)" style={styles.heroArt} />
+        </LinearGradient>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
+          {PERIOD_FILTERS.map((item) => {
+            const active = period === item.id;
+            return (
+              <Pressable
+                key={item.id}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                onPress={() => setPeriod(item.id)}
+              >
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Recent Orders</Text>
+          <Pressable onPress={() => void handleDownloadInvoice()} disabled={downloadingInvoice}>
+            <Text style={[styles.downloadLink, downloadingInvoice && styles.downloadLinkDisabled]}>
+              {downloadingInvoice ? 'Preparing…' : 'Download Invoice'}
+            </Text>
+          </Pressable>
+        </View>
+
+        {filteredHistory.length > 0 ? (
+          filteredHistory.map((entry) => <HistoryOrderCard key={entry.id} entry={entry} />)
         ) : (
           <View style={styles.emptyCard}>
-            <Text style={styles.empty}>No deliveries for {activePeriod.toLowerCase()}.</Text>
+            <Text style={styles.empty}>No orders for {historyPeriodLabel(period).toLowerCase()}.</Text>
           </View>
         )}
       </ScrollView>
@@ -289,167 +238,194 @@ export function HistoryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-  },
-  headerTitle: { fontSize: 22, fontWeight: '800', color: colors.text },
-  searchBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
+  scroll: { paddingBottom: 32, paddingTop: spacing.sm },
+  heroBanner: {
+    borderRadius: 20,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    overflow: 'hidden',
+    minHeight: 112,
     justifyContent: 'center',
   },
-  search: {
+  heroCopy: { maxWidth: '82%', zIndex: 1 },
+  heroEyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.85)',
+    letterSpacing: 1,
+    marginBottom: 10,
+  },
+  heroStatsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: colors.white,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-    marginBottom: spacing.sm,
+    gap: 14,
   },
-  searchInput: {
+  heroStat: {
     flex: 1,
-    fontSize: 14,
-    color: colors.text,
-    padding: 0,
-    margin: 0,
-    borderWidth: 0,
-    backgroundColor: 'transparent',
-  } as const,
-  filterScroll: {
-    flexGrow: 0,
-    flexShrink: 0,
+    minWidth: 0,
+  },
+  heroStatValue: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: colors.onPrimary,
+    lineHeight: 30,
+    marginBottom: 4,
+  },
+  heroStatLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.88)',
+    lineHeight: 14,
+  },
+  heroStatDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  heroArt: {
+    position: 'absolute',
+    right: 16,
+    top: 24,
   },
   filterRow: {
-    alignItems: 'center',
+    flexDirection: 'row',
     gap: 8,
-    paddingBottom: spacing.sm,
+    marginBottom: spacing.md,
+    paddingVertical: 2,
   },
-  listScroll: { flex: 1 },
-  listContent: { paddingBottom: 32 },
-  chip: {
+  filterChip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: radius.full,
+    backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.white,
   },
-  chipActive: { backgroundColor: colors.orange, borderColor: colors.orange },
-  chipText: { fontSize: 12, fontWeight: '600', color: colors.text },
-  chipTextActive: { color: colors.onPrimary },
-  periodWrap: { flexShrink: 0 },
-  periodChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: radius.full,
-    backgroundColor: colors.white,
-    borderWidth: 1,
+  filterChipActive: {
+    backgroundColor: colors.orange,
     borderColor: colors.orange,
   },
-  periodChipText: { fontSize: 12, fontWeight: '700', color: colors.orange },
-  dropdownOverlay: { flex: 1 },
-  dropdownDismissArea: { ...StyleSheet.absoluteFillObject },
-  dropdownMenu: {
-    position: 'absolute',
-    backgroundColor: colors.white,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-    ...shadow.card,
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.muted,
   },
-  dropdownOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+  filterChipTextActive: {
+    color: colors.onPrimary,
   },
-  dropdownOptionLast: { borderBottomWidth: 0 },
-  dropdownOptionActive: { backgroundColor: colors.orange },
-  dropdownOptionText: { fontSize: 13, fontWeight: '600', color: colors.text },
-  dropdownOptionTextActive: { color: colors.onPrimary },
-  historyCard: {
-    backgroundColor: colors.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    ...shadow.subtle,
-  },
-  cardHeader: {
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: spacing.sm,
   },
-  cardDate: { fontSize: 13, fontWeight: '700', color: colors.text },
-  routeTimeline: { marginBottom: spacing.md },
-  routeStopRow: {
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  downloadLink: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.orange,
+  },
+  downloadLinkDisabled: {
+    opacity: 0.55,
+  },
+  orderCard: {
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+    ...shadow.subtle,
+  },
+  orderTop: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    marginBottom: 8,
   },
-  routeStopRowDrop: {
-    alignItems: 'flex-start',
-  },
-  routePinCol: {
-    width: 20,
-    alignItems: 'center',
-  },
-  routePin: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+  orderIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
-  pickupPin: { backgroundColor: colors.orange },
-  dropPin: { backgroundColor: colors.blue },
-  routeConnectorRow: {
+  orderCopy: { flex: 1, minWidth: 0 },
+  orderTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: 2,
+  },
+  orderSubtitle: {
+    fontSize: 11,
+    color: colors.muted,
+    lineHeight: 14,
+  },
+  statusPill: {
+    borderRadius: radius.full,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    flexShrink: 0,
+  },
+  statusPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  infoRow: {
     flexDirection: 'row',
-    marginVertical: 2,
+    gap: 8,
+    marginBottom: 8,
   },
-  routeLine: {
-    width: 2,
-    height: 16,
-    backgroundColor: colors.orangeLight,
-    borderRadius: 1,
+  infoBox: {
+    flex: 1,
+    backgroundColor: colors.bg,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  routeStopText: { flex: 1, minWidth: 0 },
-  routeStopLabel: { flex: 1, fontSize: 12, fontWeight: '600', color: colors.text },
-  routeDestination: { fontSize: 12, fontWeight: '600', color: colors.text, lineHeight: 17 },
-  routeAddress: { fontSize: 11, color: colors.muted, marginTop: 4, lineHeight: 16 },
-  cardFooter: {
+  infoBoxLabel: {
+    fontSize: 10,
+    color: colors.muted,
+    marginBottom: 2,
+    fontWeight: '600',
+  },
+  infoBoxValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  orderFooter: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: spacing.xs,
-    paddingTop: spacing.md,
+    gap: 8,
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: colors.borderSubtle,
   },
-  cardTime: { fontSize: 11, color: colors.muted, fontWeight: '500' },
-  cardPrice: { fontSize: 13, fontWeight: '700', color: colors.text },
+  footerMuted: {
+    flex: 1,
+    fontSize: 10,
+    color: colors.muted,
+    lineHeight: 14,
+  },
+  footerPrice: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.orange,
+  },
+  footerOrderId: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.text,
+  },
   emptyCard: {
     backgroundColor: colors.white,
     borderRadius: 16,

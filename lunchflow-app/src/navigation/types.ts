@@ -21,11 +21,13 @@ export type MainTabParamList = {
   Home: NavigatorScreenParams<HomeStackParamList>;
   Track: NavigatorScreenParams<TrackStackParamList>;
   History: undefined;
+  Subscription: undefined;
   Profile: NavigatorScreenParams<ProfileStackParamList>;
 };
 
 export type DriverTabParamList = {
   DriverHome: undefined;
+  DriverRoute: undefined;
   DriverDeliveries: undefined;
   DriverProfile: undefined;
 };
@@ -46,7 +48,7 @@ export type AdminProfileStackParamList = {
 
 export type HomeStackParamList = {
   HomeMain: undefined;
-  FoodReady: undefined;
+  FoodReady: { step?: 'choosePlan' } | undefined;
   Notifications: undefined;
 };
 
@@ -64,7 +66,7 @@ export type ProfileStackParamList = {
   Language: undefined;
   PrivacySecurity: undefined;
   Wallet: undefined;
-  Subscription: undefined;
+  SubscriptionDetails: undefined;
   Referral: undefined;
   Support: undefined;
 };

@@ -145,6 +145,7 @@ export type DeliveryProofMeta = {
   gpsLat?: number;
   gpsLng?: number;
   proofImageUrl?: string;
+  proofCapturedAt?: string;
 };
 
 export type DeliveryDriver = {
@@ -217,6 +218,8 @@ export type DeliveryOrder = {
   deliverySlotId?: string;
   deliverySlotLabel?: string;
   studentEntries?: FoodReadyStudentEntry[];
+  /** Legacy alias used by older food-ready writes. */
+  students?: FoodReadyStudentEntry[];
 };
 
 export type DeliveryProfile = {
@@ -227,8 +230,32 @@ export type DeliveryProfile = {
   deliveryType?: DeliveryType;
 };
 
-export function getDropAddress(order: Pick<DeliveryOrder, 'dropAddress' | 'school'>): string {
-  return order.dropAddress || order.school;
+export function getDropAddress(
+  order: Pick<DeliveryOrder, 'dropAddress' | 'school' | 'studentEntries'> & {
+    students?: FoodReadyStudentEntry[];
+    deliveryAddress?: string;
+  },
+): string {
+  const entries =
+    order.studentEntries && order.studentEntries.length > 0
+      ? order.studentEntries
+      : order.students && order.students.length > 0
+        ? order.students
+        : [];
+  const fromEntries = formatStudentDropAddresses(entries);
+  if (fromEntries) return fromEntries;
+
+  const candidates = [
+    order.dropAddress,
+    order.deliveryAddress,
+    entries[0]?.dropLocation,
+    order.school,
+  ];
+  for (const candidate of candidates) {
+    const trimmed = String(candidate ?? '').trim();
+    if (trimmed) return trimmed;
+  }
+  return '';
 }
 
 export function getDeliveryTypeLabel(type: DeliveryType | LegacyDeliveryType | string): string {

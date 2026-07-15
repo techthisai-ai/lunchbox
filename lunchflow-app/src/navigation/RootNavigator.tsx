@@ -5,8 +5,10 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../constants/theme';
+import { DriverTripProvider } from '../context/DriverTripContext';
 import { DriverChangePasswordScreen } from '../screens/driver/DriverChangePasswordScreen';
 import { DriverDeliveriesScreen } from '../screens/driver/DriverDeliveriesScreen';
+import { DriverRouteScreen } from '../screens/driver/DriverRouteScreen';
 import { DriverHomeScreen } from '../screens/driver/DriverHomeScreen';
 import { DriverLoginScreen } from '../screens/driver/DriverLoginScreen';
 import { DriverRegisterScreen } from '../screens/driver/DriverRegisterScreen';
@@ -17,6 +19,7 @@ import { DeliveryStatusScreen } from '../screens/DeliveryStatusScreen';
 import { FoodReadyScreen } from '../screens/FoodReadyScreen';
 import { HistoryScreen } from '../screens/HistoryScreen';
 import { HomeScreen } from '../screens/HomeScreen';
+import { MySubscriptionScreen } from '../screens/MySubscriptionScreen';
 import { AdminPortalScreen } from '../screens/admin/AdminPortalScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { LanguageScreen } from '../screens/LanguageScreen';
@@ -31,6 +34,7 @@ import { ReferralScreen } from '../screens/ReferralScreen';
 import { OtpVerifyScreen } from '../screens/OtpVerifyScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { SplashScreen } from '../screens/SplashScreen';
+import { SubscriptionDetailsScreen } from '../screens/SubscriptionDetailsScreen';
 import { SubscriptionScreen } from '../screens/SubscriptionScreen';
 import { SupportScreen } from '../screens/SupportScreen';
 import { TrackingScreen } from '../screens/TrackingScreen';
@@ -126,7 +130,7 @@ function ProfileStackNavigator() {
       <ProfileStack.Screen name="Language" component={LanguageScreen} />
       <ProfileStack.Screen name="PrivacySecurity" component={PrivacySecurityScreen} />
       <ProfileStack.Screen name="Wallet" component={WalletScreen} />
-      <ProfileStack.Screen name="Subscription" component={SubscriptionScreen} />
+      <ProfileStack.Screen name="SubscriptionDetails" component={SubscriptionDetailsScreen} />
       <ProfileStack.Screen name="Referral" component={ReferralScreen} />
       <ProfileStack.Screen name="Support" component={SupportScreen} />
     </ProfileStack.Navigator>
@@ -149,6 +153,7 @@ function CustomerTabs() {
             Home: 'home',
             Track: 'navigate',
             History: 'time',
+            Subscription: 'card-outline',
             Profile: 'person',
           };
           return <Ionicons name={icons[route.name]} size={size} color={color} />;
@@ -158,6 +163,11 @@ function CustomerTabs() {
       <Tab.Screen name="Home" component={HomeStackNavigator} options={({ route }) => ({ tabBarStyle: tabBarStyleForRoute(route, ['HomeMain'], tabBarStyle) })} />
       <Tab.Screen name="Track" component={TrackStackNavigator} options={({ route }) => ({ title: 'Track', tabBarStyle: tabBarStyleForRoute(route, ['Tracking'], tabBarStyle) })} />
       <Tab.Screen name="History" component={HistoryScreen} options={{ tabBarStyle }} />
+      <Tab.Screen
+        name="Subscription"
+        component={MySubscriptionScreen}
+        options={{ title: 'Plan', tabBarStyle }}
+      />
       <Tab.Screen name="Profile" component={ProfileStackNavigator} options={({ route }) => ({ tabBarStyle: tabBarStyleForRoute(route, ['ProfileMain'], tabBarStyle) })} />
     </Tab.Navigator>
   );
@@ -167,6 +177,7 @@ function DriverTabsNavigator() {
   const tabBarStyle = useTabBarStyle();
 
   return (
+    <DriverTripProvider>
     <DriverTab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
@@ -178,6 +189,7 @@ function DriverTabsNavigator() {
         tabBarIcon: ({ color, size }) => {
           const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
             DriverHome: 'home',
+            DriverRoute: 'map',
             DriverDeliveries: 'list',
             DriverProfile: 'person',
           };
@@ -186,9 +198,11 @@ function DriverTabsNavigator() {
       })}
     >
       <DriverTab.Screen name="DriverHome" component={DriverHomeScreen} options={{ title: 'Home' }} />
+      <DriverTab.Screen name="DriverRoute" component={DriverRouteScreen} options={{ title: 'Route' }} />
       <DriverTab.Screen name="DriverDeliveries" component={DriverDeliveriesScreen} options={{ title: 'Deliveries' }} />
       <DriverTab.Screen name="DriverProfile" component={DriverProfileScreen} options={{ title: 'Profile' }} />
     </DriverTab.Navigator>
+    </DriverTripProvider>
   );
 }
 

@@ -1,5 +1,6 @@
 export {
   buildTimeline,
+  cancelCustomerOrder,
   createBooking,
   getAdminStatusLabel,
   getCustomerOrderToday,

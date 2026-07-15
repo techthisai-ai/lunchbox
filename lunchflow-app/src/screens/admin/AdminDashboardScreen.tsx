@@ -1,6 +1,6 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
 import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
@@ -11,7 +11,7 @@ import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { AdminPanel } from '../../components/admin/AdminPanel';
 import { Badge } from '../../components/Badge';
 import { formatOrderDisplayId } from '../../utils/adminOrderHelpers';
-import { LiveDeliveryMap } from '../../components/LiveDeliveryMap';
+import { LiveDeliveryMap, type FleetDriverMarker } from '../../components/LiveDeliveryMap';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
 import { useAdminTableColumn } from '../../hooks/useAdminTableColumn';
@@ -20,9 +20,14 @@ import {
   getAdminStatusLabel,
   listActiveFleetOrders,
   listAllOrdersToday,
+  listLiveFleetDrivers,
   processExpiredPickupOrders,
   subscribeToAllOrdersToday,
 } from '../../services/orderHubService';
+import {
+  subscribeToDriverLiveLocations,
+  type DriverLiveLocation,
+} from '../../services/driverLocationService';
 import { loadRegisteredDrivers } from '../../services/userRegistryService';
 import { DeliveryOrder, DeliveryStatus } from '../../types/delivery';
 
@@ -49,6 +54,7 @@ function pickMapOrder(orders: DeliveryOrder[]): DeliveryOrder | null {
 export function AdminDashboardScreen() {
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
   const [drivers, setDrivers] = useState<Awaited<ReturnType<typeof loadRegisteredDrivers>>>([]);
+  const [liveLocations, setLiveLocations] = useState<DriverLiveLocation[]>([]);
   const [revenue, setRevenue] = useState(0);
   const [pendingPayments, setPendingPayments] = useState(0);
   const { showMobileHeader, pageTitleSize, isSidebarCollapsed, isCompact } = useAdminLayout();
@@ -85,6 +91,7 @@ export function AdminDashboardScreen() {
   );
 
   useEffect(() => subscribeToAllOrdersToday(setOrders), []);
+  useEffect(() => subscribeToDriverLiveLocations(setLiveLocations), []);
 
   const today = new Date().toISOString().slice(0, 10);
   const deliveredToday = orders.filter((o) => o.status === 'delivered' && (o.date === today || o.date.startsWith(today)));
@@ -93,6 +100,26 @@ export function AdminDashboardScreen() {
   const availableDrivers = drivers.filter((d) => d.status === 'Available');
   const mapOrder = pickMapOrder(orders);
   const fleetOrders = listActiveFleetOrders(orders);
+  const fleetDrivers: FleetDriverMarker[] = useMemo(
+    () =>
+      listLiveFleetDrivers(orders)
+        .filter((entry) => entry.location)
+        .map((entry) => ({
+          driverId: entry.driverId,
+          name: entry.name,
+          location: entry.location!,
+          orderCount: entry.orderCount,
+        })),
+    [orders],
+  );
+  const activeOnMapCount = useMemo(() => {
+    const ids = new Set([
+      ...fleetDrivers.map((entry) => entry.driverId),
+      ...liveLocations.map((entry) => entry.driverId),
+    ]);
+    return ids.size;
+  }, [fleetDrivers, liveLocations]);
+  const hasMapData = Boolean(mapOrder || fleetOrders.length > 0 || fleetDrivers.length > 0 || liveLocations.length > 0);
 
   const recentOrders = orders.slice(0, 5);
 
@@ -117,6 +144,7 @@ export function AdminDashboardScreen() {
       <AdminKpiRow dense>
         <AdminKpiCard compact label="Today's Deliveries" value={String(deliveredToday.length)} icon="cube" iconBg={colors.purpleLight} iconColor={colors.purple} />
         <AdminKpiCard compact label="Active Drivers" value={String(activeDrivers.length)} icon="people" iconBg={colors.greenLight} iconColor={colors.greenDark} />
+        <AdminKpiCard compact label="On Live Map" value={String(activeOnMapCount)} icon="locate" iconBg={colors.blueLight} iconColor={colors.blue} />
         <AdminKpiCard compact label="Available Drivers" value={String(availableDrivers.length)} icon="bicycle" iconBg={colors.blueLight} iconColor={colors.blue} />
         <AdminKpiCard compact label="Total Deliveries" value={String(totalDeliveries.length)} icon="checkmark-done" iconBg={colors.greenLight} iconColor={colors.greenDark} />
         <AdminKpiCard compact label="Revenue Today" value={`₹${revenue.toLocaleString('en-IN')}`} icon="wallet" iconBg={colors.purpleLight} iconColor={colors.purple} />
@@ -125,12 +153,20 @@ export function AdminDashboardScreen() {
 
       <View style={styles.midRow}>
         <AdminPanel title="Live Delivery Map" style={styles.mapPanel}>
-          {(mapOrder ?? fleetOrders[0] ?? orders[0]) ? (
-            <LiveDeliveryMap order={(mapOrder ?? fleetOrders[0] ?? orders[0])!} fleetOrders={fleetOrders} height={mapHeight} />
+          {hasMapData ? (
+            <LiveDeliveryMap
+              order={mapOrder}
+              fleetOrders={fleetOrders}
+              fleetDrivers={fleetDrivers}
+              liveLocations={liveLocations}
+              height={mapHeight}
+            />
           ) : (
             <View style={[styles.mapPlaceholder, { height: mapHeight }]}>
               <Ionicons name="map-outline" size={32} color={colors.muted} />
-              <Text style={styles.placeholderText}>No active deliveries on the map yet.</Text>
+              <Text style={styles.placeholderText}>
+                Drivers appear here live after they open the app and accept a pickup.
+              </Text>
             </View>
           )}
         </AdminPanel>

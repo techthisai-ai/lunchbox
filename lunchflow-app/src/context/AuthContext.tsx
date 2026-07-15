@@ -65,26 +65,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    restoreAuthSession().then((restored) => {
-      if (!cancelled && restored) {
-        setUser((current) => current ?? restored);
+    let unsubscribe = () => {};
+    let restoredSession: AuthUser | null = null;
+
+    (async () => {
+      restoredSession = await restoreAuthSession();
+      if (cancelled) return;
+
+      // Restore local customer/driver session BEFORE Firebase auth fires,
+      // otherwise a null Firebase user would wipe the registered session.
+      if (restoredSession) {
+        setUser(restoredSession);
       }
-    });
+
+      unsubscribe = subscribeToAuthState((profile) => {
+        if (cancelled) return;
+        setUser((current) => {
+          if (profile) return profile;
+          if (current?.role === 'customer' || current?.role === 'driver') return current;
+          if (current?.id === DEMO_ADMIN.id) return current;
+          if (restoredSession?.role === 'customer' || restoredSession?.role === 'driver') {
+            return restoredSession;
+          }
+          if (restoredSession?.id === DEMO_ADMIN.id) return restoredSession;
+          return null;
+        });
+        setLoading(false);
+      });
+
+      // Unblock splash quickly even if Firebase is slow.
+      setTimeout(() => {
+        if (!cancelled) setLoading(false);
+      }, 800);
+    })();
+
+    const timeout = setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, 4000);
+
     return () => {
       cancelled = true;
+      clearTimeout(timeout);
+      unsubscribe();
     };
-  }, []);
-
-  useEffect(() => {
-    return subscribeToAuthState((profile) => {
-      setUser((current) => {
-        if (profile) return profile;
-        if (current?.role === 'customer' || current?.role === 'driver') return current;
-        if (current?.id === DEMO_ADMIN.id) return current;
-        return null;
-      });
-      setLoading(false);
-    });
   }, []);
 
   useEffect(() => {
@@ -118,6 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const profile = await loginCustomerService(phone);
           setUser(profile);
+          await persistAuthSession(profile);
           registerPushInBackground(profile.phone, profile.name);
           return null;
         } catch (error) {
@@ -131,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const profile = await loginDriverService(phone);
           setUser(profile);
+          await persistAuthSession(profile);
           registerPushInBackground(profile.phone, profile.name);
           return null;
         } catch (error) {
@@ -165,6 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const profile = await verifyCustomerOtp(otp, phone);
           setUser(profile);
+          await persistAuthSession(profile);
           registerPushInBackground(profile.phone, profile.name);
           ensureReferralInBackground(profile.phone, profile.name);
           return { error: null, user: profile };
@@ -176,6 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const profile = await verifyDriverOtp(otp, phone);
           setUser(profile);
+          await persistAuthSession(profile);
           registerPushInBackground(profile.phone, profile.name);
           return { error: null, user: profile };
         } catch (error) {
@@ -186,6 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const profile = await registerCustomerService(data);
           setUser(profile);
+          await persistAuthSession(profile);
           registerPushInBackground(profile.phone, profile.name);
           ensureReferralInBackground(profile.phone, profile.name);
           return null;
@@ -197,6 +225,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const profile = await registerDriverService(data);
           setUser(profile);
+          await persistAuthSession(profile);
           return null;
         } catch (error) {
           return error instanceof Error ? error.message : 'Registration failed';

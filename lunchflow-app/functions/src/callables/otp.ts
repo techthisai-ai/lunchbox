@@ -1,6 +1,6 @@
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { DocumentSnapshot, FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { normalizePhone } from '../config';
 import { sendLoginOtpSms } from '../services/sms';
 
@@ -34,7 +34,10 @@ export const requestLoginOtp = onCall({ region: 'asia-south1' }, async (request)
   if (role === 'driver') {
     const drivers = await db.collection('drivers').where('phone', '==', phone).limit(1).get();
     if (drivers.empty) {
-      throw new HttpsError('not-found', 'Driver not registered. Please sign up first.');
+      const userMirror = await db.collection('users').doc(phone).get();
+      if (!userMirror.exists || userMirror.data()?.role !== 'driver') {
+        throw new HttpsError('not-found', 'Driver not registered. Please sign up first.');
+      }
     }
   } else {
     const userSnap = await db.collection('users').doc(phone).get();
@@ -104,12 +107,47 @@ export const verifyLoginOtp = onCall({ region: 'asia-south1' }, async (request) 
   const auth = getAuth();
 
   if (role === 'driver') {
-    const drivers = await db.collection('drivers').where('phone', '==', phone).limit(1).get();
-    if (drivers.empty) {
-      throw new HttpsError('not-found', 'Driver profile not found.');
+    const driverQuery = await db.collection('drivers').where('phone', '==', phone).limit(1).get();
+    let driverDoc: DocumentSnapshot | null = driverQuery.empty ? null : driverQuery.docs[0];
+    if (!driverDoc) {
+      const userMirror = await db.collection('users').doc(phone).get();
+      if (!userMirror.exists || userMirror.data()?.role !== 'driver') {
+        throw new HttpsError('not-found', 'Driver profile not found.');
+      }
+      const mirroredId = String(userMirror.data()?.driverId ?? userMirror.data()?.id ?? '');
+      if (mirroredId) {
+        const mirrored = await db.collection('drivers').doc(mirroredId).get();
+        if (mirrored.exists) driverDoc = mirrored;
+      }
+      if (!driverDoc) {
+        // Treat users mirror as source until drivers doc exists.
+        const profile = userMirror.data() as { name?: string; vehicle?: string; approvalStatus?: string };
+        const uid = driverUid(phone);
+        try {
+          await auth.getUser(uid);
+        } catch {
+          await auth.createUser({ uid, phoneNumber: `+91${phone}`, displayName: profile.name ?? 'Driver' });
+        }
+        const customToken = await auth.createCustomToken(uid, {
+          role: 'driver',
+          phone,
+          driverId: mirroredId || uid,
+        });
+        return {
+          customToken,
+          user: {
+            id: mirroredId || uid,
+            role: 'driver',
+            name: profile.name ?? 'Driver',
+            phone,
+            vehicle: profile.vehicle ?? '',
+            driverApprovalStatus: profile.approvalStatus ?? 'pending',
+          },
+        };
+      }
     }
-    const driverDoc = drivers.docs[0];
-    const profile = driverDoc.data() as { name?: string; vehicle?: string };
+
+    const profile = driverDoc.data() as { name?: string; vehicle?: string; approvalStatus?: string };
     const uid = driverUid(phone);
     try {
       await auth.getUser(uid);
@@ -138,6 +176,7 @@ export const verifyLoginOtp = onCall({ region: 'asia-south1' }, async (request) 
         name: profile.name ?? 'Driver',
         phone,
         vehicle: profile.vehicle ?? '',
+        driverApprovalStatus: profile.approvalStatus ?? 'pending',
       },
     };
   }

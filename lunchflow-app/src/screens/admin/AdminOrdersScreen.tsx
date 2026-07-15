@@ -12,15 +12,17 @@ import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
 import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { Badge } from '../../components/Badge';
 import { colors, radius, spacing } from '../../constants/theme';
+import { subscribeToOrderChanges } from '../../services/orderSync';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
 import { useAdminTableColumn } from '../../hooks/useAdminTableColumn';
 import {
   assignDriverByAdmin,
   listAllOrdersToday,
+  processExpiredPickupOrders,
   subscribeToAllOrdersToday,
 } from '../../services/orderHubService';
 import { loadSubscriptionAmountsByPhone } from '../../services/subscriptionService';
-import { loadRegisteredDrivers } from '../../services/userRegistryService';
+import { loadRegisteredCustomers, loadRegisteredDrivers } from '../../services/userRegistryService';
 import { DeliveryOrder } from '../../types/delivery';
 import {
   OrderTab,
@@ -30,12 +32,14 @@ import {
   formatOrderDateTime,
   formatOrderDisplayId,
   getOrderAmountForCustomer,
+  getOrderDeliveryLocation,
   getOrderTab,
   getPaymentInfo,
   getTableStatusLabel,
   getTableStatusTone,
 } from '../../utils/adminOrderHelpers';
 import { buildCustomerDetail, CustomerDetail, formatCustomerName } from '../../utils/adminCustomerHelpers';
+import { normalizePhone } from '../../constants/auth';
 
 const TABS: { id: OrderTab; label: string }[] = [
   { id: 'all', label: 'All Orders' },
@@ -96,13 +100,26 @@ export function AdminOrdersScreen() {
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all');
   const [driverFilter, setDriverFilter] = useState('all');
   const [amountsByPhone, setAmountsByPhone] = useState<Map<string, number>>(new Map());
+  const [deliveryFallbackByPhone, setDeliveryFallbackByPhone] = useState<Map<string, string>>(new Map());
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [customerDetail, setCustomerDetail] = useState<CustomerDetail | null>(null);
 
   const refresh = useCallback(async () => {
-    const [orderList, driverList] = await Promise.all([listAllOrdersToday(), loadRegisteredDrivers()]);
+    await processExpiredPickupOrders();
+    const [orderList, driverList, customers] = await Promise.all([
+      listAllOrdersToday(),
+      loadRegisteredDrivers(),
+      loadRegisteredCustomers(),
+    ]);
     setOrders(orderList);
     setDrivers(driverList);
+    setDeliveryFallbackByPhone(
+      new Map(
+        customers
+          .map((customer) => [normalizePhone(customer.phone), customer.school.trim()] as const)
+          .filter(([, school]) => Boolean(school)),
+      ),
+    );
   }, []);
 
   useFocusEffect(
@@ -111,7 +128,20 @@ export function AdminOrdersScreen() {
     }, [refresh]),
   );
 
-  useEffect(() => subscribeToAllOrdersToday(setOrders), []);
+  useEffect(() => {
+    const unsubFirestore = subscribeToAllOrdersToday(setOrders);
+    const unsubLocal = subscribeToOrderChanges(() => {
+      void refresh();
+    });
+    const interval = setInterval(() => {
+      void refresh();
+    }, 5000);
+    return () => {
+      unsubFirestore();
+      unsubLocal();
+      clearInterval(interval);
+    };
+  }, [refresh]);
 
   useEffect(() => {
     const phones = [...new Set(orders.map((order) => order.customerPhone))];
@@ -139,7 +169,7 @@ export function AdminOrdersScreen() {
   const todayOrders = useMemo(() => orders.filter((o) => isToday(o.date)), [orders]);
   const completed = useMemo(() => orders.filter((o) => o.status === 'delivered'), [orders]);
   const pending = useMemo(() => orders.filter((o) => getOrderTab(o.status) === 'pending'), [orders]);
-  const cancelled = useMemo(() => orders.filter((o) => o.status === 'pickup_closed'), [orders]);
+  const cancelled = useMemo(() => orders.filter((o) => getOrderTab(o.status) === 'cancelled'), [orders]);
 
   const driverOptions = useMemo(
     () => [{ id: 'all', label: 'All Drivers' }, ...drivers.map((d) => ({ id: d.id, label: d.name }))],
@@ -173,7 +203,7 @@ export function AdminOrdersScreen() {
           order.customerName,
           order.customerPhone,
           order.pickupAddress,
-          order.school || order.dropAddress,
+          getOrderDeliveryLocation(order, deliveryFallbackByPhone) || '—',
           order.driver?.name ?? '',
           getTableStatusLabel(order.status),
           payment.label,
@@ -342,8 +372,8 @@ export function AdminOrdersScreen() {
                       </Text>
                     </View>
                     <View style={c.location}>
-                      <Text style={styles.td} numberOfLines={1}>
-                        {order.school || order.dropAddress}
+                      <Text style={styles.td} numberOfLines={2}>
+                        {getOrderDeliveryLocation(order, deliveryFallbackByPhone) || '—'}
                       </Text>
                     </View>
                     <View style={[c.driver, styles.personCell]}>

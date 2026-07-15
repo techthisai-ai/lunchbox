@@ -9,6 +9,7 @@ import { colors, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { goToDriverHome } from '../../navigation/driverRoutes';
 import { RootStackParamList } from '../../navigation/types';
+import { syncDriverRecordToRemote } from '../../services/userRegistryService';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DriverPendingApproval'>;
 
@@ -35,7 +36,12 @@ export function DriverPendingApprovalScreen({ navigation }: Props) {
         }
       };
 
-      checkApproval();
+      // Retry pushing this pending registration to Firestore so admin can see it
+      // (covers cases where the first write failed before rules were updated).
+      void syncDriverRecordToRemote(user.phone).finally(() => {
+        if (!cancelled) void checkApproval();
+      });
+
       const interval = setInterval(checkApproval, POLL_MS);
       return () => {
         cancelled = true;

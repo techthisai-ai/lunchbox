@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRef, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, radius, shadow } from '../constants/theme';
 
 export type SelectOption<T extends string> = {
@@ -57,24 +57,32 @@ export function SelectField<T extends string>({ label, value, options, onChange,
         <View style={styles.modalRoot}>
           <Pressable style={styles.backdrop} onPress={closeMenu} />
           <View style={[styles.menu, { top: anchor.top, left: anchor.left, width: anchor.width }]}>
-            {options.map((option) => {
-              const active = option.id === value;
-              return (
-                <Pressable
-                  key={option.id}
-                  style={[styles.option, active && styles.optionActive]}
-                  onPress={() => {
-                    onChange(option.id);
-                    closeMenu();
-                  }}
-                >
-                  <Text style={[styles.optionText, active && styles.optionTextActive]} numberOfLines={1}>
-                    {option.label}
-                  </Text>
-                  {active ? <Ionicons name="checkmark" size={16} color={colors.orange} /> : null}
-                </Pressable>
-              );
-            })}
+            <ScrollView keyboardShouldPersistTaps="handled" style={styles.menuScroll} nestedScrollEnabled>
+              {options.length === 0 ? (
+                <View style={styles.emptyOption}>
+                  <Text style={styles.emptyOptionText}>No options available</Text>
+                </View>
+              ) : (
+                options.map((option) => {
+                  const active = option.id === value;
+                  return (
+                    <Pressable
+                      key={option.id}
+                      style={[styles.option, active && styles.optionActive]}
+                      onPress={() => {
+                        onChange(option.id);
+                        closeMenu();
+                      }}
+                    >
+                      <Text style={[styles.optionText, active && styles.optionTextActive]} numberOfLines={1}>
+                        {option.label}
+                      </Text>
+                      {active ? <Ionicons name="checkmark" size={16} color={colors.orange} /> : null}
+                    </Pressable>
+                  );
+                })
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -114,6 +122,7 @@ const styles = StyleSheet.create({
     maxHeight: 240,
     ...shadow.elevated,
   },
+  menuScroll: { maxHeight: 232 },
   option: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -125,4 +134,6 @@ const styles = StyleSheet.create({
   optionActive: { backgroundColor: colors.orangeLight },
   optionText: { fontSize: 14, color: colors.text, flex: 1 },
   optionTextActive: { fontWeight: '700', color: colors.orange },
+  emptyOption: { paddingVertical: 14, paddingHorizontal: 14 },
+  emptyOptionText: { fontSize: 13, color: colors.muted, fontWeight: '600' },
 });

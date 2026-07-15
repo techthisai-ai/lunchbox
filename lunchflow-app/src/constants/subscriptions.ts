@@ -1,5 +1,7 @@
 export type SubscriptionCategory = 'student' | 'college' | 'office';
 
+export type SubscriptionPlanKind = 'single' | 'monthly' | 'addon_same_drop' | 'addon_diff_drop' | 'legacy';
+
 export type SubscriptionPlan = {
   id: string;
   name: string;
@@ -8,10 +10,93 @@ export type SubscriptionPlan = {
   desc: string;
   category: SubscriptionCategory;
   badgeLabel: string;
-  billingPeriod: '1_month' | '3_month';
+  billingPeriod: '1_month' | '3_month' | 'per_delivery' | 'custom';
   billingMonths: number;
   baseAmount: number;
+  planKind?: SubscriptionPlanKind;
+  expiresOnDelivery?: boolean;
+  requiresMonthlyPlan?: boolean;
+  detailTitle?: string;
+  detailSubtitle?: string;
+  detailLineLabel?: string;
+  detailIcon?: string;
 };
+
+export const SUBSCRIPTION_DETAIL_PLANS: SubscriptionPlan[] = [
+  {
+    id: 'single-order',
+    name: 'Single Order',
+    detailTitle: 'For single order for single person',
+    detailSubtitle: 'Perfect for occasional orders.',
+    detailLineLabel: 'Single order (single person) - 29',
+    detailIcon: 'person-outline',
+    price: '₹29',
+    period: 'Per delivery',
+    desc: 'Expires after your delivery is completed.',
+    category: 'student',
+    badgeLabel: 'Single Order',
+    billingPeriod: 'per_delivery',
+    billingMonths: 0,
+    baseAmount: 29,
+    planKind: 'single',
+    expiresOnDelivery: true,
+  },
+  {
+    id: 'monthly-standard',
+    name: 'Monthly Plan',
+    detailTitle: 'Monthly subscription',
+    detailSubtitle: 'Best for regular, hassle-free meals every day.',
+    detailLineLabel: 'Monthly subscription - 499',
+    detailIcon: 'calendar-outline',
+    price: '₹499',
+    period: 'Monthly',
+    desc: 'Auto-renews every month until cancelled.',
+    category: 'student',
+    badgeLabel: 'Monthly',
+    billingPeriod: '1_month',
+    billingMonths: 1,
+    baseAmount: 499,
+    planKind: 'monthly',
+  },
+  {
+    id: 'addon-same-drop',
+    name: 'Add-on · Same Drop',
+    detailTitle: 'Adding a student or other (same drop location)',
+    detailSubtitle: 'Add one extra person for today at the same drop location.',
+    detailLineLabel: 'Add student/other (same drop) - 99',
+    detailIcon: 'people-outline',
+    price: '₹99',
+    period: '1 day',
+    desc: 'Valid for today only. Requires an active monthly plan.',
+    category: 'student',
+    badgeLabel: 'Add-on · Same Drop',
+    billingPeriod: 'per_delivery',
+    billingMonths: 0,
+    baseAmount: 99,
+    planKind: 'addon_same_drop',
+    expiresOnDelivery: true,
+    requiresMonthlyPlan: true,
+  },
+  {
+    id: 'addon-diff-drop',
+    name: 'Add-on · Different Drop',
+    detailTitle: 'Adding a student or other (in different drop location)',
+    detailSubtitle: 'Add one extra person for today at a different drop location.',
+    detailLineLabel: 'Add student/other (different drop) - 199',
+    detailIcon: 'location-outline',
+    price: '₹199',
+    period: '1 day',
+    desc: 'Valid for today only. Requires an active monthly plan.',
+    category: 'student',
+    badgeLabel: 'Add-on · Different Drop',
+    billingPeriod: 'per_delivery',
+    billingMonths: 0,
+    baseAmount: 199,
+    planKind: 'addon_diff_drop',
+    expiresOnDelivery: true,
+    requiresMonthlyPlan: true,
+  },
+];
 
 export const SUBSCRIPTION_SECTIONS: { category: SubscriptionCategory; title: string }[] = [
   { category: 'student', title: 'Student' },
@@ -20,6 +105,7 @@ export const SUBSCRIPTION_SECTIONS: { category: SubscriptionCategory; title: str
 ];
 
 export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
+  ...SUBSCRIPTION_DETAIL_PLANS,
   {
     id: 'student-1m',
     name: '1 Month',
@@ -31,6 +117,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     billingPeriod: '1_month',
     billingMonths: 1,
     baseAmount: 699,
+    planKind: 'legacy',
   },
   {
     id: 'student-3m',
@@ -94,6 +181,12 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   },
 ];
 
+export const LEGACY_CATEGORY_PLAN_IDS = new Set(
+  SUBSCRIPTION_PLANS.filter(
+    (plan) => !SUBSCRIPTION_DETAIL_PLANS.some((detailPlan) => detailPlan.id === plan.id),
+  ).map((plan) => plan.id),
+);
+
 const LEGACY_PLAN_ID_MAP: Record<string, string> = {
   'basic-school': 'student-1m',
   'premium-school': 'student-1m',
@@ -126,5 +219,42 @@ export function getDefaultPlanIdForRegistrationType(
 
 export function getSubscriptionPlan(planId: string | null | undefined): SubscriptionPlan {
   const resolvedId = resolveSubscriptionPlanId(planId);
+  const runtime = getRuntimeSubscriptionPlan(resolvedId);
+  if (runtime) return runtime;
   return SUBSCRIPTION_PLANS.find((plan) => plan.id === resolvedId) ?? SUBSCRIPTION_PLANS[0];
+}
+
+export function isAddonSubscriptionPlan(plan: SubscriptionPlan): boolean {
+  return plan.planKind === 'addon_same_drop' || plan.planKind === 'addon_diff_drop' || Boolean(plan.requiresMonthlyPlan);
+}
+
+export function isSingleOrderPlan(plan: SubscriptionPlan): boolean {
+  if (isAddonSubscriptionPlan(plan)) return false;
+  return plan.planKind === 'single' || Boolean(plan.expiresOnDelivery);
+}
+
+export function isMonthlySubscriptionPlan(plan: SubscriptionPlan): boolean {
+  if (plan.planKind === 'monthly') return true;
+  if (isSingleOrderPlan(plan) || isAddonSubscriptionPlan(plan)) return false;
+  return plan.billingMonths >= 1;
+}
+
+export function getSubscriptionDetailLineLabel(plan: SubscriptionPlan): string {
+  if (plan.detailLineLabel) return plan.detailLineLabel;
+  return `${plan.detailTitle ?? plan.name} - ${plan.baseAmount}`;
+}
+
+export function getSubscriptionDetailPlan(planId: string): SubscriptionPlan | undefined {
+  return SUBSCRIPTION_DETAIL_PLANS.find((plan) => plan.id === planId);
+}
+
+const runtimePlans = new Map<string, SubscriptionPlan>();
+
+export function registerRuntimeSubscriptionPlans(plans: SubscriptionPlan[]): void {
+  runtimePlans.clear();
+  plans.forEach((plan) => runtimePlans.set(plan.id, plan));
+}
+
+export function getRuntimeSubscriptionPlan(planId: string): SubscriptionPlan | undefined {
+  return runtimePlans.get(planId);
 }

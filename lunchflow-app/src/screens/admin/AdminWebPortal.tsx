@@ -1,4 +1,4 @@
-import { ComponentType, useCallback, useState } from 'react';
+import { ComponentType, useCallback, useEffect, useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { ADMIN_PAGE_LABELS, ADMIN_SIDEBAR_WIDTH, AdminPage, AdminSidebar } from '../../components/AdminSidebar';
 import { AdminMobileHeader } from '../../components/admin/AdminMobileHeader';
@@ -52,6 +52,36 @@ export function AdminWebPortal({ onLogout }: Props) {
     [],
   );
 
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return undefined;
+
+    const html = document.documentElement;
+    const body = document.body;
+    const root = document.getElementById('root');
+    const prev = {
+      htmlOverflow: html.style.overflow,
+      bodyOverflow: body.style.overflow,
+      rootOverflow: root?.style.overflow ?? '',
+      rootHeight: root?.style.height ?? '',
+    };
+
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    if (root) {
+      root.style.overflow = 'hidden';
+      root.style.height = '100%';
+    }
+
+    return () => {
+      html.style.overflow = prev.htmlOverflow;
+      body.style.overflow = prev.bodyOverflow;
+      if (root) {
+        root.style.overflow = prev.rootOverflow;
+        root.style.height = prev.rootHeight;
+      }
+    };
+  }, []);
+
   return (
     <View style={styles.layout}>
       {!isSidebarCollapsed ? (
@@ -65,7 +95,9 @@ export function AdminWebPortal({ onLogout }: Props) {
           <AdminMobileHeader title={ADMIN_PAGE_LABELS[page]} onMenuPress={() => setMenuOpen(true)} />
         ) : null}
         <AdminPortalProvider navigate={handleNavigate} logout={handleLogout}>
-          <Screen />
+          <View style={styles.screenWrap}>
+            <Screen />
+          </View>
         </AdminPortalProvider>
       </View>
 
@@ -88,48 +120,44 @@ export function AdminWebPortal({ onLogout }: Props) {
 const styles = StyleSheet.create({
   layout: {
     flex: 1,
+    flexDirection: 'row',
     backgroundColor: colors.bg,
     ...(Platform.OS === 'web'
       ? {
           minHeight: '100vh' as unknown as number,
           height: '100vh' as unknown as number,
+          width: '100%' as unknown as number,
           overflow: 'hidden' as const,
         }
-      : {
-          flexDirection: 'row' as const,
-        }),
+      : {}),
   },
   sidebarDock: {
     width: ADMIN_SIDEBAR_WIDTH,
     flexShrink: 0,
+    alignSelf: 'stretch',
     ...(Platform.OS === 'web'
       ? {
-          position: 'fixed' as const,
-          top: 0,
-          left: 0,
-          bottom: 0,
-          zIndex: 20,
-          height: '100vh' as unknown as number,
+          height: '100%' as unknown as number,
         }
-      : {
-          alignSelf: 'stretch',
-        }),
+      : {}),
   },
   main: {
     flex: 1,
     minWidth: 0,
+    alignSelf: 'stretch',
     ...(Platform.OS === 'web'
       ? {
           overflow: 'hidden' as const,
-          height: '100vh' as unknown as number,
+          height: '100%' as unknown as number,
         }
       : {}),
   },
-  mainWithSidebar: Platform.OS === 'web'
-    ? {
-        marginLeft: ADMIN_SIDEBAR_WIDTH,
-      }
-    : {},
+  mainWithSidebar: {},
+  screenWrap: {
+    flex: 1,
+    minHeight: 0,
+    minWidth: 0,
+  },
   drawerRoot: {
     flex: 1,
     flexDirection: 'row',

@@ -24,19 +24,24 @@ type Props = {
 };
 
 export function DriverKpiRow({ items, compact }: Props) {
+  const dense = compact ?? items.length >= 4;
+
   return (
     <View style={styles.row}>
       {items.map((item) => {
         const tone = toneStyles[item.tone];
         return (
-          <View key={item.label} style={[styles.box, { backgroundColor: tone.bg, borderColor: tone.border }]}>
+          <View
+            key={item.label}
+            style={[styles.box, dense && styles.boxDense, { backgroundColor: tone.bg, borderColor: tone.border }]}
+          >
             {item.icon ? (
-              <Ionicons name={item.icon} size={compact ? 14 : 16} color={tone.icon} style={styles.icon} />
+              <Ionicons name={item.icon} size={dense ? 13 : 16} color={tone.icon} style={styles.icon} />
             ) : null}
-            <Text style={[styles.value, compact && styles.valueCompact]} numberOfLines={1}>
+            <Text style={[styles.value, dense && styles.valueDense]} numberOfLines={1} adjustsFontSizeToFit>
               {item.value}
             </Text>
-            <Text style={[styles.label, compact && styles.labelCompact]} numberOfLines={2}>
+            <Text style={[styles.label, dense && styles.labelDense]} numberOfLines={2}>
               {item.label}
             </Text>
           </View>
@@ -50,24 +55,34 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 8 },
   box: {
     flex: 1,
+    aspectRatio: 1,
     minWidth: 0,
     borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 6,
+    padding: 8,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
   },
+  boxDense: {
+    padding: 6,
+    borderRadius: 12,
+  },
   icon: { marginBottom: 4 },
-  value: { fontSize: 17, fontWeight: '800', color: colors.text, textAlign: 'center' },
-  valueCompact: { fontSize: 15 },
+  value: { fontSize: 18, fontWeight: '800', color: colors.text, textAlign: 'center' },
+  valueDense: { fontSize: 15, lineHeight: 18 },
   label: {
     fontSize: 9,
     fontWeight: '700',
     color: colors.muted,
-    marginTop: 3,
+    marginTop: 4,
     textAlign: 'center',
     textTransform: 'uppercase',
     letterSpacing: 0.2,
   },
-  labelCompact: { fontSize: 8 },
+  labelDense: {
+    fontSize: 8,
+    lineHeight: 10,
+    marginTop: 3,
+    letterSpacing: 0.1,
+  },
 });

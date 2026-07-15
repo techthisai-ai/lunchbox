@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ReactNode, useEffect, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors, radius, spacing } from '../constants/theme';
+import { useAuth } from '../context/AuthContext';
 import {
   DeliveryType,
   FoodReadyDetails,
@@ -16,6 +17,12 @@ import {
   normalizeDeliveryTypes,
 } from '../types/delivery';
 import { normalizeFoodReadyDetails } from '../services/foodReadyDefaultsService';
+import {
+  FoodReadyDeliveryQuota,
+  getFoodReadyDeliveryQuota,
+  validateFoodReadyDropLocations,
+  validateFoodReadyPeopleCount,
+} from '../services/subscriptionService';
 import { Button } from './Button';
 
 type Props = {
@@ -52,6 +59,113 @@ function entryCardTitle(entry: FoodReadyStudentEntry, index: number, total: numb
   return `Student${suffix} · ${typeLabel}`;
 }
 
+function reviewStudentTitle(entry: FoodReadyStudentEntry, index: number): string {
+  const typeLabel = getDeliveryTypeLabel(entry.deliveryType);
+  const role = entry.deliveryType === 'office' ? 'Employee' : 'Student';
+  return `${role} ${index + 1} - ${typeLabel}`;
+}
+
+function ReviewInfoCard({
+  name,
+  pickupAddress,
+  whereLabel,
+}: {
+  name: string;
+  pickupAddress: string;
+  whereLabel: string;
+}) {
+  return (
+    <View style={styles.reviewInfoCard}>
+      <View style={styles.reviewInfoRow}>
+        <Text style={styles.reviewInfoLabel}>Name</Text>
+        <Text style={styles.reviewInfoValue} numberOfLines={1}>
+          {name}
+        </Text>
+      </View>
+      <View style={styles.reviewInfoDivider} />
+      <View style={styles.reviewInfoRow}>
+        <Text style={styles.reviewInfoLabel}>Pickup</Text>
+        <Text style={styles.reviewInfoValue} numberOfLines={2}>
+          {pickupAddress}
+        </Text>
+      </View>
+      <View style={styles.reviewInfoDivider} />
+      <View style={styles.reviewInfoRow}>
+        <Text style={styles.reviewInfoLabel}>Where</Text>
+        <Text style={styles.reviewInfoValue} numberOfLines={1}>
+          {whereLabel}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function ReviewStudentCard({
+  student,
+  index,
+}: {
+  student: FoodReadyStudentEntry;
+  index: number;
+}) {
+  return (
+    <View style={styles.reviewStudentCard}>
+      <Text style={styles.reviewStudentTitle}>{reviewStudentTitle(student, index)}</Text>
+      <Text style={styles.reviewMeta} numberOfLines={1}>
+        {getPersonLabel(student.deliveryType)}: {student.name.trim()}
+      </Text>
+      <Text style={styles.reviewMeta} numberOfLines={2}>
+        Drop: {student.dropLocation.trim()}
+      </Text>
+      <Text style={styles.reviewMeta} numberOfLines={2}>
+        {getDetailLabel(student.deliveryType)}: {student.classSection.trim()}
+      </Text>
+    </View>
+  );
+}
+
+function ReviewActionButton({
+  title,
+  icon,
+  onPress,
+  variant,
+  compact,
+}: {
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  onPress: () => void;
+  variant: 'primary' | 'outlineGreen' | 'outlineRed';
+  compact?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.reviewActionBtn,
+        compact && styles.reviewActionBtnCompact,
+        variant === 'primary' && styles.reviewActionPrimary,
+        variant === 'outlineGreen' && styles.reviewActionOutlineGreen,
+        variant === 'outlineRed' && styles.reviewActionOutlineRed,
+        pressed && styles.reviewActionPressed,
+      ]}
+    >
+      <Ionicons
+        name={icon}
+        size={16}
+        color={variant === 'primary' ? colors.onPrimary : variant === 'outlineRed' ? colors.red : colors.green}
+      />
+      <Text
+        style={[
+          styles.reviewActionText,
+          variant === 'outlineGreen' && styles.reviewActionTextGreen,
+          variant === 'outlineRed' && styles.reviewActionTextRed,
+        ]}
+      >
+        {title}
+      </Text>
+    </Pressable>
+  );
+}
+
 function DialogBody({
   initialValues,
   startInReviewMode = false,
@@ -59,12 +173,33 @@ function DialogBody({
   onConfirm,
   onCancel,
 }: Omit<Props, 'visible'>) {
+  const { user } = useAuth();
   const [mode, setMode] = useState<'review' | 'edit'>(startInReviewMode ? 'review' : 'edit');
   const [name, setName] = useState('');
   const [pickupAddress, setPickupAddress] = useState('');
   const [students, setStudents] = useState<FoodReadyStudentEntry[]>([emptyFoodReadyStudent()]);
   const [selectedWhere, setSelectedWhere] = useState<DeliveryType[]>(['school']);
   const [error, setError] = useState('');
+  const [quota, setQuota] = useState<FoodReadyDeliveryQuota>({
+    maxPeople: 1,
+    allowAddPeople: false,
+    isSingleOrder: true,
+    planLabel: 'Loading…',
+    sameDropSeats: 0,
+    diffDropSeats: 0,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!user?.phone) return;
+      const nextQuota = await getFoodReadyDeliveryQuota(user.phone);
+      if (!cancelled) setQuota(nextQuota);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.phone]);
 
   useEffect(() => {
     const where = normalizeDeliveryTypes(
@@ -74,12 +209,13 @@ function DialogBody({
     setName(initialValues?.name ?? '');
     setPickupAddress(initialValues?.pickupAddress ?? '');
     setSelectedWhere(where);
-    setStudents(buildFoodReadyStudents(initialValues));
+    const nextStudents = buildFoodReadyStudents(initialValues);
+    setStudents(nextStudents.slice(0, Math.max(1, quota.maxPeople)));
     setMode(startInReviewMode ? 'review' : 'edit');
     setError('');
-  }, [initialValues, startInReviewMode]);
+  }, [initialValues, startInReviewMode, quota.maxPeople]);
 
-  const buildConfirmedDetails = (): FoodReadyDetails | null => {
+  const buildConfirmedDetails = async (): Promise<FoodReadyDetails | null> => {
     const trimmedName = name.trim();
     const pickup = pickupAddress.trim();
     const filledStudents = students
@@ -109,6 +245,20 @@ function DialogBody({
     if (filledStudents.length === 0) {
       setError('Add at least one student or employee');
       return null;
+    }
+
+    const peopleError = validateFoodReadyPeopleCount(filledStudents.length, quota);
+    if (peopleError) {
+      setError(peopleError);
+      return null;
+    }
+
+    if (user?.phone) {
+      const dropError = await validateFoodReadyDropLocations(user.phone, filledStudents, quota);
+      if (dropError) {
+        setError(dropError);
+        return null;
+      }
     }
 
     for (let index = 0; index < filledStudents.length; index += 1) {
@@ -145,25 +295,39 @@ function DialogBody({
     };
   };
 
-  const handleReady = () => {
-    const details = buildConfirmedDetails();
+  const handleReady = async () => {
+    const details = await buildConfirmedDetails();
     if (!details) return;
     setError('');
     onConfirm(details);
   };
 
-  const handleReviewConfirm = () => {
+  const handleReviewConfirm = async () => {
     const details = normalizeFoodReadyDetails({
       name,
       pickupAddress,
       deliveryType: selectedWhere[0],
       deliveryTypes: selectedWhere,
-      students,
+      students: students.slice(0, Math.max(1, quota.maxPeople)),
     });
     if (!details) {
       setMode('edit');
       setError('Saved details are incomplete. Please update them.');
       return;
+    }
+    const peopleError = validateFoodReadyPeopleCount(details.students?.length ?? 0, quota);
+    if (peopleError) {
+      setMode('edit');
+      setError(peopleError);
+      return;
+    }
+    if (user?.phone && details.students?.length) {
+      const dropError = await validateFoodReadyDropLocations(user.phone, details.students, quota);
+      if (dropError) {
+        setMode('edit');
+        setError(dropError);
+        return;
+      }
     }
     setError('');
     onConfirm(details);
@@ -181,58 +345,44 @@ function DialogBody({
     return (
       <View style={styles.backdrop}>
         <Pressable style={styles.backdropTap} onPress={onCancel} accessibilityLabel="Close dialog" />
-        <View style={styles.card}>
-          <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
-            <Text style={styles.reviewTitle}>Confirm Delivery Details</Text>
-
-            <View style={styles.reviewBlock}>
-              <Text style={styles.reviewLabel}>Name</Text>
-              <Text style={styles.reviewValue}>{name.trim()}</Text>
-            </View>
-
-            <View style={styles.reviewBlock}>
-              <Text style={styles.reviewLabel}>Pickup Address</Text>
-              <Text style={styles.reviewValue}>{pickupAddress.trim()}</Text>
-            </View>
-
-            <View style={styles.reviewBlock}>
-              <Text style={styles.reviewLabel}>Where</Text>
-              <Text style={styles.reviewValue}>
-                {selectedWhere.map((type) => getDeliveryTypeLabel(type)).join(' · ')}
-              </Text>
-            </View>
+        <View style={styles.reviewCard}>
+          <ScrollView
+            style={styles.reviewScroll}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+            contentContainerStyle={styles.reviewBody}
+          >
+            <ReviewInfoCard
+              name={name.trim()}
+              pickupAddress={pickupAddress.trim()}
+              whereLabel={selectedWhere.map((type) => getDeliveryTypeLabel(type)).join(' · ')}
+            />
 
             {reviewStudents.map((student, index) => (
-              <View key={`review-${index}`} style={styles.reviewStudentCard}>
-                <Text style={styles.reviewStudentTitle}>{entryCardTitle(student, index, reviewStudents.length)}</Text>
-                <Text style={styles.reviewMeta}>
-                  {getPersonLabel(student.deliveryType)}: {student.name.trim()}
-                </Text>
-                <Text style={styles.reviewMeta}>Drop: {student.dropLocation.trim()}</Text>
-                <Text style={styles.reviewMeta}>
-                  {getDetailLabel(student.deliveryType)}: {student.classSection.trim()}
-                </Text>
-              </View>
+              <ReviewStudentCard key={`review-${index}`} student={student} index={index} />
             ))}
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
-            <Button
+            <ReviewActionButton
               title={submitting ? 'Sending...' : 'Food Ready'}
-              variant="green"
+              icon="checkmark-circle"
               onPress={handleReviewConfirm}
-              style={{ marginTop: spacing.sm }}
+              variant="primary"
             />
-            <Button
-              title="Switch Details"
-              variant="outline"
-              onPress={() => {
-                setError('');
-                setMode('edit');
-              }}
-              style={{ marginTop: 10 }}
-            />
-            <Button title="Cancel" variant="outline" onPress={onCancel} style={{ marginTop: 10 }} />
+            <View style={styles.reviewActionRow}>
+              <ReviewActionButton
+                title="Switch"
+                icon="swap-horizontal"
+                onPress={() => {
+                  setError('');
+                  setMode('edit');
+                }}
+                variant="outlineGreen"
+                compact
+              />
+              <ReviewActionButton title="Cancel" icon="close-circle" onPress={onCancel} variant="outlineRed" compact />
+            </View>
           </ScrollView>
         </View>
       </View>
@@ -256,6 +406,15 @@ function DialogBody({
   };
 
   const handleAddStudent = () => {
+    if (!quota.allowAddPeople || students.length >= quota.maxPeople) {
+      setError(
+        quota.isSingleOrder
+          ? 'Single delivery (₹29): only 1 person at 1 location.'
+          : 'Buy today’s add-on first: same location ₹99, or different location ₹199.',
+      );
+      return;
+    }
+    setError('');
     setStudents((current) => [...current, emptyFoodReadyStudent(selectedWhere[0])]);
   };
 
@@ -390,10 +549,18 @@ function DialogBody({
             );
           })}
 
-          <Pressable style={styles.addStudentBtn} onPress={handleAddStudent}>
-            <Ionicons name="add-circle-outline" size={18} color={colors.orange} />
-            <Text style={styles.addStudentText}>{personAddLabel(selectedWhere)}</Text>
-          </Pressable>
+          {quota.allowAddPeople && students.length < quota.maxPeople ? (
+            <Pressable style={styles.addStudentBtn} onPress={handleAddStudent}>
+              <Ionicons name="add-circle-outline" size={18} color={colors.orange} />
+              <Text style={styles.addStudentText}>{personAddLabel(selectedWhere)}</Text>
+            </Pressable>
+          ) : (
+            <Text style={styles.quotaHint}>
+              {quota.isSingleOrder
+                ? 'Single delivery (₹29): 1 person · 1 location only'
+                : `Seats today ${students.length}/${quota.maxPeople} · Same location ₹99 · Different location ₹199`}
+            </Text>
+          )}
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -547,19 +714,141 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   addStudentText: { fontSize: 13, fontWeight: '700', color: colors.orange },
+  quotaHint: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+    lineHeight: 17,
+    marginTop: 4,
+    marginBottom: 4,
+  },
   error: { color: colors.red, fontSize: 13, marginBottom: 8 },
-  reviewTitle: { fontSize: 18, fontWeight: '800', color: colors.text, marginBottom: spacing.md },
-  reviewBlock: { marginBottom: spacing.sm },
-  reviewLabel: { fontSize: 11, fontWeight: '700', color: colors.muted, textTransform: 'uppercase', marginBottom: 4 },
-  reviewValue: { fontSize: 14, fontWeight: '600', color: colors.text, lineHeight: 20 },
-  reviewStudentCard: {
+  reviewCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: colors.white,
+    borderRadius: 20,
+    maxHeight: '90%',
+    overflow: 'hidden',
+    zIndex: 1,
+    ...(Platform.OS === 'web'
+      ? ({
+          boxShadow: '0 12px 40px rgba(15, 23, 42, 0.25)',
+        } as object)
+      : {}),
+  },
+  reviewScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  reviewBody: {
+    padding: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  reviewInfoCard: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.sm,
-    padding: spacing.sm,
+    borderRadius: 12,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
     marginBottom: spacing.sm,
     backgroundColor: colors.bg,
   },
-  reviewStudentTitle: { fontSize: 13, fontWeight: '800', color: colors.text, marginBottom: 6 },
-  reviewMeta: { fontSize: 13, color: colors.text, fontWeight: '600', lineHeight: 19 },
+  reviewInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    paddingVertical: 5,
+  },
+  reviewInfoDivider: {
+    height: 1,
+    backgroundColor: colors.borderSubtle,
+  },
+  reviewInfoLabel: {
+    width: 52,
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.2,
+    paddingTop: 1,
+  },
+  reviewInfoValue: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.text,
+    lineHeight: 16,
+  },
+  reviewStudentCard: {
+    borderWidth: 1,
+    borderColor: '#C8E6C9',
+    borderRadius: 10,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+    marginBottom: 6,
+    backgroundColor: colors.greenLight,
+  },
+  reviewStudentTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.green,
+    marginBottom: 4,
+  },
+  reviewMeta: {
+    fontSize: 11,
+    color: colors.text,
+    fontWeight: '600',
+    lineHeight: 15,
+    marginBottom: 2,
+  },
+  reviewActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 6,
+  },
+  reviewActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    marginTop: 6,
+  },
+  reviewActionBtnCompact: {
+    flex: 1,
+    marginTop: 0,
+    paddingVertical: 10,
+  },
+  reviewActionPrimary: {
+    backgroundColor: colors.green,
+    marginTop: 4,
+  },
+  reviewActionOutlineGreen: {
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: colors.green,
+  },
+  reviewActionOutlineRed: {
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: colors.red,
+  },
+  reviewActionPressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.99 }],
+  },
+  reviewActionText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.onPrimary,
+  },
+  reviewActionTextGreen: {
+    color: colors.green,
+  },
+  reviewActionTextRed: {
+    color: colors.red,
+  },
 });

@@ -1,11 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { normalizePhone } from '../constants/auth';
-import { db } from '../lib/firebase';
+import { db, functions } from '../lib/firebase';
 import { DeliveryType, normalizeDeliveryType } from '../types/delivery';
 
 const CUSTOMERS_KEY = '@lunchflow_registered_customers';
 const DRIVERS_KEY = '@lunchflow_registered_drivers';
+
+const registerPendingDriverFn = httpsCallable(functions, 'registerPendingDriver');
+const setDriverApprovalStatusFn = httpsCallable(functions, 'setDriverApprovalStatus');
+const listPendingDriversRemoteFn = httpsCallable(functions, 'listPendingDriversFn');
 
 export type CustomerRegistration = {
   name: string;
@@ -115,17 +120,133 @@ export async function isCustomerRegistered(phone: string): Promise<boolean> {
 
   try {
     const snap = await getDoc(doc(db, 'users', normalized));
-    return snap.exists();
-  } catch {
+    if (snap.exists()) {
+      const registration = customerFromFirestoreData(normalized, snap.data() as Record<string, unknown>);
+      await cacheCustomerRegistrationLocal(registration);
+      return true;
+    }
+
+    // Fallback: find by phone field if the doc id was not the mobile number.
+    const usersSnap = await getDocs(query(collection(db, 'users'), where('phone', '==', normalized)));
+    for (const entry of usersSnap.docs) {
+      const data = entry.data() as Record<string, unknown>;
+      if (data.role && data.role !== 'customer') continue;
+      const registration = customerFromFirestoreData(normalized, data);
+      await cacheCustomerRegistrationLocal(registration);
+      return true;
+    }
+
     return false;
+  } catch {
+    // Keep local-only accounts usable when remote lookup fails.
+    return Boolean(local[normalized]);
   }
+}
+
+async function cacheCustomerRegistrationLocal(registration: CustomerRegistration): Promise<void> {
+  const phone = normalizePhone(registration.phone);
+  const local = await readCustomerMap();
+  local[phone] = {
+    ...registration,
+    phone,
+    registrationType: normalizeDeliveryType(registration.registrationType),
+    registeredAt: local[phone]?.registeredAt ?? new Date().toISOString(),
+  };
+  await AsyncStorage.setItem(CUSTOMERS_KEY, JSON.stringify(local));
+}
+
+function customerFromFirestoreData(
+  normalized: string,
+  data: Record<string, unknown>,
+): CustomerRegistration {
+  return {
+    name: String(data.name ?? ''),
+    phone: normalized,
+    address: String(data.address ?? ''),
+    registrationType: normalizeDeliveryType(data.registrationType),
+    school: String(data.school ?? ''),
+    studentName: String(data.studentName ?? ''),
+    classSection: String(data.classSection ?? ''),
+    emergencyContact: String(data.emergencyContact ?? ''),
+    referralCode: data.referralCode ? String(data.referralCode) : undefined,
+  };
 }
 
 export async function saveCustomerRegistration(data: CustomerRegistration): Promise<void> {
   const phone = normalizePhone(data.phone);
+  const now = new Date().toISOString();
+  const payload = {
+    ...data,
+    phone,
+    registrationType: normalizeDeliveryType(data.registrationType),
+    registeredAt: now,
+  };
+
   const local = await readCustomerMap();
-  local[phone] = { ...data, phone, registeredAt: new Date().toISOString() };
+  const existingRegisteredAt = local[phone]?.registeredAt;
+  local[phone] = {
+    ...payload,
+    registeredAt: existingRegisteredAt ?? now,
+  };
   await AsyncStorage.setItem(CUSTOMERS_KEY, JSON.stringify(local));
+
+  try {
+    await setDoc(
+      doc(db, 'users', phone),
+      {
+        ...local[phone],
+        role: 'customer',
+        createdAt: existingRegisteredAt ?? now,
+        updatedAt: now,
+      },
+      { merge: true },
+    );
+  } catch (error) {
+    console.warn('[saveCustomerRegistration] Firestore write failed', error);
+  }
+}
+
+export async function updateCustomerRegistration(
+  phone: string,
+  fields: Partial<CustomerRegistration>,
+): Promise<CustomerRegistration> {
+  const normalized = normalizePhone(phone);
+  const existing = await loadCustomerRegistration(normalized);
+  if (!existing) {
+    throw new Error('Customer registration not found');
+  }
+
+  const updated: CustomerRegistration = {
+    ...existing,
+    ...fields,
+    phone: normalized,
+    registrationType: fields.registrationType
+      ? normalizeDeliveryType(fields.registrationType)
+      : existing.registrationType,
+  };
+
+  const local = await readCustomerMap();
+  local[normalized] = {
+    ...updated,
+    registeredAt: local[normalized]?.registeredAt ?? new Date().toISOString(),
+  };
+  await AsyncStorage.setItem(CUSTOMERS_KEY, JSON.stringify(local));
+
+  try {
+    await setDoc(
+      doc(db, 'users', normalized),
+      {
+        ...updated,
+        role: 'customer',
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
+  } catch {
+    // Local registry remains source of truth when remote write fails.
+  }
+
+  return updated;
 }
 
 export async function loadCustomerRegistration(phone: string): Promise<CustomerRegistration | null> {
@@ -141,17 +262,9 @@ export async function loadCustomerRegistration(phone: string): Promise<CustomerR
   try {
     const snap = await getDoc(doc(db, 'users', normalized));
     if (!snap.exists()) return null;
-    const data = snap.data();
-    return {
-      name: data.name ?? '',
-      phone: normalized,
-      address: data.address ?? '',
-      registrationType: normalizeDeliveryType(data.registrationType),
-      school: data.school ?? '',
-      studentName: data.studentName ?? '',
-      classSection: data.classSection ?? '',
-      emergencyContact: data.emergencyContact ?? '',
-    };
+    const registration = customerFromFirestoreData(normalized, snap.data() as Record<string, unknown>);
+    await cacheCustomerRegistrationLocal(registration);
+    return registration;
   } catch {
     return null;
   }
@@ -161,8 +274,8 @@ export async function isDriverRegistered(phone: string): Promise<boolean> {
   const normalized = normalizePhone(phone);
   if (normalized.length !== 10) return false;
 
-  const local = await readDriverMap();
-  return Boolean(local[normalized]);
+  const driver = await loadDriverByPhone(normalized);
+  return Boolean(driver);
 }
 
 export async function loadRegisteredCustomers(): Promise<RegisteredCustomer[]> {
@@ -197,11 +310,37 @@ export async function loadRegisteredCustomers(): Promise<RegisteredCustomer[]> {
         studentName: String(data.studentName ?? ''),
         classSection: String(data.classSection ?? ''),
         emergencyContact: String(data.emergencyContact ?? ''),
-        registeredAt: String(data.createdAt ?? ''),
+        registeredAt: String(data.registeredAt ?? data.createdAt ?? ''),
       });
     }
   } catch {
     // Local registry is enough when remote read fails.
+  }
+
+  // Recover customers whose Firestore profile write failed under old rules:
+  // if they already have today's order, still show them in admin.
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const ordersSnap = await getDocs(query(collection(db, 'orders'), where('date', '==', today)));
+    for (const docSnap of ordersSnap.docs) {
+      const data = docSnap.data() as Record<string, unknown>;
+      const phone = normalizePhone(String(data.customerPhone ?? ''));
+      if (phone.length !== 10 || byPhone.has(phone)) continue;
+      byPhone.set(phone, {
+        id: `CUS-${phone.slice(-4)}`,
+        name: String(data.customerName ?? 'Customer'),
+        phone,
+        address: String(data.pickupAddress ?? ''),
+        registrationType: normalizeDeliveryType(data.deliveryType),
+        school: String(data.school ?? data.dropAddress ?? ''),
+        studentName: String(data.studentName ?? ''),
+        classSection: '',
+        emergencyContact: '',
+        registeredAt: String(data.bookedAt ?? today),
+      });
+    }
+  } catch {
+    // Ignore order backfill failures.
   }
 
   return Array.from(byPhone.values()).sort((a, b) => a.name.localeCompare(b.name));
@@ -210,6 +349,7 @@ export async function loadRegisteredCustomers(): Promise<RegisteredCustomer[]> {
 export async function loadRegisteredDrivers(): Promise<RegisteredDriver[]> {
   const local = await readDriverMap();
   const byPhone = new Map<string, RegisteredDriver>();
+  const fromDriversCollection = new Set<string>();
 
   for (const driver of Object.values(local)) {
     byPhone.set(normalizePhone(driver.phone), {
@@ -224,9 +364,38 @@ export async function loadRegisteredDrivers(): Promise<RegisteredDriver[]> {
       const parsed = parseDriverRecord(docSnap.data() as Record<string, unknown>, docSnap.id);
       if (!parsed) continue;
       byPhone.set(parsed.phone, parsed);
+      local[parsed.phone] = parsed;
+      fromDriversCollection.add(parsed.phone);
     }
+  } catch (error) {
+    console.warn('[loadRegisteredDrivers] Firestore drivers read failed', error);
+  }
+
+  // Mirror path: pending drivers are also written under users/{phone} with role=driver.
+  try {
+    const usersSnap = await getDocs(collection(db, 'users'));
+    for (const docSnap of usersSnap.docs) {
+      const data = docSnap.data() as Record<string, unknown>;
+      if (data.role !== 'driver') continue;
+      const parsed = parseDriverRecord(
+        {
+          ...data,
+          id: data.driverId ?? data.id ?? `DRV-${String(docSnap.id).slice(-4)}`,
+        },
+        String(data.driverId ?? data.id ?? docSnap.id),
+      );
+      if (!parsed || fromDriversCollection.has(parsed.phone)) continue;
+      byPhone.set(parsed.phone, parsed);
+      local[parsed.phone] = parsed;
+    }
+  } catch (error) {
+    console.warn('[loadRegisteredDrivers] Firestore users mirror read failed', error);
+  }
+
+  try {
+    await AsyncStorage.setItem(DRIVERS_KEY, JSON.stringify(local));
   } catch {
-    // Local registry is enough when remote read fails.
+    // Ignore local cache write failures.
   }
 
   return Array.from(byPhone.values()).sort((a, b) => a.name.localeCompare(b.name));
@@ -234,7 +403,23 @@ export async function loadRegisteredDrivers(): Promise<RegisteredDriver[]> {
 
 export async function loadPendingDrivers(): Promise<RegisteredDriver[]> {
   const drivers = await loadRegisteredDrivers();
-  return drivers.filter((driver) => driver.approvalStatus === 'pending');
+  const localPending = drivers.filter((driver) => driver.approvalStatus === 'pending');
+  if (localPending.length > 0) return localPending;
+
+  // Optional Admin SDK path (requires deployed functions on Blaze).
+  try {
+    const result = await listPendingDriversRemoteFn({});
+    const payload = result.data as { drivers?: RegisteredDriver[] };
+    if (Array.isArray(payload.drivers)) {
+      return payload.drivers
+        .filter((entry) => entry.approvalStatus === 'pending')
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+  } catch {
+    // Callable may be undeployed; local/Firestore merge above is enough.
+  }
+
+  return localPending;
 }
 
 export async function loadDriverByPhone(phone: string): Promise<RegisteredDriver | null> {
@@ -289,21 +474,33 @@ export async function updateDriverApproval(
   local[target.phone] = updated;
   await AsyncStorage.setItem(DRIVERS_KEY, JSON.stringify(local));
 
+  const synced = await writeDriverToFirestore(updated);
+  if (synced) return updated;
+
+  // Fallback: Admin SDK callable when direct Firestore writes are blocked.
   try {
-    await setDoc(
-      doc(db, 'drivers', target.id),
-      {
+    const result = await setDriverApprovalStatusFn({
+      driverId: target.id,
+      phone: target.phone,
+      approvalStatus,
+    });
+    const remote = (result.data as { driver?: RegisteredDriver }).driver;
+    if (remote?.id) {
+      const merged: RegisteredDriver = {
+        ...updated,
+        ...remote,
         approvalStatus,
         status: nextStatus,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true },
-    );
-  } catch {
-    // Local registry remains source of truth when remote write fails.
+      };
+      local[merged.phone] = merged;
+      await AsyncStorage.setItem(DRIVERS_KEY, JSON.stringify(local));
+      return merged;
+    }
+  } catch (error) {
+    console.warn('[updateDriverApproval] callable failed', error);
   }
 
-  return updated;
+  throw new Error('Could not save approval to server. Please try again.');
 }
 
 export async function approveDriver(driverId: string): Promise<RegisteredDriver> {
@@ -336,20 +533,106 @@ export async function setDriverAvailability(driverId: string, active: boolean): 
   local[target.phone] = updated;
   await AsyncStorage.setItem(DRIVERS_KEY, JSON.stringify(local));
 
-  try {
-    await setDoc(
-      doc(db, 'drivers', target.id),
-      {
-        status: nextStatus,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true },
-    );
-  } catch {
-    // Local registry remains source of truth when remote write fails.
-  }
+  await writeDriverToFirestore(updated);
 
   return updated;
+}
+
+export async function setDriverDutyStatus(
+  driverId: string,
+  status: 'Available' | 'On Route' | 'Offline',
+): Promise<void> {
+  const drivers = await loadRegisteredDrivers();
+  const target = drivers.find((driver) => driver.id === driverId);
+  if (!target) {
+    // Still try Firestore write for newly accepted drivers.
+    try {
+      await setDoc(
+        doc(db, 'drivers', driverId),
+        { status, updatedAt: new Date().toISOString() },
+        { merge: true },
+      );
+    } catch {
+      // Ignore.
+    }
+    return;
+  }
+  if (target.status === status) return;
+
+  const updated: RegisteredDriver = { ...target, status };
+  const local = await readDriverMap();
+  local[target.phone] = updated;
+  await AsyncStorage.setItem(DRIVERS_KEY, JSON.stringify(local));
+  await writeDriverToFirestore(updated);
+}
+
+async function writeDriverToFirestore(record: RegisteredDriver): Promise<boolean> {
+  const payload = {
+    ...record,
+    role: 'driver' as const,
+    driverId: record.id,
+    createdAt: record.registeredAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  let wroteDrivers = false;
+  let wroteUsers = false;
+
+  try {
+    await setDoc(doc(db, 'drivers', record.id), payload, { merge: true });
+    wroteDrivers = true;
+  } catch (error) {
+    console.warn('[writeDriverToFirestore] drivers write failed', error);
+  }
+
+  try {
+    await setDoc(doc(db, 'users', record.phone), payload, { merge: true });
+    wroteUsers = true;
+  } catch (error) {
+    console.warn('[writeDriverToFirestore] users mirror write failed', error);
+  }
+
+  return wroteDrivers || wroteUsers;
+}
+
+/** Re-push a locally saved driver (e.g. pending approval) to Firestore. */
+export async function syncDriverRecordToRemote(phone: string): Promise<boolean> {
+  const normalized = normalizePhone(phone);
+  const localMap = await readDriverMap();
+  const localDriver = localMap[normalized];
+  if (!localDriver) {
+    const remote = await loadDriverByPhone(normalized);
+    if (!remote) return false;
+    return writeDriverToFirestore(remote);
+  }
+
+  const synced = await writeDriverToFirestore(localDriver);
+  if (synced) return true;
+
+  try {
+    await registerPendingDriverFn({
+      name: localDriver.name,
+      phone: localDriver.phone,
+      vehicle: localDriver.vehicle,
+      licenseNumber: localDriver.licenseNumber,
+      approvedByAdmin: localDriver.approvalStatus === 'approved',
+    });
+    return true;
+  } catch (error) {
+    console.warn('[syncDriverRecordToRemote] register callable failed, trying approval sync', error);
+  }
+
+  try {
+    await setDriverApprovalStatusFn({
+      driverId: localDriver.id,
+      phone: localDriver.phone,
+      approvalStatus: localDriver.approvalStatus ?? 'pending',
+    });
+    return true;
+  } catch (error) {
+    console.warn('[syncDriverRecordToRemote] approval callable failed', error);
+    return false;
+  }
 }
 
 export async function registerDriverRecord(
@@ -384,16 +667,45 @@ export async function registerDriverRecord(
   local[phone] = record;
   await AsyncStorage.setItem(DRIVERS_KEY, JSON.stringify(local));
 
+  const synced = await writeDriverToFirestore(record);
+  if (synced) return record;
+
+  // Fallback: Admin SDK callable when direct Firestore writes are blocked.
   try {
-    await setDoc(doc(db, 'drivers', record.id), {
-      ...record,
-      role: 'driver',
-      createdAt: record.registeredAt,
+    const result = await registerPendingDriverFn({
+      name: record.name,
+      phone: record.phone,
+      vehicle: record.vehicle,
+      licenseNumber: record.licenseNumber,
+      approvedByAdmin: Boolean(options?.approvedByAdmin),
     });
-  } catch {
-    // Local registry remains source of truth when remote write fails.
+    const remote = (result.data as { driver?: RegisteredDriver }).driver;
+    if (remote?.id && remote.phone) {
+      const saved: RegisteredDriver = {
+        id: remote.id,
+        name: remote.name || record.name,
+        phone: normalizePhone(remote.phone),
+        vehicle: remote.vehicle || record.vehicle,
+        licenseNumber: remote.licenseNumber || record.licenseNumber,
+        status: remote.status || record.status,
+        approvalStatus: remote.approvalStatus || approvalStatus,
+        registeredAt: remote.registeredAt || record.registeredAt,
+      };
+      local[saved.phone] = saved;
+      await AsyncStorage.setItem(DRIVERS_KEY, JSON.stringify(local));
+      return saved;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.toLowerCase().includes('already')) {
+      throw new Error('This mobile number is already registered as a driver');
+    }
+    console.warn('[registerDriverRecord] callable failed', error);
   }
 
+  console.warn(
+    '[registerDriverRecord] Driver saved locally only; admin will not see approval until server sync succeeds',
+  );
   return record;
 }
 

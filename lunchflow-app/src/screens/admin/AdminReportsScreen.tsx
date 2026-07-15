@@ -154,7 +154,7 @@ export function AdminReportsScreen() {
         <AdminKpiCard compact label="Active Subscriptions" value={String(subs.active)} icon="people" iconBg={colors.blueLight} iconColor={colors.blue} />
         <AdminKpiCard compact label="Profit" value={formatCurrency(profitAmount)} icon="trending-up" iconBg={colors.greenLight} iconColor={colors.greenDark} valueColor={profitAmount > 0 ? colors.greenDark : colors.text} />
         <AdminKpiCard compact label="Loss" value={formatCurrency(lossAmount)} icon="trending-down" iconBg={colors.redLight} iconColor={colors.red} valueColor={lossAmount > 0 ? colors.red : colors.text} />
-        <AdminKpiCard compact label="Salary Paid" value={formatCurrency(salary.paid)} icon="cash" iconBg={colors.greenLight} iconColor={colors.greenDark} />
+        <AdminKpiCard compact label="Salary Paid (Month)" value={formatCurrency(salary.paid)} icon="cash" iconBg={colors.greenLight} iconColor={colors.greenDark} />
         <AdminKpiCard compact label="Total Expenses" value={formatCurrency(expense.total)} icon="card" iconBg={colors.yellowLight} iconColor={colors.dark} />
       </AdminKpiRow>
 
@@ -187,7 +187,7 @@ export function AdminReportsScreen() {
 
         <AdminPanel title="Profit & Loss" style={styles.panel}>
           <BreakdownRow label="Revenue (Today)" value={formatCurrency(profit.revenue)} />
-          <BreakdownRow label="Salaries" value={`-${formatCurrency(profit.salaries)}`} valueColor={colors.red} />
+          <BreakdownRow label="Salaries (Paid)" value={`-${formatCurrency(profit.salaries)}`} valueColor={colors.red} />
           <BreakdownRow label="Expenses" value={`-${formatCurrency(profit.expenses)}`} valueColor={colors.red} />
           <View style={styles.divider} />
           <BreakdownRow label="Salary Unpaid" value={formatCurrency(salary.unpaid)} />

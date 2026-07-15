@@ -50,6 +50,16 @@ export function isHistoryToday(dateKey: string): boolean {
   return dateKey === todayKey();
 }
 
+function yesterdayKey(): string {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+export function isHistoryTodayOrYesterday(dateKey: string): boolean {
+  return dateKey === todayKey() || dateKey === yesterdayKey();
+}
+
 export function isHistoryThisWeek(dateKey: string): boolean {
   const entryDate = parseDateKey(dateKey);
   const weekStart = startOfWeekMonday(new Date());
@@ -63,6 +73,28 @@ export function isHistoryThisMonth(dateKey: string): boolean {
   const now = new Date();
   const entryDate = parseDateKey(dateKey);
   return entryDate.getFullYear() === now.getFullYear() && entryDate.getMonth() === now.getMonth();
+}
+
+export function isHistoryThisYear(dateKey: string): boolean {
+  const now = new Date();
+  const entryDate = parseDateKey(dateKey);
+  return entryDate.getFullYear() === now.getFullYear();
+}
+
+export type HistoryPeriodFilter = 'today' | 'week' | 'month' | 'year';
+
+export function isHistoryInPeriod(dateKey: string, period: HistoryPeriodFilter): boolean {
+  if (period === 'today') return isHistoryToday(dateKey);
+  if (period === 'week') return isHistoryThisWeek(dateKey);
+  if (period === 'month') return isHistoryThisMonth(dateKey);
+  return isHistoryThisYear(dateKey);
+}
+
+export function historyPeriodLabel(period: HistoryPeriodFilter): string {
+  if (period === 'today') return 'Today';
+  if (period === 'week') return 'This Week';
+  if (period === 'month') return 'This Month';
+  return 'This Year';
 }
 
 export function formatHistoryDate(dateKey: string): string {

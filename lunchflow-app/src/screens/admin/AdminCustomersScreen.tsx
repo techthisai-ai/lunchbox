@@ -58,12 +58,33 @@ export function AdminCustomersScreen() {
     setLoading(true);
     try {
       const [customerList, orderList] = await Promise.all([loadRegisteredCustomers(), listAllOrdersToday()]);
-      setCustomers(customerList);
+
+      // Merge customers seen in today's orders so registrations that only
+      // lived locally (before Firestore write worked) still appear in admin.
+      const byPhone = new Map(customerList.map((customer) => [customer.phone, customer]));
+      for (const order of orderList) {
+        const phone = String(order.customerPhone ?? '').replace(/\D/g, '').slice(-10);
+        if (phone.length !== 10 || byPhone.has(phone)) continue;
+        byPhone.set(phone, {
+          id: `CUS-${phone.slice(-4)}`,
+          name: order.customerName || 'Customer',
+          phone,
+          address: order.pickupAddress || '',
+          registrationType: order.deliveryType || 'school',
+          school: order.school || order.dropAddress || '',
+          studentName: order.studentName || '',
+          classSection: '',
+          emergencyContact: '',
+          registeredAt: order.bookedAt || order.date,
+        });
+      }
+
+      setCustomers(Array.from(byPhone.values()).sort((a, b) => a.name.localeCompare(b.name)));
       setOrders(orderList);
-      const phones = customerList.map((customer) => customer.phone);
+      const phones = Array.from(byPhone.keys());
       if (phones.length > 0) {
         setAmountsByPhone(await loadSubscriptionAmountsByPhone(phones));
-        const records = await Promise.all(phones.map((phone) => loadActiveSubscriptionRecord(phone)));
+        const records = await Promise.all(phones.map((p) => loadActiveSubscriptionRecord(p)));
         const today = new Date().toISOString().slice(0, 10);
         let totalSubs = 0;
         let activeSubs = 0;
@@ -108,7 +129,7 @@ export function AdminCustomersScreen() {
         customer.name,
         customer.phone,
         formatCustomerDisplayId(customer.phone),
-        customer.school,
+        customer.address,
         customer.studentName,
         getDeliveryTypeLabel(customer.registrationType),
       ]
@@ -169,7 +190,7 @@ export function AdminCustomersScreen() {
                     <Text style={styles.th}>Type</Text>
                   </View>
                   <View style={c.school}>
-                    <Text style={styles.th}>School / Office</Text>
+                    <Text style={styles.th}>Address</Text>
                   </View>
                   <View style={c.sub}>
                     <Text style={styles.th}>Subscription</Text>
@@ -212,8 +233,8 @@ export function AdminCustomersScreen() {
                           <Badge label={getDeliveryTypeLabel(customer.registrationType)} tone="blue" />
                         </View>
                         <View style={c.school}>
-                          <Text style={styles.td} numberOfLines={1}>
-                            {customer.school || '—'}
+                          <Text style={styles.td} numberOfLines={2}>
+                            {customer.address || '—'}
                           </Text>
                         </View>
                         <View style={c.sub}>

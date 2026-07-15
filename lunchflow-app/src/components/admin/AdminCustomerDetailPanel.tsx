@@ -49,11 +49,7 @@ export function AdminCustomerDetailPanel({ customer, onClose }: Props) {
         </View>
         <View style={styles.contactRow}>
           <Ionicons name="home-outline" size={16} color={colors.orange} />
-          <Text style={styles.contactText}>{customer.address}</Text>
-        </View>
-        <View style={styles.contactRow}>
-          <Ionicons name="school-outline" size={16} color={colors.orange} />
-          <Text style={styles.contactText}>{customer.school}</Text>
+          <Text style={styles.contactText}>{customer.address || '—'}</Text>
         </View>
         <View style={styles.contactRow}>
           <Ionicons name="alert-circle-outline" size={16} color={colors.orange} />
@@ -95,10 +91,8 @@ export function AdminCustomerDetailPanel({ customer, onClose }: Props) {
           <>
             {[
               [customer.personLabel, customer.studentName],
-              [customer.institutionLabel, customer.school],
               ['Class / Section', customer.classSection],
-              ['Pickup Address', customer.order.pickupAddress],
-              ['Delivery Address', customer.order.school || customer.order.dropAddress],
+              ['Address', customer.address || customer.order.pickupAddress || '—'],
               ['Current Order', formatOrderDisplayId(customer.order.id)],
             ].map(([label, value]) => (
               <View key={label} style={styles.detailRow}>

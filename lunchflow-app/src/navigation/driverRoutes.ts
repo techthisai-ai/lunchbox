@@ -1,9 +1,41 @@
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from './types';
+import { DeliveryOrder } from '../types/delivery';
+import { DriverTabParamList, RootStackParamList } from './types';
 import { loadDriverByPhone } from '../services/userRegistryService';
 import { normalizePhone } from '../constants/auth';
 
 type DriverRootNavigation = Pick<NativeStackNavigationProp<RootStackParamList>, 'replace'>;
+type DriverTabNavigation = Pick<BottomTabNavigationProp<DriverTabParamList>, 'navigate'>;
+
+const PICKUP_ACTIVE_STATUSES = new Set(['driver_assigned', 'at_pickup', 'pickup_verified']);
+
+export function getPickupOrdersForTrip(orders: DeliveryOrder[]): DeliveryOrder[] {
+  return orders.filter((order) => PICKUP_ACTIVE_STATUSES.has(order.status));
+}
+
+export async function openDriverRouteMap(
+  navigation: DriverTabNavigation,
+  options: {
+    tripActive: boolean;
+    startTrip: (orders: DeliveryOrder[]) => Promise<void>;
+    refreshTripRoutes?: (orders: DeliveryOrder[]) => Promise<void>;
+    assignedOrders: DeliveryOrder[];
+  },
+): Promise<void> {
+  const pickupOrders = getPickupOrdersForTrip(options.assignedOrders);
+  if (pickupOrders.length === 0) {
+    throw new Error('Accept at least one pickup to open the route map.');
+  }
+
+  if (!options.tripActive) {
+    await options.startTrip(pickupOrders);
+  } else if (options.refreshTripRoutes) {
+    await options.refreshTripRoutes(options.assignedOrders);
+  }
+
+  navigation.navigate('DriverRoute');
+}
 
 export function goToDriverHome(navigation: DriverRootNavigation) {
   navigation.replace('DriverTabs', { screen: 'DriverHome' });

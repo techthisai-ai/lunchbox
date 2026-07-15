@@ -8,9 +8,11 @@ import {
   useState,
   ReactNode,
 } from 'react';
-import { addDeliveryToHistory } from '../services/deliveryHistoryService';
+import { addDeliveryToHistory, syncDeliveryHistory } from '../services/deliveryHistoryService';
+import { expireSubscriptionAfterDelivery, getFoodReadyDeliveryQuota, validateFoodReadyDropLocations, validateFoodReadyPeopleCount } from '../services/subscriptionService';
 import { hasCustomerRatedOrder } from '../services/ratingService';
 import {
+  cancelCustomerOrder,
   createBooking,
   getCustomerOrderToday,
   loadCustomerProfile,
@@ -36,6 +38,7 @@ type DeliveryContextValue = {
   getOrderSnapshot: () => DeliveryOrder | null;
   bookPickup: () => Promise<string | null>;
   markFoodReady: (details: FoodReadyDetails) => Promise<MarkFoodReadyResult>;
+  cancelOrder: () => Promise<string | null>;
   refreshDelivery: (options?: { force?: boolean }) => Promise<void>;
 };
 
@@ -51,13 +54,13 @@ function ordersEqual(a: DeliveryOrder | null, b: DeliveryOrder | null): boolean 
     a.dropAddress === b.dropAddress &&
     a.school === b.school &&
     a.studentName === b.studentName &&
+    a.bookedAt === b.bookedAt &&
     a.foodReadyAt === b.foodReadyAt &&
     a.pickedUpAt === b.pickedUpAt &&
     a.deliveredAt === b.deliveredAt &&
     a.pickupOtp === b.pickupOtp &&
     a.driverLocation?.lat === b.driverLocation?.lat &&
     a.driverLocation?.lng === b.driverLocation?.lng &&
-    a.driverLocation?.updatedAt === b.driverLocation?.updatedAt &&
     a.driver?.id === b.driver?.id &&
     a.driver?.etaMinutes === b.driver?.etaMinutes &&
     a.estimatedArrival === b.estimatedArrival &&
@@ -98,6 +101,8 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
   const handleDeliveredOrder = useCallback(async (remote: DeliveryOrder | null) => {
     if (!remote || remote.status !== 'delivered' || !phoneRef.current) return;
 
+    await expireSubscriptionAfterDelivery(phoneRef.current, remote.students);
+
     if (historySavedRef.current !== remote.id) {
       historySavedRef.current = remote.id;
       await addDeliveryToHistory(phoneRef.current, remote);
@@ -112,6 +117,11 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
     ratingPromptedRef.current = remote.id;
     promptRatingForOrder(remote, phoneRef.current);
   }, [promptRatingForOrder]);
+
+  const handleCancelledOrder = useCallback(async (remote: DeliveryOrder | null) => {
+    if (!remote || remote.status !== 'pickup_closed' || !phoneRef.current) return;
+    await syncDeliveryHistory(phoneRef.current, [remote]);
+  }, []);
 
   const refreshDelivery = useCallback(async (options?: { force?: boolean }) => {
     if (!isCustomer || !phoneRef.current) {
@@ -130,33 +140,62 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
 
     try {
       let remote = await getCustomerOrderToday(phoneRef.current);
-      if (!remote && customerIdRef.current) {
-        const profile = await loadCustomerProfile(phoneRef.current);
-        remote = await createBooking(customerIdRef.current, phoneRef.current, {
-          ...profile,
-          name: userNameRef.current ?? profile.name,
-        });
+      if (remote?.status === 'pickup_closed') {
+        const current = localOrderRef.current;
+        // Keep the active booking on screen if a cancelled sibling was returned.
+        if (current && current.status !== 'pickup_closed' && current.status !== 'delivered') {
+          return;
+        }
+        syncOrder(null);
+        return;
       }
+      if (!remote) {
+        const current = localOrderRef.current;
+        // Transient sync gaps — never wipe an in-progress order or spawn a duplicate booked row.
+        if (current && current.status !== 'pickup_closed') {
+          return;
+        }
+        if (customerIdRef.current) {
+          const profile = await loadCustomerProfile(phoneRef.current);
+          remote = await createBooking(customerIdRef.current, phoneRef.current, {
+            ...profile,
+            name: userNameRef.current ?? profile.name,
+          });
+        }
+      }
+      if (!remote) return;
       syncOrder(remote);
       await handleDeliveredOrder(remote);
+      await handleCancelledOrder(remote);
     } finally {
       refreshInFlightRef.current = false;
       setLoading(false);
       hasLoadedRef.current = true;
     }
-  }, [isCustomer, syncOrder, handleDeliveredOrder]);
+  }, [isCustomer, syncOrder, handleDeliveredOrder, handleCancelledOrder]);
 
   useEffect(() => {
     if (!isCustomer || !phone) return undefined;
     if (!order?.id) return undefined;
 
     return subscribeToOrder(order.id, (remote) => {
+      // Ignore transient null snapshots — they flash home back to BOOKED
+      // and hide the tracking/date row.
+      if (!remote) return;
+      if (remote.status === 'pickup_closed') {
+        syncOrder(null);
+        void handleCancelledOrder(remote);
+        setLoading(false);
+        hasLoadedRef.current = true;
+        return;
+      }
       syncOrder(remote);
       void handleDeliveredOrder(remote);
+      void handleCancelledOrder(remote);
       setLoading(false);
       hasLoadedRef.current = true;
     });
-  }, [phone, order?.id, isCustomer, syncOrder, handleDeliveredOrder]);
+  }, [phone, order?.id, isCustomer, syncOrder, handleDeliveredOrder, handleCancelledOrder]);
 
   useEffect(() => {
     historySavedRef.current = null;
@@ -212,8 +251,27 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
 
     setSubmitting(true);
     try {
+      const students = details.students?.filter((entry) => entry.name.trim()) ?? [];
+      const peopleCount = Math.max(1, students.length || (details.person?.trim() ? 1 : 0));
+      const quota = await getFoodReadyDeliveryQuota(phone);
+      const peopleError = validateFoodReadyPeopleCount(peopleCount, quota);
+      if (peopleError) {
+        return { error: peopleError, order: null };
+      }
+      if (students.length > 0) {
+        const dropError = await validateFoodReadyDropLocations(phone, students, quota);
+        if (dropError) {
+          return { error: dropError, order: null };
+        }
+      }
+
       let current = order ?? localOrderRef.current;
       if (!current) {
+        const profile = await loadCustomerProfile(phone);
+        current = await createBooking(customerId, phone, { ...profile, name: user?.name ?? profile.name });
+      }
+
+      if (current.status === 'pickup_closed') {
         const profile = await loadCustomerProfile(phone);
         current = await createBooking(customerId, phone, { ...profile, name: user?.name ?? profile.name });
       }
@@ -229,10 +287,6 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
         return { error: 'Today\'s delivery is already completed', order: null };
       }
 
-      if (current.status === 'pickup_closed') {
-        return { error: 'This delivery was cancelled', order: null };
-      }
-
       return { error: null, order: current };
     } catch (error) {
       return { error: error instanceof Error ? error.message : 'Could not mark food ready', order: null };
@@ -240,6 +294,18 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
       setSubmitting(false);
     }
   }, [phone, customerId, order, user?.name, syncOrder]);
+
+  const cancelOrder = useCallback(async (): Promise<string | null> => {
+    if (!phone) return 'Please log in to cancel';
+    try {
+      const updated = await cancelCustomerOrder(phone);
+      syncOrder(updated);
+      await syncDeliveryHistory(phone, [updated]);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Could not cancel order';
+    }
+  }, [phone, syncOrder]);
 
   const value = useMemo<DeliveryContextValue>(
     () => ({
@@ -249,9 +315,10 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
       getOrderSnapshot,
       bookPickup,
       markFoodReady,
+      cancelOrder,
       refreshDelivery,
     }),
-    [order, loading, submitting, getOrderSnapshot, bookPickup, markFoodReady, refreshDelivery],
+    [order, loading, submitting, getOrderSnapshot, bookPickup, markFoodReady, cancelOrder, refreshDelivery],
   );
 
   return <DeliveryContext.Provider value={value}>{children}</DeliveryContext.Provider>;

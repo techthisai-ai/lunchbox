@@ -1,65 +1,260 @@
 import { Ionicons } from '@expo/vector-icons';
-import { CommonActions } from '@react-navigation/native';
+import { CommonActions, RouteProp, useFocusEffect, useRoute } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useEffect } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Avatar } from '../components/Avatar';
-import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
-import { Card } from '../components/Card';
-import { colors, spacing } from '../constants/theme';
+import { PickupPlanSection } from '../components/PickupPlanSection';
+import { colors, shadow, spacing } from '../constants/theme';
+import { useAuth } from '../context/AuthContext';
 import { useDelivery } from '../context/DeliveryContext';
 import { useFoodReadyOverlay } from '../context/FoodReadyOverlayContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { HomeStackParamList } from '../navigation/types';
-import { getDeliveryTypeLabel, getDropAddress, normalizeDeliveryType, normalizeDeliveryTypes, buildFoodReadyStudents, DeliveryOrder } from '../types/delivery';
+import { loadFoodReadyDefaults } from '../services/foodReadyDefaultsService';
+import { loadCustomerProfile } from '../services/orderHubService';
+import { hasActiveSubscription } from '../services/subscriptionService';
+import {
+  buildFoodReadyStudents,
+  DeliveryOrder,
+  getDropAddress,
+  getDeliveryTypeLabel,
+  normalizeDeliveryType,
+  normalizeDeliveryTypes,
+} from '../types/delivery';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'FoodReady'>;
+type FoodReadyRoute = RouteProp<HomeStackParamList, 'FoodReady'>;
 
-function AddressRow({
-  icon,
-  iconBg,
-  iconColor,
-  label,
-  address,
+function ScreenBackButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
+      <Ionicons name="arrow-back" size={20} color={colors.text} />
+    </Pressable>
+  );
+}
+
+function formatDropDetails(order: Pick<DeliveryOrder, 'studentName' | 'dropAddress' | 'school' | 'studentEntries'>): string {
+  const students = order.studentEntries?.filter(
+    (entry) => entry.name.trim() || entry.dropLocation.trim() || entry.classSection.trim(),
+  );
+
+  if (students && students.length > 0) {
+    return students
+      .map((entry) => {
+        const parts = [entry.name.trim(), entry.classSection.trim(), entry.dropLocation.trim()].filter(Boolean);
+        return parts.join(' · ');
+      })
+      .join(' | ');
+  }
+
+  const address = getDropAddress(order);
+  const name = order.studentName?.trim();
+  if (!name) return address;
+  if (address && address !== name) return `${name} · ${address}`;
+  return name;
+}
+
+function SuccessHero({
+  title,
+  subtitle,
+  loading,
+  tone = 'success',
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
-  iconBg: string;
-  iconColor: string;
-  label: string;
-  address: string;
+  title: string;
+  subtitle: string;
+  loading?: boolean;
+  tone?: 'success' | 'cancelled';
+}) {
+  const isCancelled = tone === 'cancelled';
+
+  return (
+    <View style={styles.hero}>
+      <View style={[styles.heroRingOuter, isCancelled && styles.heroRingCancelled]}>
+        <View style={[styles.heroRingMid, isCancelled && styles.heroRingMidCancelled]}>
+          <View style={[styles.heroRingCore, isCancelled && styles.heroRingCoreCancelled]}>
+            {loading ? (
+              <ActivityIndicator size="large" color={colors.orange} />
+            ) : (
+              <Ionicons name={isCancelled ? 'close' : 'checkmark'} size={42} color={isCancelled ? colors.red : colors.orange} />
+            )}
+          </View>
+        </View>
+      </View>
+      <Text style={styles.heroTitle}>{title}</Text>
+      <Text style={styles.heroSubtitle}>{subtitle}</Text>
+    </View>
+  );
+}
+
+function RouteCard({
+  pickup,
+  drop,
+  typeLabel,
+}: {
+  pickup: string;
+  drop: string;
+  typeLabel: string;
 }) {
   return (
-    <View style={styles.addressRow}>
-      <View style={[styles.iconWrap, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={18} color={iconColor} />
+    <View style={styles.routeCard}>
+      <View style={styles.routeCardHeader}>
+        <Text style={styles.routeCardTitle}>Delivery Route</Text>
+        <View style={styles.typePill}>
+          <Text style={styles.typePillText}>{typeLabel}</Text>
+        </View>
       </View>
-      <View style={styles.addressInfo}>
-        <Text style={styles.addressLabel}>{label}</Text>
-        <Text style={styles.addressText}>{address}</Text>
+
+      <View style={styles.routeTimeline}>
+        <View style={styles.routePoint}>
+          <View style={[styles.routeDot, styles.routeDotPickup]} />
+          <View style={styles.routeCopy}>
+            <Text style={styles.routeLabel}>PICKUP</Text>
+            <Text style={styles.routeValue}>{pickup}</Text>
+          </View>
+        </View>
+
+        <View style={styles.routeLine} />
+
+        <View style={styles.routePoint}>
+          <View style={[styles.routeDot, styles.routeDotDrop]} />
+          <View style={styles.routeCopy}>
+            <Text style={styles.routeLabel}>DROP</Text>
+            <Text style={styles.routeValue}>{drop}</Text>
+          </View>
+        </View>
       </View>
     </View>
   );
 }
 
-function formatDropDetails(order: Pick<DeliveryOrder, 'studentName' | 'dropAddress' | 'school'>): string {
-  const address = getDropAddress(order);
-  const name = order.studentName?.trim();
-  if (!name) return address;
-  if (address && address !== name) return `${name}\n${address}`;
-  return name;
+function DriverStatusCard({
+  hasDriver,
+  driverName,
+  driverInitials,
+  etaMinutes,
+}: {
+  hasDriver: boolean;
+  driverName?: string;
+  driverInitials?: string;
+  etaMinutes?: number | null;
+}) {
+  return (
+    <LinearGradient colors={['#2D2D44', '#3D3D5C']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.driverCard}>
+      <View style={styles.driverCardHeader}>
+        <Text style={styles.driverCardTitle}>Driver Status</Text>
+        <View style={[styles.driverBadge, hasDriver ? styles.driverBadgeLive : styles.driverBadgePending]}>
+          <View style={[styles.driverBadgeDot, hasDriver ? styles.driverBadgeDotLive : styles.driverBadgeDotPending]} />
+          <Text style={[styles.driverBadgeText, hasDriver ? styles.driverBadgeTextLive : styles.driverBadgeTextPending]}>
+            {hasDriver ? 'Assigned' : 'Pending'}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.driverMain}>
+        {hasDriver ? (
+          <Avatar initials={driverInitials ?? '—'} />
+        ) : (
+          <View style={styles.searchOrb}>
+            <View style={styles.searchOrbMid}>
+              <Ionicons name="search" size={22} color={colors.orange} />
+            </View>
+          </View>
+        )}
+        <View style={styles.driverCopy}>
+          <Text style={styles.driverName}>{hasDriver ? driverName : 'Finding your rider'}</Text>
+          <Text style={styles.driverSub}>
+            {hasDriver
+              ? etaMinutes
+                ? `Arriving in ${etaMinutes} minutes`
+                : 'Rider confirmed for pickup'
+              : 'We are matching the nearest available driver'}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.driverStats}>
+        <View style={styles.driverStat}>
+          <Text style={styles.driverStatLabel}>PICKUP ETA</Text>
+          <Text style={styles.driverStatValue}>{etaMinutes != null ? `${etaMinutes} min` : '—'}</Text>
+        </View>
+        <View style={styles.driverStatDivider} />
+        <View style={styles.driverStat}>
+          <Text style={styles.driverStatLabel}>STATUS</Text>
+          <Text style={[styles.driverStatValue, styles.driverStatValueSmall]}>{hasDriver ? 'On Route' : 'Pending'}</Text>
+        </View>
+      </View>
+    </LinearGradient>
+  );
 }
 
 export function FoodReadyScreen({ navigation }: Props) {
+  const route = useRoute<FoodReadyRoute>();
+  const choosePlanStep = route.params?.step === 'choosePlan';
+  const { user } = useAuth();
   const { order, submitting, markFoodReady, refreshDelivery } = useDelivery();
   const { openFoodReadyDialog } = useFoodReadyOverlay();
-  const { horizontalPadding, foodReadySize, contentMaxWidth } = useResponsive();
+  const { horizontalPadding, contentMaxWidth } = useResponsive();
+  const [planReady, setPlanReady] = useState(!choosePlanStep);
   const displayOrder = order;
-  const ringSize = Math.min(foodReadySize * 0.66, 120);
   const hasDriver = Boolean(displayOrder?.driver);
   const isWaiting = displayOrder?.status === 'awaiting_driver';
-  const etaLabel = displayOrder?.driver?.etaMinutes ? `${displayOrder.driver.etaMinutes} min` : '—';
+  const etaLabel = displayOrder?.driver?.etaMinutes ?? null;
+
+  const openPickupDialog = useCallback(async () => {
+    if (!user?.phone) return;
+
+    const [savedDefaults, profile] = await Promise.all([
+      loadFoodReadyDefaults(user.phone),
+      loadCustomerProfile(user.phone),
+    ]);
+
+    const openDialog = (initialValues: Parameters<typeof openFoodReadyDialog>[0]['initialValues']) => {
+      openFoodReadyDialog({
+        initialValues,
+        submitting,
+        onConfirm: async (details) => {
+          await markFoodReady(details);
+          await refreshDelivery();
+        },
+      });
+    };
+
+    if (savedDefaults) {
+      openDialog(savedDefaults);
+      return;
+    }
+
+    openDialog({
+      name: user.name || profile.name || '',
+      deliveryType: normalizeDeliveryType(profile.deliveryType),
+      pickupAddress: profile.address || '',
+      dropAddress: profile.school || '',
+      person: profile.studentName || '',
+      students: buildFoodReadyStudents({
+        person: profile.studentName,
+        dropAddress: profile.school,
+        deliveryType: normalizeDeliveryType(profile.deliveryType),
+      }),
+    });
+  }, [user, submitting, openFoodReadyDialog, markFoodReady, refreshDelivery]);
+
+  const handlePlanReady = useCallback(async () => {
+    const hasPlan = user?.phone ? await hasActiveSubscription(user.phone) : false;
+    if (!hasPlan) return;
+    setPlanReady(true);
+    if (choosePlanStep) {
+      await openPickupDialog();
+    }
+  }, [user?.phone, choosePlanStep, openPickupDialog]);
+
+  useEffect(() => {
+    if (!choosePlanStep) return;
+    setPlanReady(false);
+  }, [choosePlanStep]);
 
   useEffect(() => {
     void refreshDelivery();
@@ -67,19 +262,100 @@ export function FoodReadyScreen({ navigation }: Props) {
     return () => clearInterval(interval);
   }, [refreshDelivery]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.phone) return;
+      void hasActiveSubscription(user.phone).then((has) => {
+        if (has) setPlanReady(true);
+      });
+    }, [user?.phone]),
+  );
+
+  const goToTracking = () => {
+    navigation.getParent()?.dispatch(
+      CommonActions.navigate({
+        name: 'Track',
+        params: { screen: 'Tracking' },
+      }),
+    );
+  };
+
+  const openEditDialog = () => {
+    if (!displayOrder) return;
+    openFoodReadyDialog({
+      initialValues: {
+        name: displayOrder.customerName,
+        deliveryType: normalizeDeliveryType(displayOrder.deliveryType),
+        deliveryTypes: normalizeDeliveryTypes(
+          displayOrder.deliveryTypes,
+          normalizeDeliveryType(displayOrder.deliveryType),
+        ),
+        pickupAddress: displayOrder.pickupAddress,
+        dropAddress: getDropAddress(displayOrder),
+        person: displayOrder.studentName,
+        students: buildFoodReadyStudents({
+          studentEntries: displayOrder.studentEntries,
+          person: displayOrder.studentName,
+          dropAddress: getDropAddress(displayOrder),
+          deliveryType: normalizeDeliveryType(displayOrder.deliveryType),
+          deliveryTypes: displayOrder.deliveryTypes,
+        }),
+      },
+      submitting,
+      onConfirm: async (details) => {
+        await markFoodReady(details);
+        await refreshDelivery();
+      },
+    });
+  };
+
+  if (choosePlanStep && !planReady) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={[styles.topBar, { paddingHorizontal: horizontalPadding }]}>
+          <ScreenBackButton onPress={() => navigation.goBack()} />
+          <Text style={styles.pageTitle}>Choose Plan</Text>
+          <View style={styles.topBarSpacer} />
+        </View>
+        <ScrollView
+          contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.body, { maxWidth: contentMaxWidth }]}>
+            <PickupPlanSection mode="picker" onPlanReady={() => void handlePlanReady()} />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   if (!displayOrder || displayOrder.status === 'booked') {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={[styles.header, { paddingHorizontal: horizontalPadding }]}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button">
-            <Ionicons name="arrow-back" size={20} color={colors.text} />
-          </Pressable>
+        <View style={[styles.topBar, { paddingHorizontal: horizontalPadding }]}>
+          <ScreenBackButton onPress={() => navigation.goBack()} />
+          <Text style={styles.pageTitle}>Pickup Request</Text>
+          <View style={styles.topBarSpacer} />
         </View>
-        <View style={[styles.emptyState, { paddingHorizontal: horizontalPadding }]}>
-          <Text style={styles.title}>No pickup request yet</Text>
-          <Text style={styles.subtitle}>Mark food ready from the home screen first.</Text>
-          <Button title="Back to Home" variant="outline" onPress={() => navigation.goBack()} style={styles.fullWidthBtn} />
-        </View>
+        <ScrollView
+          contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.body, { maxWidth: contentMaxWidth }]}>
+            <PickupPlanSection mode="picker" onPlanReady={() => setPlanReady(true)} />
+            {planReady ? (
+              <>
+                <LinearGradient colors={['#FFF5F9', '#FFFFFF']} style={styles.emptyCard}>
+                  <Ionicons name="location-outline" size={42} color={colors.orange} />
+                  <Text style={styles.emptyTitle}>Set your drop address</Text>
+                  <Text style={styles.emptySub}>Confirm pickup and drop details to create your request.</Text>
+                </LinearGradient>
+                <Button title="Set Drop Address" onPress={() => void openPickupDialog()} style={styles.fullWidthBtn} />
+              </>
+            ) : null}
+            <Button title="Back to Home" variant="outline" onPress={() => navigation.goBack()} style={styles.fullWidthBtn} />
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -87,58 +363,22 @@ export function FoodReadyScreen({ navigation }: Props) {
   if (displayOrder.status === 'pickup_closed') {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={[styles.header, { paddingHorizontal: horizontalPadding }]}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button">
-            <Ionicons name="arrow-back" size={20} color={colors.text} />
-          </Pressable>
+        <View style={[styles.topBar, { paddingHorizontal: horizontalPadding }]}>
+          <ScreenBackButton onPress={() => navigation.goBack()} />
         </View>
         <ScrollView
           contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
           showsVerticalScrollIndicator={false}
         >
           <View style={[styles.body, { maxWidth: contentMaxWidth }]}>
-            <View style={styles.hero}>
-              <View style={[styles.ring, styles.cancelledRing, { width: ringSize, height: ringSize, borderRadius: ringSize / 2 }]}>
-                <Ionicons name="close" size={48} color={colors.red} />
-              </View>
-              <Text style={styles.title}>Order Cancelled</Text>
-            </View>
-
-            <Card
-              style={styles.card}
-              title="Delivery Details"
-              badge={<Badge label="Cancelled" tone="red" />}
-            >
-              <AddressRow
-                icon="home-outline"
-                iconBg={colors.orangeLight}
-                iconColor={colors.orange}
-                label="Pickup"
-                address={displayOrder.pickupAddress}
-              />
-              <View style={styles.divider} />
-              <AddressRow
-                icon="location-outline"
-                iconBg={colors.greenLight}
-                iconColor={colors.greenDark}
-                label="Drop"
-                address={formatDropDetails(displayOrder)}
-              />
-            </Card>
-
+            <SuccessHero title="Order Cancelled" subtitle="This delivery is no longer active" tone="cancelled" />
+            <RouteCard
+              pickup={displayOrder.pickupAddress}
+              drop={formatDropDetails(displayOrder)}
+              typeLabel="Cancelled"
+            />
             <View style={styles.actions}>
-              <Button
-                title="Track Live"
-                onPress={() => {
-                  navigation.getParent()?.dispatch(
-                    CommonActions.navigate({
-                      name: 'Track',
-                      params: { screen: 'Tracking' },
-                    }),
-                  );
-                }}
-                style={styles.fullWidthBtn}
-              />
+              <Button title="Track Live" onPress={goToTracking} style={styles.fullWidthBtn} />
               <Button title="Back to Home" variant="outline" onPress={() => navigation.goBack()} style={styles.fullWidthBtn} />
             </View>
           </View>
@@ -149,142 +389,57 @@ export function FoodReadyScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={[styles.header, { paddingHorizontal: horizontalPadding }]}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button">
-          <Ionicons name="arrow-back" size={20} color={colors.text} />
-        </Pressable>
-      </View>
+      <LinearGradient colors={['#FFF8FB', colors.bg]} style={styles.topGlow}>
+        <View style={[styles.topBar, { paddingHorizontal: horizontalPadding }]}>
+          <ScreenBackButton onPress={() => navigation.goBack()} />
+          <View style={styles.requestPill}>
+            <Text style={styles.requestPillText}>#{displayOrder.id.slice(-6).toUpperCase()}</Text>
+          </View>
+        </View>
+      </LinearGradient>
+
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.body, { maxWidth: contentMaxWidth }]}>
-          <View style={styles.hero}>
-            <View style={[styles.ring, { width: ringSize, height: ringSize, borderRadius: ringSize / 2 }]}>
-              {isWaiting && !hasDriver ? (
-                <ActivityIndicator size="large" color={colors.orange} />
-              ) : (
-                <Ionicons name="checkmark" size={48} color={colors.orange} />
-              )}
-            </View>
-            <Text style={styles.title}>Pickup Request Created!</Text>
-            <Text style={styles.subtitle}>Your lunchbox is ready for pickup</Text>
-          </View>
+          <PickupPlanSection mode="status" />
 
-          <Card
-            style={styles.card}
-            title="Delivery Details"
-            badge={<Badge label={getDeliveryTypeLabel(displayOrder.deliveryType)} tone="orange" />}
-          >
-            <AddressRow
-              icon="home-outline"
-              iconBg={colors.orangeLight}
-              iconColor={colors.orange}
-              label="Pickup"
-              address={displayOrder.pickupAddress}
-            />
-            <View style={styles.divider} />
-            <AddressRow
-              icon="location-outline"
-              iconBg={colors.greenLight}
-              iconColor={colors.greenDark}
-              label="Drop"
-              address={formatDropDetails(displayOrder)}
-            />
-          </Card>
+          <SuccessHero
+            title="Pickup Request Created!"
+            subtitle="Your lunchbox is ready for pickup"
+            loading={isWaiting && !hasDriver}
+          />
 
-          <Card
-            style={styles.card}
-            title="Driver Assigned"
-            badge={<Badge label={hasDriver ? 'Confirmed' : 'Pending'} tone={hasDriver ? 'green' : 'orange'} />}
-          >
-            <View style={styles.driverRow}>
-              {hasDriver ? (
-                <Avatar initials={displayOrder.driver?.initials ?? '—'} />
-              ) : (
-                <View style={styles.searchAvatar}>
-                  <Ionicons name="search" size={20} color={colors.orange} />
-                </View>
-              )}
-              <View style={styles.driverInfo}>
-                {displayOrder.driver ? (
-                  <>
-                    <Text style={styles.driverName}>{displayOrder.driver.name}</Text>
-                    {displayOrder.driver.etaMinutes ? (
-                      <Text style={styles.driverSub}>
-                        {`Arriving in ${displayOrder.driver.etaMinutes} minutes`}
-                      </Text>
-                    ) : null}
-                  </>
-                ) : null}
-              </View>
-            </View>
-            <View style={styles.statsRow}>
-              <View style={styles.statBlock}>
-                <Text style={styles.statLabel}>Pickup ETA</Text>
-                <Text style={styles.statValue}>{etaLabel}</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statBlock}>
-                <Text style={styles.statLabel}>Driver Status</Text>
-                <Text style={[styles.statValue, styles.statValueSmall]}>
-                  {hasDriver ? 'Assigned' : 'Pending'}
-                </Text>
-              </View>
-            </View>
-          </Card>
+          <RouteCard
+            pickup={displayOrder.pickupAddress}
+            drop={formatDropDetails(displayOrder)}
+            typeLabel={getDeliveryTypeLabel(displayOrder.deliveryType)}
+          />
+
+          <DriverStatusCard
+            hasDriver={hasDriver}
+            driverName={displayOrder.driver?.name}
+            driverInitials={displayOrder.driver?.initials}
+            etaMinutes={etaLabel}
+          />
 
           <View style={styles.actions}>
             {isWaiting && !hasDriver ? (
-              <Button
-                title="Edit Delivery Details"
-                variant="outline"
-                onPress={() => {
-                  if (!displayOrder) return;
-                  openFoodReadyDialog({
-                    initialValues: {
-                      name: displayOrder.customerName,
-                      deliveryType: normalizeDeliveryType(displayOrder.deliveryType),
-                      deliveryTypes: normalizeDeliveryTypes(
-                        displayOrder.deliveryTypes,
-                        normalizeDeliveryType(displayOrder.deliveryType),
-                      ),
-                      pickupAddress: displayOrder.pickupAddress,
-                      dropAddress: getDropAddress(displayOrder),
-                      person: displayOrder.studentName,
-                      students: buildFoodReadyStudents({
-                        studentEntries: displayOrder.studentEntries,
-                        person: displayOrder.studentName,
-                        dropAddress: getDropAddress(displayOrder),
-                        deliveryType: normalizeDeliveryType(displayOrder.deliveryType),
-                        deliveryTypes: displayOrder.deliveryTypes,
-                      }),
-                    },
-                    submitting,
-                    onConfirm: async (details) => {
-                      await markFoodReady(details);
-                      await refreshDelivery();
-                    },
-                  });
-                }}
-                style={styles.fullWidthBtn}
-              />
+              <Pressable style={styles.outlineAction} onPress={openEditDialog}>
+                <Ionicons name="create-outline" size={18} color={colors.orange} />
+                <Text style={styles.outlineActionText}>Edit Delivery Details</Text>
+              </Pressable>
             ) : null}
 
-            <Button
-              title="Track Live Delivery"
-              onPress={() => {
-                navigation.getParent()?.dispatch(
-                  CommonActions.navigate({
-                    name: 'Track',
-                    params: { screen: 'Tracking' },
-                  }),
-                );
-              }}
-              style={styles.fullWidthBtn}
-              variant={hasDriver ? 'primary' : 'outline'}
-            />
-            <Button title="Back to Home" variant="outline" onPress={() => navigation.goBack()} style={styles.fullWidthBtn} />
+            <Pressable style={[styles.primaryAction, !hasDriver && styles.primaryActionMuted]} onPress={goToTracking}>
+              <Ionicons name="navigate" size={18} color={colors.onPrimary} />
+              <Text style={styles.primaryActionText}>Track Live Delivery</Text>
+            </Pressable>
+
+            <Pressable style={styles.ghostAction} onPress={() => navigation.goBack()}>
+              <Text style={styles.ghostActionText}>Back to Home</Text>
+            </Pressable>
           </View>
         </View>
       </ScrollView>
@@ -294,146 +449,361 @@ export function FoodReadyScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  header: { paddingTop: spacing.sm, paddingBottom: spacing.sm },
+  topGlow: { paddingBottom: spacing.xs },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+  },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
+    backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'flex-start',
+  },
+  pageTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  topBarSpacer: { width: 40 },
+  requestPill: {
+    backgroundColor: colors.white,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  requestPillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.muted,
+    letterSpacing: 0.5,
   },
   scroll: {
-    paddingBottom: spacing.xl,
+    paddingBottom: spacing.xl * 2,
     alignItems: 'center',
   },
   body: {
     width: '100%',
     alignSelf: 'center',
   },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: spacing.md,
+    paddingBottom: spacing.xl,
+  },
+  emptyCard: {
+    borderRadius: 22,
+    padding: spacing.xl,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    ...shadow.subtle,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.text,
+    marginTop: spacing.md,
+    textAlign: 'center',
+  },
+  emptySub: {
+    fontSize: 13,
+    color: colors.muted,
+    marginTop: 6,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
   hero: {
     alignItems: 'center',
     marginBottom: spacing.lg,
+    paddingTop: spacing.xs,
   },
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: spacing.xl,
-  },
-  ring: {
-    backgroundColor: colors.orangeLight,
-    borderWidth: 4,
-    borderColor: colors.orange,
+  heroRingOuter: {
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    borderWidth: 2,
+    borderColor: 'rgba(233,30,99,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
   },
-  cancelledRing: {
-    backgroundColor: colors.redLight,
-    borderColor: colors.red,
+  heroRingCancelled: {
+    borderColor: 'rgba(198,40,40,0.2)',
   },
-  title: {
-    fontSize: 22,
+  heroRingMid: {
+    width: 108,
+    height: 108,
+    borderRadius: 54,
+    borderWidth: 2,
+    borderColor: 'rgba(233,30,99,0.32)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroRingMidCancelled: {
+    borderColor: 'rgba(198,40,40,0.28)',
+  },
+  heroRingCore: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: colors.orangeLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroRingCoreCancelled: {
+    backgroundColor: colors.redLight,
+  },
+  heroTitle: {
+    fontSize: 24,
     fontWeight: '800',
     color: colors.text,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
-  subtitle: {
+  heroSubtitle: {
     color: colors.muted,
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
+    paddingHorizontal: spacing.md,
   },
-  card: {
-    width: '100%',
+  routeCard: {
+    backgroundColor: colors.white,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    padding: spacing.md,
     marginBottom: spacing.md,
+    ...shadow.subtle,
   },
-  addressRow: {
+  routeCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+    gap: 8,
+  },
+  routeCardTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  typePill: {
+    backgroundColor: colors.purpleLight,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  typePillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.purple,
+  },
+  routeTimeline: {
+    gap: 0,
+  },
+  routePoint: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
   },
-  iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
+  routeDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    marginTop: 4,
   },
-  addressInfo: { flex: 1, minWidth: 0 },
-  addressLabel: { fontSize: 12, fontWeight: '700', color: colors.text },
-  addressText: { fontSize: 13, color: colors.muted, marginTop: 4, lineHeight: 20 },
-  divider: {
-    height: 1,
+  routeDotPickup: { backgroundColor: colors.orange },
+  routeDotDrop: { backgroundColor: colors.green },
+  routeLine: {
+    width: 2,
+    height: 22,
     backgroundColor: colors.border,
-    marginVertical: spacing.md,
-  },
-  driverRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  searchAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.orangeLight,
-    borderWidth: 2,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  driverInfo: { flex: 1, minWidth: 0 },
-  driverName: { fontWeight: '700', fontSize: 15, color: colors.text, lineHeight: 20 },
-  driverSub: { fontSize: 12, color: colors.muted, marginTop: 4, lineHeight: 18 },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    marginTop: spacing.md,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  statBlock: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 4,
-  },
-  statDivider: {
-    width: 1,
-    backgroundColor: colors.border,
+    marginLeft: 6,
     marginVertical: 4,
   },
-  statLabel: {
-    fontSize: 11,
-    fontWeight: '600',
+  routeCopy: { flex: 1, minWidth: 0 },
+  routeLabel: {
+    fontSize: 10,
+    fontWeight: '700',
     color: colors.muted,
-    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  routeValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: 4,
+    lineHeight: 19,
+  },
+  driverCard: {
+    borderRadius: 20,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    ...shadow.card,
+  },
+  driverCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  driverCardTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.onPrimary,
+  },
+  driverBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  driverBadgeLive: { backgroundColor: 'rgba(67,160,71,0.2)' },
+  driverBadgePending: { backgroundColor: 'rgba(233,30,99,0.18)' },
+  driverBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  driverBadgeDotLive: { backgroundColor: colors.green },
+  driverBadgeDotPending: { backgroundColor: colors.orange },
+  driverBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
     letterSpacing: 0.4,
   },
-  statValue: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: colors.orange,
-    marginTop: 6,
-    lineHeight: 32,
+  driverBadgeTextLive: { color: colors.green },
+  driverBadgeTextPending: { color: colors.orange },
+  driverMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: spacing.md,
   },
-  statValueSmall: {
+  searchOrb: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: 'rgba(233,30,99,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  searchOrbMid: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.orangeLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  driverCopy: { flex: 1, minWidth: 0 },
+  driverName: {
     fontSize: 16,
+    fontWeight: '800',
+    color: colors.onPrimary,
+  },
+  driverSub: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 4,
+    lineHeight: 17,
+  },
+  driverStats: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  driverStat: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  driverStatDivider: {
+    width: 1,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  driverStatLabel: {
+    fontSize: 9,
     fontWeight: '700',
-    lineHeight: 22,
+    color: 'rgba(255,255,255,0.65)',
+    letterSpacing: 0.5,
+  },
+  driverStatValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.onPrimary,
+    marginTop: 4,
+  },
+  driverStatValueSmall: {
+    fontSize: 14,
+    fontWeight: '800',
   },
   actions: {
     width: '100%',
-    gap: 12,
-    marginTop: spacing.sm,
+    gap: 10,
+    marginTop: spacing.xs,
+  },
+  outlineAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: colors.orange,
+    paddingVertical: 14,
+  },
+  outlineActionText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.orange,
+  },
+  primaryAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.orange,
+    borderRadius: 14,
+    paddingVertical: 15,
+    ...shadow.subtle,
+  },
+  primaryActionMuted: {
+    backgroundColor: '#C2185B',
+  },
+  primaryActionText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.onPrimary,
+  },
+  ghostAction: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  ghostActionText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.muted,
   },
   fullWidthBtn: {
     width: '100%',

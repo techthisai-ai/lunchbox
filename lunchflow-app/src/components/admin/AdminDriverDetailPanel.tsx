@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
 import { approveDriver, rejectDriver } from '../../services/userRegistryService';
@@ -38,6 +38,8 @@ export function AdminDriverDetailPanel({ driver, onMarkLeave, onClose, onApprova
     try {
       await approveDriver(driver.id);
       onApprovalChanged();
+    } catch (error) {
+      Alert.alert('Approval failed', error instanceof Error ? error.message : 'Could not approve driver');
     } finally {
       setSaving(false);
     }
@@ -48,6 +50,8 @@ export function AdminDriverDetailPanel({ driver, onMarkLeave, onClose, onApprova
     try {
       await rejectDriver(driver.id);
       onApprovalChanged();
+    } catch (error) {
+      Alert.alert('Reject failed', error instanceof Error ? error.message : 'Could not reject driver');
     } finally {
       setSaving(false);
     }

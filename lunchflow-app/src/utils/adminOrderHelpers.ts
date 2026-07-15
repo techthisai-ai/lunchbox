@@ -1,9 +1,20 @@
-import { DeliveryOrder, DeliveryStatus } from '../types/delivery';
+import { DeliveryOrder, DeliveryStatus, getDropAddress } from '../types/delivery';
 import { normalizePhone } from '../constants/auth';
 import { DEFAULT_SUBSCRIPTION_PLAN_ID, getSubscriptionPlan } from '../constants/subscriptions';
 import { getPlanBaseAmount } from '../utils/subscription';
 
 export const DEFAULT_ORDER_AMOUNT = getPlanBaseAmount(getSubscriptionPlan(DEFAULT_SUBSCRIPTION_PLAN_ID));
+
+/** Delivery / drop location for admin tables and exports. */
+export function getOrderDeliveryLocation(
+  order: DeliveryOrder,
+  fallbackByPhone?: Map<string, string>,
+): string {
+  const fromOrder = getDropAddress(order).trim();
+  if (fromOrder) return fromOrder;
+  const fallback = fallbackByPhone?.get(normalizePhone(order.customerPhone))?.trim();
+  return fallback || '';
+}
 
 export function getOrderAmountForCustomer(order: DeliveryOrder, amountsByPhone: Map<string, number>): number {
   const phone = normalizePhone(order.customerPhone);

@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DEFAULT_DELIVERY_FEE } from '../constants/business';
-import { DeliveryOrder } from '../types/delivery';
+import { DeliveryOrder, DeliveryType, normalizeDeliveryType } from '../types/delivery';
 import { formatHistoryDate, resolveHistoryDateKey } from '../utils/date';
 
 export type DeliveryHistoryEntry = {
@@ -15,6 +15,7 @@ export type DeliveryHistoryEntry = {
   destinationName: string;
   destinationAddress: string;
   price: string;
+  deliveryType: DeliveryType;
 };
 
 function storageKey(phone: string): string {
@@ -86,6 +87,7 @@ function buildHistoryEntry(order: DeliveryOrder): DeliveryHistoryEntry {
     destinationName: destination.name,
     destinationAddress: destination.address,
     price: `₹${DEFAULT_DELIVERY_FEE}`,
+    deliveryType: normalizeDeliveryType(order.deliveryType),
   };
 }
 
@@ -100,6 +102,7 @@ function hydrateHistoryEntry(entry: DeliveryHistoryEntry): DeliveryHistoryEntry 
     destinationName,
     destinationAddress: entry.destinationAddress || '',
     price: entry.price || `₹${DEFAULT_DELIVERY_FEE}`,
+    deliveryType: normalizeDeliveryType(entry.deliveryType),
   };
 }
 

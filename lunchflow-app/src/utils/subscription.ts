@@ -6,7 +6,8 @@ export function getPlanBillingMonths(plan: SubscriptionPlan): number {
 }
 
 export function getPlanBillingPeriod(plan: SubscriptionPlan): BillingPeriod {
-  return plan.billingPeriod ?? '1_month';
+  if (plan.billingPeriod) return plan.billingPeriod;
+  return plan.billingMonths === 3 ? '3_month' : '1_month';
 }
 
 export function getPlanBaseAmount(plan: SubscriptionPlan): number {

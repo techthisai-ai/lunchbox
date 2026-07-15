@@ -24,20 +24,23 @@ function currentMonth(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
-async function seedSalaries(): Promise<SalaryRecord[]> {
-  const month = currentMonth();
-  const drivers = await loadRegisteredDrivers();
-  return drivers.map((driver, index) => ({
-    id: `SAL-${driver.id}-${month}`,
-    employeeId: driver.id,
-    employeeName: driver.name,
-    role: 'Driver',
-    month,
-    amount: 18000 + index * 1500,
-    status: index % 2 === 0 ? ('paid' as const) : ('unpaid' as const),
-    ...(index % 2 === 0 ? { paidAt: new Date().toISOString() } : {}),
-    createdAt: new Date().toISOString(),
-  }));
+export function getCurrentFinanceMonth(): string {
+  return currentMonth();
+}
+
+function isLegacyDemoSalaryRecord(record: SalaryRecord): boolean {
+  if (!/^SAL-.+-\d{4}-\d{2}$/.test(record.id)) return false;
+  if (record.role !== 'Driver') return false;
+  if (record.amount < 18000) return false;
+  return (record.amount - 18000) % 1500 === 0;
+}
+
+function stripLegacyDemoSalaryRecords(records: SalaryRecord[]): SalaryRecord[] {
+  return records.filter((record) => !isLegacyDemoSalaryRecord(record));
+}
+
+async function persistSalaryRecords(records: SalaryRecord[]): Promise<void> {
+  await AsyncStorage.setItem(SALARIES_KEY, JSON.stringify(records));
 }
 
 function offsetDate(daysAgo: number): string {
@@ -101,14 +104,19 @@ function seedExpenses(): ExpenseRecord[] {
 export async function listSalaryRecords(): Promise<SalaryRecord[]> {
   try {
     const raw = await AsyncStorage.getItem(SALARIES_KEY);
-    if (raw) return JSON.parse(raw) as SalaryRecord[];
+    if (raw) {
+      const parsed = JSON.parse(raw) as SalaryRecord[];
+      const cleaned = stripLegacyDemoSalaryRecords(parsed);
+      if (cleaned.length !== parsed.length) {
+        await persistSalaryRecords(cleaned);
+      }
+      return cleaned;
+    }
   } catch {
     // fall through
   }
-  const seeded = await seedSalaries();
-  await AsyncStorage.setItem(SALARIES_KEY, JSON.stringify(seeded));
-  for (const record of seeded) await syncDocument('salaries', record.id, record);
-  return seeded;
+  await persistSalaryRecords([]);
+  return [];
 }
 
 export async function listExpenseRecords(): Promise<ExpenseRecord[]> {
@@ -138,14 +146,62 @@ export async function listExpenseRecords(): Promise<ExpenseRecord[]> {
   return seeded;
 }
 
-export async function markSalaryPaid(recordId: string): Promise<void> {
+function nextMonthKey(month: string): string {
+  const [yearPart, monthPart] = month.split('-').map(Number);
+  const date = new Date(yearPart, monthPart - 1, 1);
+  date.setMonth(date.getMonth() + 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function salaryEmployeeKey(name: string, role: string): string {
+  return `${name.trim().toLowerCase()}::${role.trim().toLowerCase()}`;
+}
+
+export async function markSalaryPaid(recordId: string): Promise<SalaryRecord> {
   const records = await listSalaryRecords();
-  const next = records.map((r) =>
-    r.id === recordId ? { ...r, status: 'paid' as const, paidAt: new Date().toISOString() } : r,
+  const target = records.find((record) => record.id === recordId);
+  if (!target) {
+    throw new Error('Salary record not found');
+  }
+  if (target.status === 'paid') {
+    return target;
+  }
+
+  const paid: SalaryRecord = {
+    ...target,
+    status: 'paid',
+    paidAt: new Date().toISOString(),
+  };
+
+  let next = records.map((record) => (record.id === recordId ? paid : record));
+
+  // After payment, auto-create the same salary entry for the next month (unpaid).
+  const followingMonth = nextMonthKey(target.month);
+  const alreadyHasNext = next.some(
+    (record) =>
+      record.month === followingMonth &&
+      salaryEmployeeKey(record.employeeName, record.role) ===
+        salaryEmployeeKey(target.employeeName, target.role),
   );
-  await AsyncStorage.setItem(SALARIES_KEY, JSON.stringify(next));
-  const updated = next.find((r) => r.id === recordId);
-  if (updated) await syncDocument('salaries', recordId, updated);
+
+  if (!alreadyHasNext) {
+    const nextRecord: SalaryRecord = {
+      id: `SAL-${Date.now()}-next`,
+      employeeId: target.employeeId,
+      employeeName: target.employeeName,
+      role: target.role,
+      month: followingMonth,
+      amount: target.amount,
+      status: 'unpaid',
+      createdAt: new Date().toISOString(),
+    };
+    next = [nextRecord, ...next];
+    await syncDocument('salaries', nextRecord.id, nextRecord);
+  }
+
+  await persistSalaryRecords(next);
+  await syncDocument('salaries', recordId, paid);
+  return paid;
 }
 
 export async function addSalaryRecord(input: {
@@ -154,20 +210,42 @@ export async function addSalaryRecord(input: {
   month: string;
   amount: number;
 }): Promise<SalaryRecord> {
-  const employeeId = `EMP-${Date.now()}`;
+  const employeeName = input.employeeName.trim();
+  const role = input.role.trim() || 'Employee';
+  const month = input.month;
+  const amount = input.amount;
+
+  const records = await listSalaryRecords();
+  const duplicate = records.find(
+    (record) =>
+      record.month === month &&
+      salaryEmployeeKey(record.employeeName, record.role) === salaryEmployeeKey(employeeName, role),
+  );
+  if (duplicate) {
+    throw new Error(
+      duplicate.status === 'paid'
+        ? 'Salary for this employee is already paid for this month.'
+        : 'A pending salary entry already exists for this employee this month. Use Pay to complete it.',
+    );
+  }
+
+  const prior = records.find(
+    (record) => salaryEmployeeKey(record.employeeName, record.role) === salaryEmployeeKey(employeeName, role),
+  );
+  const employeeId = prior?.employeeId ?? `EMP-${Date.now()}`;
+
   const record: SalaryRecord = {
     id: `SAL-${Date.now()}`,
     employeeId,
-    employeeName: input.employeeName.trim(),
-    role: input.role.trim() || 'Employee',
-    month: input.month,
-    amount: input.amount,
+    employeeName,
+    role,
+    month,
+    amount,
     status: 'unpaid',
     createdAt: new Date().toISOString(),
   };
-  const records = await listSalaryRecords();
   const next = [record, ...records];
-  await AsyncStorage.setItem(SALARIES_KEY, JSON.stringify(next));
+  await persistSalaryRecords(next);
   await syncDocument('salaries', record.id, record);
   return record;
 }

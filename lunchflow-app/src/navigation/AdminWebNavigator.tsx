@@ -25,13 +25,18 @@ export function AdminWebNavigator() {
   }
 
   return (
-    <Stack.Navigator
+    <View style={styles.navigator}>
+      <Stack.Navigator
       key={isAdminLoggedIn ? 'admin-portal' : 'admin-login'}
       initialRouteName={isAdminLoggedIn ? 'AdminPortal' : 'AdminLogin'}
       screenOptions={{
         headerShown: false,
         animation: 'fade',
-        contentStyle: { backgroundColor: colors.bg },
+        contentStyle: {
+          backgroundColor: colors.bg,
+          flex: 1,
+          height: '100%',
+        },
       }}
     >
       <Stack.Screen name="AdminLogin" component={AdminLoginScreen} />
@@ -45,10 +50,15 @@ export function AdminWebNavigator() {
         )}
       </Stack.Screen>
     </Stack.Navigator>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  navigator: {
+    flex: 1,
+    height: '100%',
+  },
   loading: {
     flex: 1,
     alignItems: 'center',

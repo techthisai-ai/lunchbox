@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -31,6 +31,7 @@ function useSplashLogoSize() {
 export function SplashScreen({ navigation }: Props) {
   const { user, loading } = useAuth();
   const [minTimeDone, setMinTimeDone] = useState(false);
+  const navigatedRef = useRef(false);
   const { logoSize, cornerRadius } = useSplashLogoSize();
 
   useEffect(() => {
@@ -51,20 +52,24 @@ export function SplashScreen({ navigation }: Props) {
       if (cancelled) return;
 
       if (user?.role === 'admin') {
+        navigatedRef.current = true;
         goToAdminPortal(navigation);
         return;
       }
 
       if (user?.role === 'customer' && user.phone) {
+        navigatedRef.current = true;
         await navigateAfterCustomerLogin(navigation, user.phone);
         return;
       }
 
       if (user?.role === 'driver' && user.phone) {
+        navigatedRef.current = true;
         await navigateAfterDriverLogin(navigation, user.phone);
         return;
       }
 
+      navigatedRef.current = true;
       navigation.replace('Login');
     })();
 
@@ -72,6 +77,17 @@ export function SplashScreen({ navigation }: Props) {
       cancelled = true;
     };
   }, [loading, minTimeDone, user, navigation]);
+
+  // Failsafe: never stay on splash if auth/navigation stalls on a device build.
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (!navigatedRef.current) {
+        navigatedRef.current = true;
+        navigation.replace('Login');
+      }
+    }, 8000);
+    return () => clearTimeout(timeout);
+  }, [navigation]);
 
   return (
     <SafeAreaView style={styles.container}>

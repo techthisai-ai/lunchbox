@@ -4,7 +4,7 @@ import { buildDriverAssignmentMessage, buildStatusMessage, StatusMessage } from 
 import { logDeliveryAttempt, markSent, wasAlreadySent, writeInboxNotification } from './inbox';
 import { sendExpoPush } from './push';
 import { sendSms } from './sms';
-import { sendOrderWhatsApp } from './whatsapp';
+import { sendOrderWhatsApp, sendWhatsAppImage } from './whatsapp';
 
 async function loadUser(phone: string): Promise<UserDoc | null> {
   const db = getFirestore();
@@ -62,6 +62,30 @@ async function dispatchChannel(
   if (result.ok) await markSent(orderId, status, `${channel}:${phone}`);
 }
 
+async function dispatchDeliveryProofWhatsApp(phone: string, order: OrderDoc): Promise<void> {
+  const proofImageUrl = order.deliveryProof?.proofImageUrl?.trim();
+  if (!proofImageUrl) return;
+
+  const orderId = order.id ?? 'unknown';
+  const status = 'delivered:proof-image';
+  if (await wasAlreadySent(orderId, status, `whatsapp:${phone}`)) return;
+
+  const student = order.studentName || 'your lunchbox';
+  const drop = order.dropAddress || order.school || 'delivery location';
+  const caption = `Delivery proof for ${student} at ${drop}.`;
+
+  const result = await sendWhatsAppImage(phone, proofImageUrl, caption);
+  await logDeliveryAttempt({
+    orderId,
+    status,
+    channel: 'whatsapp',
+    phone,
+    ok: result.ok,
+    error: result.error,
+  });
+  if (result.ok) await markSent(orderId, status, `whatsapp:${phone}`);
+}
+
 export async function notifyOrderStatusChange(before: OrderDoc | undefined, after: OrderDoc): Promise<void> {
   const previousStatus = before?.status;
   const nextStatus = after.status;
@@ -81,6 +105,9 @@ export async function notifyOrderStatusChange(before: OrderDoc | undefined, afte
   }
   if (prefs.whatsapp) {
     await dispatchChannel('whatsapp', customerPhone, message, after, nextStatus);
+    if (nextStatus === 'delivered' && after.deliveryProof?.proofImageUrl) {
+      await dispatchDeliveryProofWhatsApp(customerPhone, after);
+    }
   }
   if (prefs.push) {
     await dispatchChannel('push', customerPhone, message, after, nextStatus, user?.expoPushToken);

@@ -67,12 +67,18 @@ type Props = {
 };
 
 export function AdminSidebar({ active, onNavigate, variant = 'fixed' }: Props) {
+  const isDesktopFixed = variant === 'fixed' && Platform.OS === 'web';
+
   return (
     <LinearGradient
       colors={[SIDEBAR.bg, SIDEBAR.bgSoft, '#1E0F33']}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
-      style={[styles.sidebar, variant === 'overlay' && styles.sidebarOverlay]}
+      style={[
+        styles.sidebar,
+        isDesktopFixed && styles.sidebarDesktopFixed,
+        variant === 'overlay' && styles.sidebarOverlay,
+      ]}
     >
       <View style={styles.brandCard}>
         <LogoMark size={48} />
@@ -87,31 +93,55 @@ export function AdminSidebar({ active, onNavigate, variant = 'fixed' }: Props) {
         </View>
       </View>
 
-      <ScrollView
-        style={styles.navScroll}
-        contentContainerStyle={styles.navContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {NAV_ITEMS.map((item) => {
-          const selected = active === item.id;
-          return (
-            <Pressable
-              key={item.id}
-              style={({ pressed, hovered }) => [
-                styles.navItem,
-                selected && styles.navItemActive,
-                !selected && (pressed || (Platform.OS === 'web' && hovered)) && styles.navItemHover,
-              ]}
-              onPress={() => onNavigate(item.id)}
-            >
-              <Text style={[styles.navLabel, selected && styles.navLabelActive]} numberOfLines={1}>
-                {item.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      {isDesktopFixed ? (
+        <View style={styles.navFill}>
+          {NAV_ITEMS.map((item) => {
+            const selected = active === item.id;
+            return (
+              <Pressable
+                key={item.id}
+                style={({ pressed, hovered }) => [
+                  styles.navItem,
+                  styles.navItemFill,
+                  selected && styles.navItemActive,
+                  !selected && (pressed || hovered) && styles.navItemHover,
+                ]}
+                onPress={() => onNavigate(item.id)}
+              >
+                <Text style={[styles.navLabel, selected && styles.navLabelActive]} numberOfLines={1}>
+                  {item.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.navScroll}
+          contentContainerStyle={styles.navContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {NAV_ITEMS.map((item) => {
+            const selected = active === item.id;
+            return (
+              <Pressable
+                key={item.id}
+                style={({ pressed, hovered }) => [
+                  styles.navItem,
+                  selected && styles.navItemActive,
+                  !selected && (pressed || (Platform.OS === 'web' && hovered)) && styles.navItemHover,
+                ]}
+                onPress={() => onNavigate(item.id)}
+              >
+                <Text style={[styles.navLabel, selected && styles.navLabelActive]} numberOfLines={1}>
+                  {item.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
     </LinearGradient>
   );
 }
@@ -127,12 +157,13 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     overflow: 'hidden',
     height: '100%',
-    ...(Platform.OS === 'web'
-      ? {
-          minHeight: '100%' as unknown as number,
-        }
-      : {}),
   },
+  sidebarDesktopFixed: Platform.OS === 'web'
+    ? {
+        height: '100%' as unknown as number,
+        minHeight: '100%' as unknown as number,
+      }
+    : {},
   sidebarOverlay: {
     position: 'absolute',
     left: 0,
@@ -193,6 +224,15 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
   },
+  navFill: {
+    flex: 1,
+    minHeight: 0,
+    paddingHorizontal: spacing.sm,
+    paddingTop: 4,
+    paddingBottom: spacing.sm,
+    gap: 8,
+    justifyContent: 'space-between',
+  },
   navContent: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
@@ -210,6 +250,11 @@ const styles = StyleSheet.create({
     borderColor: SIDEBAR.border,
     backgroundColor: SIDEBAR.surface,
     flexShrink: 0,
+  },
+  navItemFill: {
+    flex: 1,
+    minHeight: 44,
+    maxHeight: 72,
   },
   navItemHover: {
     backgroundColor: SIDEBAR.hover,

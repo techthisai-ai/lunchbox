@@ -96,3 +96,46 @@ export async function sendOrderWhatsApp(toPhone: string, message: string, status
   if (templateResult.ok) return templateResult;
   return sendWhatsAppText(toPhone, message);
 }
+
+export async function sendWhatsAppImage(
+  toPhone: string,
+  imageUrl: string,
+  caption?: string,
+): Promise<WhatsAppResult> {
+  const phone = normalizePhone(toPhone);
+  if (phone.length !== 10) {
+    return { ok: false, error: 'Invalid phone number' };
+  }
+
+  if (!whatsappConfigured()) {
+    console.info('[WhatsApp:image:stub]', phone, imageUrl, caption);
+    return { ok: true, stub: true };
+  }
+
+  const token = process.env.WHATSAPP_TOKEN!;
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID!;
+
+  const response = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to: `91${phone}`,
+      type: 'image',
+      image: {
+        link: imageUrl,
+        ...(caption?.trim() ? { caption: caption.trim() } : {}),
+      },
+    }),
+  });
+
+  const payload = (await response.json()) as { messages?: { id: string }[]; error?: { message: string } };
+  if (!response.ok) {
+    return { ok: false, error: payload.error?.message ?? response.statusText };
+  }
+
+  return { ok: true, messageId: payload.messages?.[0]?.id };
+}

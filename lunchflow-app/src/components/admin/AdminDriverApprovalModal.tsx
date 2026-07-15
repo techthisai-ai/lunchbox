@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, radius, spacing } from '../../constants/theme';
 import {
   approveDriver,
@@ -19,22 +19,30 @@ export function AdminDriverApprovalModal({ visible, onClose, onChanged }: Props)
   const [pending, setPending] = useState<RegisteredDriver[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       setPending(await loadPendingDrivers());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load pending drivers');
+      setPending([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (visible) {
-      refresh();
-    } else {
+    if (!visible) {
       setBusyId(null);
+      setError('');
+      return;
     }
+    refresh();
+    const interval = setInterval(refresh, 5000);
+    return () => clearInterval(interval);
   }, [visible, refresh]);
 
   const handleClose = () => {
@@ -44,10 +52,15 @@ export function AdminDriverApprovalModal({ visible, onClose, onChanged }: Props)
 
   const handleApprove = async (driverId: string) => {
     setBusyId(driverId);
+    setError('');
     try {
       await approveDriver(driverId);
       await refresh();
       onChanged();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not approve driver';
+      setError(message);
+      Alert.alert('Approval failed', message);
     } finally {
       setBusyId(null);
     }
@@ -55,10 +68,15 @@ export function AdminDriverApprovalModal({ visible, onClose, onChanged }: Props)
 
   const handleReject = async (driverId: string) => {
     setBusyId(driverId);
+    setError('');
     try {
       await rejectDriver(driverId);
       await refresh();
       onChanged();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not reject driver';
+      setError(message);
+      Alert.alert('Reject failed', message);
     } finally {
       setBusyId(null);
     }
@@ -74,19 +92,28 @@ export function AdminDriverApprovalModal({ visible, onClose, onChanged }: Props)
               <Text style={styles.title}>Driver Approvals</Text>
               <Text style={styles.subtitle}>Review and approve new employee registrations.</Text>
             </View>
-            <Pressable style={styles.closeBtn} onPress={handleClose} hitSlop={8}>
-              <Ionicons name="close" size={20} color={colors.muted} />
-            </Pressable>
+            <View style={styles.headerRight}>
+              <Pressable style={styles.refreshBtn} onPress={refresh} hitSlop={8} disabled={!!busyId}>
+                <Ionicons name="refresh" size={18} color={colors.orange} />
+              </Pressable>
+              <Pressable style={styles.closeBtn} onPress={handleClose} hitSlop={8}>
+                <Ionicons name="close" size={20} color={colors.muted} />
+              </Pressable>
+            </View>
           </View>
 
+          {error ? <Text style={styles.errorBanner}>{error}</Text> : null}
+
           <ScrollView style={styles.listScroll} contentContainerStyle={styles.listContent}>
-            {loading ? (
+            {loading && pending.length === 0 ? (
               <Text style={styles.emptyText}>Loading pending approvals…</Text>
             ) : pending.length === 0 ? (
               <View style={styles.emptyWrap}>
                 <Ionicons name="checkmark-circle-outline" size={36} color={colors.muted} />
                 <Text style={styles.emptyTitle}>No pending approvals</Text>
-                <Text style={styles.emptyText}>New driver registrations will appear here for review.</Text>
+                <Text style={styles.emptyText}>
+                  New driver registrations will appear here for review. Tap refresh if a driver just signed up.
+                </Text>
               </View>
             ) : (
               pending.map((driver) => {
@@ -160,8 +187,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   title: { fontSize: 20, fontWeight: '800', color: colors.text },
   subtitle: { fontSize: 13, color: colors.muted, marginTop: 4, fontWeight: '600', lineHeight: 18 },
+  refreshBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.orangeLight,
+  },
   closeBtn: {
     width: 32,
     height: 32,
@@ -169,6 +205,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.bg,
+  },
+  errorBanner: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    color: colors.red,
+    fontSize: 13,
+    fontWeight: '700',
   },
   listScroll: { flexGrow: 0 },
   listContent: { padding: spacing.lg, gap: 12 },

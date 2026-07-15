@@ -1,6 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect } from '@react-navigation/native';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,12 +9,10 @@ import { Card } from '../components/Card';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { colors, gradients, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
-import { ProfileStackParamList } from '../navigation/types';
 import { downloadReceipt, loadWallet, WalletState } from '../services/paymentService';
 
-type Props = NativeStackScreenProps<ProfileStackParamList, 'Wallet'>;
-
-export function WalletScreen({ navigation }: Props) {
+export function WalletScreen() {
+  const navigation = useNavigation();
   const { user } = useAuth();
   const [wallet, setWallet] = useState<WalletState | null>(null);
 
@@ -48,7 +45,10 @@ export function WalletScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScreenHeader title="Wallet & Payments" onBack={() => navigation.goBack()} />
+      <ScreenHeader
+        title="Wallet & Payments"
+        onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined}
+      />
       <ScrollView contentContainerStyle={styles.scroll}>
         <LinearGradient colors={[...gradients.primary]} style={styles.balance}>
           <Text style={styles.balanceLabel}>Wallet Balance</Text>
