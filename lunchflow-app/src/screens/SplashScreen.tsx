@@ -5,10 +5,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ExpoSplashScreen from 'expo-splash-screen';
 import { colors, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
-import { goToAdminPortal } from '../navigation/adminRoutes';
 import { navigateAfterCustomerLogin } from '../navigation/customerRoutes';
 import { navigateAfterDriverLogin } from '../navigation/driverRoutes';
 import { RootStackParamList } from '../navigation/types';
+import { openAdminWebPortal } from '../utils/adminWeb';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Splash'>;
 
@@ -52,8 +52,10 @@ export function SplashScreen({ navigation }: Props) {
       if (cancelled) return;
 
       if (user?.role === 'admin') {
+        // Admin runs only on the web portal (/admin or admin.* host), not in the mobile app.
         navigatedRef.current = true;
-        goToAdminPortal(navigation);
+        openAdminWebPortal();
+        navigation.replace('Login');
         return;
       }
 

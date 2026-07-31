@@ -9,7 +9,7 @@ import { RootStackParamList } from '../navigation/types';
 type Props = NativeStackScreenProps<RootStackParamList, 'RoleSelect'>;
 
 type RoleItem = {
-  id: 'customer' | 'driver' | 'admin';
+  id: 'customer' | 'driver';
   title: string;
   subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
@@ -37,15 +37,6 @@ export function RoleSelectScreen({ navigation }: Props) {
       color: colors.green,
       bg: colors.greenLight,
       action: () => navigation.navigate('DriverLogin'),
-    },
-    {
-      id: 'admin',
-      title: 'Admin',
-      subtitle: 'Manage orders, drivers & reports',
-      icon: 'shield-checkmark',
-      color: colors.blue,
-      bg: colors.blueLight,
-      action: () => navigation.navigate('Login', { role: 'admin' }),
     },
   ];
 

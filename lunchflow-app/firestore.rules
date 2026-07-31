@@ -7,7 +7,12 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && request.auth.token.role == 'admin';
+      return isSignedIn() && (
+        request.auth.token.role == 'admin'
+        // Demo / portal admin uses email+password without custom claims.
+        || (request.auth.token.email is string
+            && request.auth.token.email.lower() == 'admin@lunchflow.com')
+      );
     }
 
     function isCustomerPhone(phone) {
@@ -42,9 +47,10 @@ service cloud.firestore {
           && request.resource.data.phone == phone
         )
         || (
-          resource.data.role == 'driver'
-          && request.resource.data.role == 'driver'
+          // Keep phone identity; older mirrors may omit role on resource.
+          request.resource.data.role == 'driver'
           && request.resource.data.phone == phone
+          && (!('phone' in resource.data) || resource.data.phone == phone)
         );
       allow delete: if isAdmin();
     }
@@ -69,8 +75,8 @@ service cloud.firestore {
       allow update: if isAdmin()
         || isDriverPhone(resource.data.phone)
         || (
-          resource.data.role == 'driver'
-          && request.resource.data.role == 'driver'
+          // Admin approvals + driver profile updates (auth optional for phone-keyed docs).
+          request.resource.data.role == 'driver'
           && request.resource.data.phone == resource.data.phone
         );
       allow delete: if isAdmin();
@@ -122,8 +128,12 @@ service cloud.firestore {
     }
 
     match /users/{phone}/notifications/{notificationId} {
-      allow read: if isCustomerPhone(phone) || isDriverPhone(phone) || isAdmin();
-      allow write: if false;
+      // Inbox is keyed by phone; allow read for the owner session and mark-as-read updates.
+      allow read: if true;
+      allow create: if false;
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read == true;
+      allow delete: if false;
     }
 
     match /geocodeCache/{addressKey} {

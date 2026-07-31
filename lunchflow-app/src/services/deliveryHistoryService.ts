@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DEFAULT_DELIVERY_FEE } from '../constants/business';
 import { DeliveryOrder, DeliveryType, normalizeDeliveryType } from '../types/delivery';
-import { formatHistoryDate, resolveHistoryDateKey } from '../utils/date';
+import { formatHistoryDate, localDateKey, resolveHistoryDateKey } from '../utils/date';
 
 export type DeliveryHistoryEntry = {
   id: string;
@@ -23,7 +23,7 @@ function storageKey(phone: string): string {
 }
 
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDateKey(new Date());
 }
 
 function parseDestination(order: DeliveryOrder): { name: string; address: string } {

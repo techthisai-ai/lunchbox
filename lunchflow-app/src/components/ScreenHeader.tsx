@@ -42,5 +42,5 @@ const styles = StyleSheet.create({
   },
   row: { flexDirection: 'row', alignItems: 'center' },
   title: { ...typography.h1, color: colors.text },
-  subtitle: { ...typography.caption, color: colors.muted, marginTop: 2, fontWeight: '500' },
+  subtitle: { ...typography.caption, color: colors.muted, marginTop: 2 },
 });

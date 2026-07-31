@@ -22,8 +22,17 @@ export function formatCountdown(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/** Local calendar YYYY-MM-DD (avoids UTC day shifts in India). */
+export function localDateKey(date: Date = new Date()): string {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDateKey(new Date());
 }
 
 function parseDateKey(dateKey: string): Date {
@@ -40,28 +49,33 @@ function startOfWeekMonday(date: Date): Date {
 }
 
 export function resolveHistoryDateKey(entry: { dateKey?: string; date: string }): string {
-  if (entry.dateKey) return entry.dateKey;
+  if (entry.dateKey && /^\d{4}-\d{2}-\d{2}/.test(entry.dateKey)) {
+    return entry.dateKey.slice(0, 10);
+  }
   const parsed = Date.parse(entry.date);
-  if (!Number.isNaN(parsed)) return new Date(parsed).toISOString().slice(0, 10);
+  if (!Number.isNaN(parsed)) {
+    return localDateKey(new Date(parsed));
+  }
   return todayKey();
 }
 
 export function isHistoryToday(dateKey: string): boolean {
-  return dateKey === todayKey();
+  return dateKey.slice(0, 10) === todayKey();
 }
 
 function yesterdayKey(): string {
   const date = new Date();
   date.setDate(date.getDate() - 1);
-  return date.toISOString().slice(0, 10);
+  return localDateKey(date);
 }
 
 export function isHistoryTodayOrYesterday(dateKey: string): boolean {
-  return dateKey === todayKey() || dateKey === yesterdayKey();
+  const key = dateKey.slice(0, 10);
+  return key === todayKey() || key === yesterdayKey();
 }
 
 export function isHistoryThisWeek(dateKey: string): boolean {
-  const entryDate = parseDateKey(dateKey);
+  const entryDate = parseDateKey(dateKey.slice(0, 10));
   const weekStart = startOfWeekMonday(new Date());
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
@@ -71,13 +85,13 @@ export function isHistoryThisWeek(dateKey: string): boolean {
 
 export function isHistoryThisMonth(dateKey: string): boolean {
   const now = new Date();
-  const entryDate = parseDateKey(dateKey);
+  const entryDate = parseDateKey(dateKey.slice(0, 10));
   return entryDate.getFullYear() === now.getFullYear() && entryDate.getMonth() === now.getMonth();
 }
 
 export function isHistoryThisYear(dateKey: string): boolean {
   const now = new Date();
-  const entryDate = parseDateKey(dateKey);
+  const entryDate = parseDateKey(dateKey.slice(0, 10));
   return entryDate.getFullYear() === now.getFullYear();
 }
 

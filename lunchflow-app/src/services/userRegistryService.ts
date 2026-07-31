@@ -566,14 +566,32 @@ export async function setDriverDutyStatus(
   await writeDriverToFirestore(updated);
 }
 
+function omitUndefinedFields(payload: Record<string, unknown>): Record<string, unknown> {
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (value !== undefined) cleaned[key] = value;
+  }
+  return cleaned;
+}
+
 async function writeDriverToFirestore(record: RegisteredDriver): Promise<boolean> {
-  const payload = {
-    ...record,
+  const payload = omitUndefinedFields({
+    id: record.id,
+    name: record.name,
+    phone: record.phone,
+    vehicle: record.vehicle,
+    licenseNumber: record.licenseNumber,
+    status: record.status,
+    approvalStatus: record.approvalStatus,
+    registeredAt: record.registeredAt,
+    ratingAverage: record.ratingAverage,
+    ratingCount: record.ratingCount,
+    completedDeliveries: record.completedDeliveries,
     role: 'driver' as const,
     driverId: record.id,
     createdAt: record.registeredAt ?? new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  };
+  });
 
   let wroteDrivers = false;
   let wroteUsers = false;
@@ -583,6 +601,16 @@ async function writeDriverToFirestore(record: RegisteredDriver): Promise<boolean
     wroteDrivers = true;
   } catch (error) {
     console.warn('[writeDriverToFirestore] drivers write failed', error);
+    // Older docs may use a different document id; patch by phone.
+    try {
+      const byPhone = await getDocs(query(collection(db, 'drivers'), where('phone', '==', record.phone)));
+      if (!byPhone.empty) {
+        await setDoc(byPhone.docs[0].ref, payload, { merge: true });
+        wroteDrivers = true;
+      }
+    } catch (fallbackError) {
+      console.warn('[writeDriverToFirestore] drivers phone fallback failed', fallbackError);
+    }
   }
 
   try {

@@ -3,9 +3,9 @@ import { NavigatorScreenParams } from '@react-navigation/native';
 export type RootStackParamList = {
   Splash: undefined;
   RoleSelect: undefined;
-  Login: { phone?: string; role?: 'customer' | 'driver' | 'admin' } | undefined;
+  Login: { phone?: string } | undefined;
   OtpVerify: { phone: string; role?: 'customer' | 'driver' };
-  Register: { phone?: string; referralCode?: string } | undefined;
+  Register: { phone?: string; referralCode?: string; role?: 'customer' | 'driver' } | undefined;
   DriverLogin: { phone?: string } | undefined;
   DriverRegister: { phone?: string } | undefined;
   SubscriptionOnboarding: undefined;

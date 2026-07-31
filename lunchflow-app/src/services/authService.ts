@@ -4,13 +4,14 @@ import {
   ConfirmationResult,
   RecaptchaVerifier,
   User,
+  createUserWithEmailAndPassword,
   onAuthStateChanged,
   signInWithCustomToken,
   signInWithEmailAndPassword,
   signInWithPhoneNumber,
   signOut,
 } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import {
   AuthUser,
@@ -174,23 +175,76 @@ function driverAuthUser(driver: {
 }
 
 export async function loginAdmin(email: string, password: string): Promise<AuthUser> {
-  if (isDemoAdminLogin(email, password)) {
-    return {
-      id: DEMO_ADMIN.id,
-      role: 'admin',
-      name: DEMO_ADMIN.name,
-      email: DEMO_ADMIN.email,
-    };
+  const trimmedEmail = email.trim();
+  const isDemo = isDemoAdminLogin(trimmedEmail, password);
+
+  if (!trimmedEmail || !password) {
+    throw new Error('Enter email and password');
   }
+
+  // Prefer Firebase Auth when Email/Password is enabled in the project.
   try {
-    const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+    let credential;
+    try {
+      credential = await signInWithEmailAndPassword(auth, trimmedEmail, password);
+    } catch (error) {
+      const code = (error as { code?: string })?.code ?? '';
+      // Bootstrap the demo admin Firebase Auth user on first portal login.
+      if (
+        isDemo &&
+        (code === 'auth/user-not-found' ||
+          code === 'auth/invalid-credential' ||
+          code === 'auth/wrong-password' ||
+          code === 'auth/invalid-login-credentials')
+      ) {
+        try {
+          credential = await createUserWithEmailAndPassword(auth, DEMO_ADMIN.email, DEMO_ADMIN.password);
+        } catch (createError) {
+          const createCode = (createError as { code?: string })?.code ?? '';
+          if (createCode === 'auth/email-already-in-use') {
+            throw error;
+          }
+          throw createError;
+        }
+      } else {
+        throw error;
+      }
+    }
+
+    await setDoc(
+      doc(db, 'profiles', credential.user.uid),
+      {
+        role: 'admin',
+        name: isDemo ? DEMO_ADMIN.name : credential.user.displayName || 'Admin',
+        email: credential.user.email ?? trimmedEmail.toLowerCase(),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
+
     const profile = await loadUserProfile(credential.user);
-    if (profile.role !== 'admin') {
+    if (profile.role !== 'admin' && !isDemo) {
       await signOut(auth);
       throw new Error('This account does not have admin access');
     }
-    return profile;
+
+    return {
+      id: credential.user.uid,
+      role: 'admin',
+      name: profile.name || (isDemo ? DEMO_ADMIN.name : 'Admin'),
+      email: credential.user.email ?? (isDemo ? DEMO_ADMIN.email : trimmedEmail),
+    };
   } catch (error) {
+    // Email/Password Auth may be disabled in Firebase Console
+    // (auth/operation-not-allowed). Keep the demo portal usable.
+    if (isDemo) {
+      return {
+        id: DEMO_ADMIN.id,
+        role: 'admin',
+        name: DEMO_ADMIN.name,
+        email: DEMO_ADMIN.email,
+      };
+    }
     throw new Error(firebaseErrorMessage(error));
   }
 }

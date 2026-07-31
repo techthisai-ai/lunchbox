@@ -1,5 +1,7 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { fontStyle } from '../constants/fonts';
 import { colors, radius } from '../constants/theme';
+import { AppText } from './AppText';
 
 type Tone = 'orange' | 'green' | 'blue' | 'gray' | 'yellow' | 'red';
 
@@ -16,7 +18,7 @@ export function Badge({ label, tone = 'orange' }: { label: string; tone?: Tone }
   const t = toneStyles[tone];
   return (
     <View style={[styles.badge, { backgroundColor: t.bg }]}>
-      <Text style={[styles.text, { color: t.fg }]}>{label}</Text>
+      <AppText style={[styles.text, { color: t.fg }]}>{label}</AppText>
     </View>
   );
 }
@@ -27,5 +29,5 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: radius.full,
   },
-  text: { fontSize: 11, fontWeight: '700' },
+  text: { fontSize: 11, ...fontStyle('bold') },
 });

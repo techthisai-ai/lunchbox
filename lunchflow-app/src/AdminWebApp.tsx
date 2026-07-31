@@ -1,9 +1,12 @@
 import { DefaultTheme, NavigationContainer } from '@react-navigation/native';
+import * as ExpoSplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { AdminWebShell } from './components/AdminWebShell';
 import { colors } from './constants/theme';
 import { AuthProvider } from './context/AuthContext';
+import { useAppFonts } from './hooks/useAppFonts';
 import { useFirebaseInit } from './hooks/useFirebaseInit';
 import './lib/firebase';
 import { AdminWebNavigator } from './navigation/AdminWebNavigator';
@@ -22,6 +25,16 @@ const navTheme = {
 
 export function AdminWebApp() {
   useFirebaseInit();
+  const fontsReady = useAppFonts();
+
+  useEffect(() => {
+    if (!fontsReady) return;
+    ExpoSplashScreen.hideAsync().catch(() => {});
+  }, [fontsReady]);
+
+  if (!fontsReady) {
+    return <View style={styles.root} />;
+  }
 
   return (
     <AuthProvider>

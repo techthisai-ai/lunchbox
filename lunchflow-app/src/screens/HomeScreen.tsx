@@ -20,6 +20,7 @@ import { DeliveryHistoryEntry, syncDeliveryHistory } from '../services/deliveryH
 import { loadFoodReadyDefaults } from '../services/foodReadyDefaultsService';
 import { listCustomerOrders, loadCustomerProfile } from '../services/orderHubService';
 import { checkSubscriptionRenewalReminders, hasActiveSubscription } from '../services/subscriptionService';
+import { countUnread, loadNotifications } from '../services/notificationService';
 import {
   DeliveryOrder,
   DeliveryProfile,
@@ -431,11 +432,13 @@ function getRecentRoute(entry: DeliveryHistoryEntry): string {
 function HomeHeader({
   name,
   initials,
+  hasUnread,
   onNotifications,
   onProfile,
 }: {
   name: string;
   initials: string;
+  hasUnread: boolean;
   onNotifications: () => void;
   onProfile: () => void;
 }) {
@@ -450,7 +453,7 @@ function HomeHeader({
       <View style={styles.headerRight}>
         <Pressable style={styles.headerIconBtn} onPress={onNotifications}>
           <Ionicons name="notifications-outline" size={20} color={colors.muted} />
-          <View style={styles.notifDot} />
+          {hasUnread ? <View style={styles.notifDot} /> : null}
         </Pressable>
         <Pressable onPress={onProfile}>
           <Avatar initials={initials} />
@@ -828,6 +831,7 @@ export function HomeScreen({ navigation }: Props) {
   const liveEtaMinutes = useLiveEta(displayOrder);
   const [errorMessage, setErrorMessage] = useState('');
   const [recentDeliveries, setRecentDeliveries] = useState<DeliveryHistoryEntry[]>([]);
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
 
   const displayName = user?.name || 'Guest';
   const initials = getInitials(displayName);
@@ -835,6 +839,7 @@ export function HomeScreen({ navigation }: Props) {
   const loadHomeData = useCallback(async () => {
     if (!user?.phone) {
       setRecentDeliveries([]);
+      setHasUnreadNotifications(false);
       return;
     }
 
@@ -844,13 +849,28 @@ export function HomeScreen({ navigation }: Props) {
       history.filter((entry) => isHistoryTodayOrYesterday(resolveHistoryDateKey(entry))),
     );
     await checkSubscriptionRenewalReminders(user.phone);
+    const notifications = await loadNotifications(user.phone);
+    setHasUnreadNotifications(countUnread(notifications) > 0);
+  }, [user?.phone]);
+
+  const refreshUnreadBadge = useCallback(async () => {
+    if (!user?.phone) {
+      setHasUnreadNotifications(false);
+      return;
+    }
+    const notifications = await loadNotifications(user.phone);
+    setHasUnreadNotifications(countUnread(notifications) > 0);
   }, [user?.phone]);
 
   useFocusEffect(
     useCallback(() => {
       refreshDelivery();
       void loadHomeData();
-    }, [refreshDelivery, loadHomeData]),
+      const interval = setInterval(() => {
+        void refreshUnreadBadge();
+      }, 4000);
+      return () => clearInterval(interval);
+    }, [refreshDelivery, loadHomeData, refreshUnreadBadge]),
   );
 
   const goToFoodReady = useCallback(() => {
@@ -1019,6 +1039,7 @@ export function HomeScreen({ navigation }: Props) {
         <HomeHeader
           name={displayName}
           initials={initials}
+          hasUnread={hasUnreadNotifications}
           onNotifications={() => navigation.navigate('Notifications')}
           onProfile={() => navigation.getParent()?.navigate('Profile')}
         />

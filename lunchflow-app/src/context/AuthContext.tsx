@@ -82,7 +82,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setUser((current) => {
           if (profile) return profile;
+          // Keep phone-based customer/driver sessions (local auth, not Firebase Auth).
           if (current?.role === 'customer' || current?.role === 'driver') return current;
+          // Keep demo admin when Email/Password Auth is disabled in Firebase.
           if (current?.id === DEMO_ADMIN.id) return current;
           if (restoredSession?.role === 'customer' || restoredSession?.role === 'driver') {
             return restoredSession;

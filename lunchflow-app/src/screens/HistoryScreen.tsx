@@ -115,7 +115,7 @@ export function HistoryScreen() {
   const { user } = useAuth();
   const { horizontalPadding } = useResponsive();
   const [history, setHistory] = useState<DeliveryHistoryEntry[]>([]);
-  const [period, setPeriod] = useState<HistoryPeriodFilter>('month');
+  const [period, setPeriod] = useState<HistoryPeriodFilter>('today');
   const [downloadingInvoice, setDownloadingInvoice] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -196,11 +196,7 @@ export function HistoryScreen() {
           <Ionicons name="clipboard-outline" size={54} color="rgba(255,255,255,0.22)" style={styles.heroArt} />
         </LinearGradient>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRow}
-        >
+        <View style={styles.filterRow}>
           {PERIOD_FILTERS.map((item) => {
             const active = period === item.id;
             return (
@@ -208,12 +204,14 @@ export function HistoryScreen() {
                 key={item.id}
                 style={[styles.filterChip, active && styles.filterChipActive]}
                 onPress={() => setPeriod(item.id)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
               >
                 <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{item.label}</Text>
               </Pressable>
             );
           })}
-        </ScrollView>
+        </View>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Recent Orders</Text>
@@ -289,9 +287,9 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: spacing.md,
-    paddingVertical: 2,
   },
   filterChip: {
     paddingHorizontal: 16,

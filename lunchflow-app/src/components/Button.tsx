@@ -1,5 +1,7 @@
-import { Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, ViewStyle } from 'react-native';
+import { fontStyle } from '../constants/fonts';
 import { colors, radius } from '../constants/theme';
+import { AppText } from './AppText';
 
 type Variant = 'primary' | 'green' | 'outline' | 'danger' | 'premium' | 'highlight';
 
@@ -23,7 +25,7 @@ export function Button({ title, onPress, variant = 'primary', small, style }: Pr
         style,
       ]}
     >
-      <Text
+      <AppText
         style={[
           styles.text,
           variant === 'outline' && styles.outlineText,
@@ -32,7 +34,7 @@ export function Button({ title, onPress, variant = 'primary', small, style }: Pr
         ]}
       >
         {title}
-      </Text>
+      </AppText>
     </Pressable>
   );
 }
@@ -57,7 +59,7 @@ const styles = StyleSheet.create({
   outline: { backgroundColor: colors.white, borderWidth: 2, borderColor: colors.orange },
   danger: { backgroundColor: colors.white, borderWidth: 2, borderColor: colors.red },
   pressed: { opacity: 0.92, transform: [{ scale: 0.98 }] },
-  text: { color: colors.onPrimary, fontSize: 16, fontWeight: '700' },
+  text: { color: colors.onPrimary, fontSize: 16, ...fontStyle('bold') },
   outlineText: { color: colors.orange },
   highlightText: { color: colors.dark },
   dangerText: { color: colors.red },

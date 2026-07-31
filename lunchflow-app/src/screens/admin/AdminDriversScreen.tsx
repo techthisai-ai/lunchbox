@@ -441,8 +441,7 @@ const styles = StyleSheet.create({
   contentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' },
   contentRowMobile: { flexGrow: 0 },
   tableCard: {
-    flexGrow: 0,
-    flexShrink: 0,
+    flex: 1,
     minWidth: 0,
     width: '100%',
     backgroundColor: colors.white,

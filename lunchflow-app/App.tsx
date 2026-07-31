@@ -1,7 +1,7 @@
 import { NavigationContainer, DefaultTheme, NavigationContainerRef, NavigationState } from '@react-navigation/native';
 import * as ExpoSplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { MobileShell, AppLayoutFrame } from './src/components/MobileShell';
 import { colors } from './src/constants/theme';
@@ -9,6 +9,7 @@ import { AuthProvider } from './src/context/AuthContext';
 import { DeliveryProvider } from './src/context/DeliveryContext';
 import { FoodReadyOverlayProvider } from './src/context/FoodReadyOverlayContext';
 import { RatingOverlayProvider } from './src/context/RatingOverlayContext';
+import { useAppFonts } from './src/hooks/useAppFonts';
 import { useFirebaseInit } from './src/hooks/useFirebaseInit';
 import './src/lib/firebase';
 import { RootNavigator } from './src/navigation/RootNavigator';
@@ -45,12 +46,22 @@ function getActiveRouteName(state: NavigationState | undefined): string {
 
 function MobileApp() {
   useFirebaseInit();
+  const fontsReady = useAppFonts();
   const [activeRoute, setActiveRoute] = useState('');
   const navigationRef = useRef<NavigationContainerRef<RootStackParamList>>(null);
+
+  useEffect(() => {
+    if (!fontsReady) return;
+    ExpoSplashScreen.hideAsync().catch(() => {});
+  }, [fontsReady]);
 
   const syncRoute = useCallback((state: NavigationState | undefined) => {
     setActiveRoute(getActiveRouteName(state));
   }, []);
+
+  if (!fontsReady) {
+    return <View style={styles.navRoot} />;
+  }
 
   return (
     <AuthProvider>

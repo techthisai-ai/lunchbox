@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, TextInputProps, View } from 'react-native';
 import { formatPhoneInput } from '../constants/auth';
+import { fontStyle, fonts } from '../constants/fonts';
 import { colors, radius } from '../constants/theme';
+import { AppText } from './AppText';
 
 type Props = TextInputProps & {
   label: string;
@@ -15,7 +17,7 @@ export function Input({ label, style, secureTextEntry, phone, onChangeText, keyb
 
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
+      <AppText style={styles.label}>{label}</AppText>
       <View style={styles.inputWrap}>
         <TextInput
           placeholderTextColor={colors.muted}
@@ -45,7 +47,7 @@ export function Input({ label, style, secureTextEntry, phone, onChangeText, keyb
 
 const styles = StyleSheet.create({
   field: { marginBottom: 16 },
-  label: { fontSize: 13, fontWeight: '600', marginBottom: 6, color: colors.text },
+  label: { fontSize: 13, marginBottom: 6, color: colors.text, ...fontStyle('semibold') },
   inputWrap: { position: 'relative' },
   input: {
     borderWidth: 1.5,
@@ -54,6 +56,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
     fontSize: 15,
+    fontFamily: fonts.regular,
     backgroundColor: colors.white,
     color: colors.text,
   },

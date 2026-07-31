@@ -14,6 +14,7 @@ import {
   countUnread,
   loadNotifications,
   markAllNotificationsRead,
+  markNotificationRead,
 } from '../services/notificationService';
 import { getSubscriptionRenewalLabel } from '../utils/date';
 
@@ -30,6 +31,7 @@ export function NotificationsScreen({ navigation }: Props) {
   const { user } = useAuth();
   const { horizontalPadding } = useResponsive();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [marking, setMarking] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!user?.phone) {
@@ -46,7 +48,7 @@ export function NotificationsScreen({ navigation }: Props) {
           msg: `Your school plan renews on ${getSubscriptionRenewalLabel()} · ₹699`,
           time: 'Just now',
           createdAt: Date.now(),
-          read: false,
+          read: true,
         },
       ];
     }
@@ -64,9 +66,24 @@ export function NotificationsScreen({ navigation }: Props) {
   const unread = countUnread(notifications);
 
   const handleMarkAllRead = async () => {
-    if (!user?.phone) return;
-    await markAllNotificationsRead(user.phone);
-    refresh();
+    if (!user?.phone || marking) return;
+    setMarking(true);
+    // Optimistic UI so unread highlight clears immediately.
+    setNotifications((prev) => prev.map((item) => ({ ...item, read: true })));
+    try {
+      await markAllNotificationsRead(user.phone);
+      await refresh();
+    } finally {
+      setMarking(false);
+    }
+  };
+
+  const handleOpenNotification = async (notification: AppNotification) => {
+    if (!user?.phone || notification.read) return;
+    setNotifications((prev) =>
+      prev.map((item) => (item.id === notification.id ? { ...item, read: true } : item)),
+    );
+    await markNotificationRead(user.phone, notification.id);
   };
 
   return (
@@ -76,8 +93,10 @@ export function NotificationsScreen({ navigation }: Props) {
         subtitle={unread > 0 ? `${unread} unread messages` : 'All caught up'}
         onBack={() => navigation.goBack()}
         right={
-          <Pressable onPress={handleMarkAllRead}>
-            <Text style={styles.markRead}>Mark all read</Text>
+          <Pressable onPress={handleMarkAllRead} disabled={marking} hitSlop={8}>
+            <Text style={[styles.markRead, marking && styles.markReadDisabled]}>
+              {marking ? 'Updating…' : 'Mark all read'}
+            </Text>
           </Pressable>
         }
       />
@@ -89,16 +108,23 @@ export function NotificationsScreen({ navigation }: Props) {
           {notifications.map((n, index) => {
             const palette = iconColors[n.icon] ?? iconColors.notifications;
             return (
-              <View key={`${n.id}-${index}`} style={styles.item}>
+              <Pressable
+                key={`${n.id}-${index}`}
+                style={[styles.item, !n.read && styles.itemUnread]}
+                onPress={() => handleOpenNotification(n)}
+              >
                 <View style={[styles.icon, { backgroundColor: palette.bg }]}>
                   <Ionicons name={n.icon} size={20} color={palette.color} />
                 </View>
                 <View style={styles.itemBody}>
-                  <Text style={styles.title}>{n.title}</Text>
+                  <View style={styles.titleRow}>
+                    <Text style={[styles.title, !n.read && styles.titleUnread]}>{n.title}</Text>
+                    {!n.read ? <View style={styles.unreadDot} /> : null}
+                  </View>
                   <Text style={styles.msg}>{n.msg}</Text>
                   <Text style={styles.time}>{n.time}</Text>
                 </View>
-              </View>
+              </Pressable>
             );
           })}
         </View>
@@ -110,12 +136,29 @@ export function NotificationsScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   markRead: { fontSize: 13, color: colors.orange, fontWeight: '700' },
+  markReadDisabled: { opacity: 0.6 },
   scroll: { paddingTop: spacing.md, paddingBottom: 32, flexGrow: 1 },
-  card: { backgroundColor: colors.white, borderRadius: radius.md, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border },
-  item: { flexDirection: 'row', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
+  card: {
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  item: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  itemUnread: { backgroundColor: colors.orangeLight },
   itemBody: { flex: 1, minWidth: 0 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   icon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  title: { fontWeight: '700', fontSize: 14 },
+  title: { fontWeight: '700', fontSize: 14, flex: 1 },
+  titleUnread: { fontWeight: '800', color: colors.text },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.orange, flexShrink: 0 },
   msg: { fontSize: 12, color: colors.muted, marginTop: 2 },
   time: { fontSize: 11, color: colors.muted, marginTop: 4 },
 });
