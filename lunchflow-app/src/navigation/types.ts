@@ -20,7 +20,7 @@ export type RootStackParamList = {
 export type MainTabParamList = {
   Home: NavigatorScreenParams<HomeStackParamList>;
   Track: NavigatorScreenParams<TrackStackParamList>;
-  History: undefined;
+  CallDriver: undefined;
   Subscription: undefined;
   Profile: NavigatorScreenParams<ProfileStackParamList>;
 };
@@ -50,6 +50,7 @@ export type HomeStackParamList = {
   HomeMain: undefined;
   FoodReady: { step?: 'choosePlan' } | undefined;
   Notifications: undefined;
+  History: undefined;
 };
 
 export type TrackStackParamList = {

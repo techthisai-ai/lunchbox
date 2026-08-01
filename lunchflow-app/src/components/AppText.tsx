@@ -1,28 +1,15 @@
-import { Platform, StyleSheet, Text as RNText, type TextProps, type TextStyle } from 'react-native';
-import { fonts } from '../constants/fonts';
-
-function familyForWeight(fontWeight: TextStyle['fontWeight'] | undefined, existingFamily?: string): string {
-  if (existingFamily && !String(existingFamily).startsWith('Inter_')) {
-    return existingFamily;
-  }
-  if (existingFamily && String(existingFamily).startsWith('Inter_')) {
-    return existingFamily;
-  }
-  const w = String(fontWeight ?? '400');
-  if (w === '800' || w === '900') return fonts.extrabold;
-  if (w === '700' || w === 'bold') return fonts.bold;
-  if (w === '600') return fonts.semibold;
-  if (w === '500') return fonts.medium;
-  return fonts.regular;
-}
+import { StyleSheet, Text as RNText, type TextProps, type TextStyle } from 'react-native';
+import { resolveAppFontFamily } from '../constants/fonts';
 
 /**
- * Drop-in Text that maps fontWeight to bundled Inter faces (Android-safe).
- * Prefer this for new UI; default Text still gets Inter Regular via defaultProps.
+ * Drop-in Text that maps fontWeight to bundled Roboto faces (device-safe).
+ * Content (≤500) → Roboto Regular 400; headings / bold (≥600) → Roboto Bold 700.
+ *
+ * Note: Metro already patches RN Text globally; AppText remains for explicit use.
  */
 export function AppText({ style, ...props }: TextProps) {
-  const flat = StyleSheet.flatten(style) ?? {};
-  const fontFamily = familyForWeight(flat.fontWeight, flat.fontFamily);
+  const flat = (StyleSheet.flatten(style) ?? {}) as TextStyle;
+  const fontFamily = resolveAppFontFamily(flat.fontWeight, flat.fontFamily);
   return (
     <RNText
       {...props}
@@ -30,7 +17,7 @@ export function AppText({ style, ...props }: TextProps) {
         style,
         {
           fontFamily,
-          ...(Platform.OS === 'android' ? { fontWeight: 'normal' as const } : null),
+          fontWeight: 'normal',
         },
       ]}
     />

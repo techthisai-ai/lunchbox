@@ -6,6 +6,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { Dimensions, Image, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { HistoryClockListIcon } from '../components/HistoryClockListIcon';
 import { HomeDeliveredProofCard } from '../components/HomeDeliveredProofCard';
 import { Avatar } from '../components/Avatar';
 import { getInitials } from '../constants/auth';
@@ -263,7 +264,7 @@ function getEtaDisplay(order: DeliveryOrder | null, liveEtaMinutes: number | nul
 
 function getGaugeMeta(order: DeliveryOrder | null) {
   if (!order || order.status === 'booked') {
-    return { percent: 25, status: 'BOOKED', hint: 'Tap when lunchbox is packed & ready.' };
+    return { percent: 25, status: 'READY TO BOOK', hint: 'Tap when lunchbox is packed & ready.' };
   }
   if (order.status === 'pickup_closed') {
     return { percent: 0, status: 'CANCELLED', hint: 'This delivery was cancelled.' };
@@ -288,7 +289,7 @@ function getGaugeMeta(order: DeliveryOrder | null) {
   if (order.status === 'food_ready') {
     return { percent: 75, status: 'FOOD READY', hint: 'Tap when lunchbox is packed & ready.' };
   }
-  return { percent: 25, status: 'BOOKED', hint: 'Tap when lunchbox is packed & ready.' };
+  return { percent: 25, status: 'READY TO BOOK', hint: 'Tap when lunchbox is packed & ready.' };
 }
 
 function CircularGauge({ percent, cancelled }: { percent: number; cancelled?: boolean }) {
@@ -525,10 +526,12 @@ function LiveTrackingCard({
   order,
   disabled,
   onPress,
+  onHistoryPress,
 }: {
   order: DeliveryOrder | null;
   disabled?: boolean;
   onPress: () => void;
+  onHistoryPress: () => void;
 }) {
   // Hold the last good order so a momentary null refresh cannot flash BOOKED
   // or hide the date / Booked→Delivered tracking row.
@@ -561,6 +564,16 @@ function LiveTrackingCard({
         {stepTimeLabel || ' '}
       </Text>
 
+      <Pressable
+        style={({ pressed }) => [styles.historyShortcut, pressed && styles.historyShortcutPressed]}
+        onPress={onHistoryPress}
+        accessibilityRole="button"
+        accessibilityLabel="History"
+        hitSlop={8}
+      >
+        <HistoryClockListIcon size={34} color="#FFFFFF" />
+      </Pressable>
+
       <View style={styles.liveTrackingContent}>
         <Pressable
           style={({ pressed }) => [
@@ -576,21 +589,23 @@ function LiveTrackingCard({
           <View style={styles.gaugeRingWrap}>
             <CircularGauge percent={gauge.percent} cancelled={isCancelled} />
             <View style={styles.gaugeInner}>
-              <View style={[styles.gaugeIconBadge, isCancelled && styles.gaugeIconBadgeCancelled]}>
-                <Ionicons
-                  name={isCancelled ? 'close-circle-outline' : 'fast-food-outline'}
-                  size={22}
-                  color={isCancelled ? colors.red : colors.orange}
-                />
-                <View style={[styles.gaugeCheckBadge, isCancelled && styles.gaugeCheckBadgeCancelled]}>
-                  <Ionicons name={isCancelled ? 'close' : 'checkmark'} size={10} color={colors.onPrimary} />
+              <View style={styles.gaugeCenterStack}>
+                <View style={[styles.gaugeIconBadge, isCancelled && styles.gaugeIconBadgeCancelled]}>
+                  <Ionicons
+                    name={isCancelled ? 'close-circle-outline' : 'fast-food-outline'}
+                    size={20}
+                    color={isCancelled ? colors.red : colors.orange}
+                  />
+                  <View style={[styles.gaugeCheckBadge, isCancelled && styles.gaugeCheckBadgeCancelled]}>
+                    <Ionicons name={isCancelled ? 'close' : 'checkmark'} size={10} color={colors.onPrimary} />
+                  </View>
                 </View>
+                <Text style={[styles.gaugePercent, isCancelled && styles.gaugePercentCancelled]}>{gauge.percent}%</Text>
+                <Text style={[styles.gaugeStatus, isCancelled && styles.gaugeStatusCancelled]}>{gauge.status}</Text>
+                <Text style={styles.gaugeHintOnGradient} numberOfLines={2}>
+                  {gauge.hint}
+                </Text>
               </View>
-              <Text style={[styles.gaugePercent, isCancelled && styles.gaugePercentCancelled]}>{gauge.percent}%</Text>
-              <Text style={[styles.gaugeStatus, isCancelled && styles.gaugeStatusCancelled]}>{gauge.status}</Text>
-              <Text style={styles.gaugeHintOnGradient} numberOfLines={2}>
-                {gauge.hint}
-              </Text>
             </View>
           </View>
         </Pressable>
@@ -1050,7 +1065,12 @@ export function HomeScreen({ navigation }: Props) {
         contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
       >
         <TodaysDeliveryCard order={displayOrder} liveEtaMinutes={liveEtaMinutes} onViewDetails={handleViewDetails} />
-        <LiveTrackingCard order={displayOrder} disabled={submitting} onPress={handleLunchBoxPress} />
+        <LiveTrackingCard
+          order={displayOrder}
+          disabled={submitting}
+          onPress={handleLunchBoxPress}
+          onHistoryPress={() => navigation.navigate('History')}
+        />
 
         {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
 
@@ -1080,7 +1100,7 @@ export function HomeScreen({ navigation }: Props) {
               <Ionicons name="pulse-outline" size={18} color={colors.orange} />
               <Text style={styles.sectionTitle}>Recent Deliveries</Text>
             </View>
-            <Pressable onPress={() => navigation.getParent()?.navigate('History')}>
+            <Pressable onPress={() => navigation.navigate('History')}>
               <Text style={styles.viewAllLink}>View All</Text>
             </Pressable>
           </View>
@@ -1252,6 +1272,18 @@ const styles = StyleSheet.create({
   },
   liveTrackingTimeBadgeHidden: {
     opacity: 0,
+  },
+  historyShortcut: {
+    position: 'absolute',
+    top: 8,
+    right: 12,
+    zIndex: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  historyShortcutPressed: {
+    opacity: 0.85,
   },
   liveTrackingContent: {
     width: '100%',
@@ -1515,16 +1547,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    overflow: 'hidden',
+  },
+  gaugeCenterStack: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
   },
   gaugeIconBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: colors.orangeLight,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   gaugeIconBadgeCancelled: {
     backgroundColor: colors.redLight,
@@ -1546,10 +1585,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.red,
   },
   gaugePercent: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '800',
     color: colors.orange,
-    lineHeight: 30,
+    lineHeight: 28,
   },
   gaugePercentCancelled: {
     color: colors.red,
@@ -1579,8 +1618,9 @@ const styles = StyleSheet.create({
     color: colors.muted,
     textAlign: 'center',
     lineHeight: 11,
-    marginTop: 4,
-    paddingHorizontal: 2,
+    marginTop: 6,
+    paddingHorizontal: 4,
+    maxWidth: 112,
   },
   error: {
     color: colors.red,

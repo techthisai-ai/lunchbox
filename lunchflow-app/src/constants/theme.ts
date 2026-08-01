@@ -93,14 +93,14 @@ export const gradients = {
 };
 
 export const typography = {
-  display: { ...fontStyle('extrabold'), fontSize: 28, lineHeight: 34, letterSpacing: -0.5 },
-  h1: { ...fontStyle('extrabold'), fontSize: 22, lineHeight: 28, letterSpacing: -0.3 },
-  h2: { ...fontStyle('extrabold'), fontSize: 18, lineHeight: 24 },
+  display: { ...fontStyle('bold'), fontSize: 28, lineHeight: 34, letterSpacing: -0.5 },
+  h1: { ...fontStyle('bold'), fontSize: 22, lineHeight: 28, letterSpacing: -0.3 },
+  h2: { ...fontStyle('bold'), fontSize: 18, lineHeight: 24 },
   h3: { ...fontStyle('bold'), fontSize: 16, lineHeight: 22 },
   body: { ...fontStyle('regular'), fontSize: 14, lineHeight: 20 },
-  bodyStrong: { ...fontStyle('semibold'), fontSize: 14, lineHeight: 20 },
-  caption: { ...fontStyle('semibold'), fontSize: 12, lineHeight: 16 },
-  label: { ...fontStyle('semibold'), fontSize: 13, lineHeight: 18 },
+  bodyStrong: { ...fontStyle('bold'), fontSize: 14, lineHeight: 20 },
+  caption: { ...fontStyle('bold'), fontSize: 12, lineHeight: 16 },
+  label: { ...fontStyle('bold'), fontSize: 13, lineHeight: 18 },
 };
 
 export const spacing = {

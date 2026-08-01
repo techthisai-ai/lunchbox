@@ -4,6 +4,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { HistoryClockListIcon } from '../components/HistoryClockListIcon';
 import { colors, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
@@ -91,14 +92,16 @@ function MenuRow({
   icon,
   iconBg,
   iconColor,
+  iconElement,
   label,
   subtitle,
   highlighted,
   onPress,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon?: keyof typeof Ionicons.glyphMap;
   iconBg: string;
-  iconColor: string;
+  iconColor?: string;
+  iconElement?: ReactNode;
   label: string;
   subtitle?: string;
   highlighted?: boolean;
@@ -110,7 +113,7 @@ function MenuRow({
       onPress={onPress}
     >
       <View style={[styles.previewIcon, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={18} color={iconColor} />
+        {iconElement ?? (icon ? <Ionicons name={icon} size={18} color={iconColor} /> : null)}
       </View>
       <View style={styles.menuCopy}>
         <Text style={styles.menuLabel}>{label}</Text>
@@ -236,8 +239,15 @@ export function ProfileScreen({ navigation }: Props) {
           iconColor={colors.orange}
           label="Subscription Details"
           subtitle="View plan and pricing details"
-          highlighted
           onPress={() => navigation.navigate('SubscriptionDetails')}
+        />
+
+        <MenuRow
+          iconBg={colors.orange}
+          iconElement={<HistoryClockListIcon size={18} color="#FFFFFF" />}
+          label="History"
+          subtitle="View your past deliveries"
+          onPress={() => navigation.getParent()?.navigate('Home', { screen: 'History' })}
         />
 
         <MenuRow

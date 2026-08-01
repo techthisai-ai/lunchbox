@@ -4,6 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CustomerTabBar } from '../components/CustomerTabBar';
 import { colors } from '../constants/theme';
 import { DriverTripProvider } from '../context/DriverTripContext';
 import { DriverChangePasswordScreen } from '../screens/driver/DriverChangePasswordScreen';
@@ -15,6 +16,7 @@ import { DriverRegisterScreen } from '../screens/driver/DriverRegisterScreen';
 import { DriverProfileScreen } from '../screens/driver/DriverProfileScreen';
 import { DriverNotificationsScreen } from '../screens/driver/DriverNotificationsScreen';
 import { DriverPendingApprovalScreen } from '../screens/driver/DriverPendingApprovalScreen';
+import { CallDriverTabScreen } from '../screens/CallDriverTabScreen';
 import { DeliveryStatusScreen } from '../screens/DeliveryStatusScreen';
 import { FoodReadyScreen } from '../screens/FoodReadyScreen';
 import { HistoryScreen } from '../screens/HistoryScreen';
@@ -63,6 +65,14 @@ const stackScreenOptions = {
 };
 
 function useTabBarStyle() {
+  return {
+    backgroundColor: colors.white,
+    borderTopWidth: 0,
+    elevation: 0,
+  };
+}
+
+function useDriverTabBarStyle() {
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, Platform.OS === 'web' ? 12 : 8);
 
@@ -106,6 +116,7 @@ function HomeStackNavigator() {
       <HomeStack.Screen name="HomeMain" component={HomeScreen} />
       <HomeStack.Screen name="FoodReady" component={FoodReadyScreen} options={{ animation: 'slide_from_bottom' }} />
       <HomeStack.Screen name="Notifications" component={NotificationsScreen} />
+      <HomeStack.Screen name="History" component={HistoryScreen} />
     </HomeStack.Navigator>
   );
 }
@@ -142,66 +153,82 @@ function CustomerTabs() {
 
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
+      tabBar={(props) => <CustomerTabBar {...props} />}
+      screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.orange,
-        tabBarInactiveTintColor: colors.muted,
-        tabBarLabelStyle,
-        tabBarIconStyle,
-        tabBarIcon: ({ color, size }) => {
-          const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
-            Home: 'home',
-            Track: 'navigate',
-            History: 'time',
-            Subscription: 'card-outline',
-            Profile: 'person',
-          };
-          return <Ionicons name={icons[route.name]} size={size} color={color} />;
-        },
-      })}
+        tabBarStyle,
+      }}
     >
-      <Tab.Screen name="Home" component={HomeStackNavigator} options={({ route }) => ({ tabBarStyle: tabBarStyleForRoute(route, ['HomeMain'], tabBarStyle) })} />
-      <Tab.Screen name="Track" component={TrackStackNavigator} options={({ route }) => ({ title: 'Track', tabBarStyle: tabBarStyleForRoute(route, ['Tracking'], tabBarStyle) })} />
-      <Tab.Screen name="History" component={HistoryScreen} options={{ tabBarStyle }} />
+      <Tab.Screen
+        name="Home"
+        component={HomeStackNavigator}
+        options={({ route }) => ({
+          tabBarStyle: tabBarStyleForRoute(route, ['HomeMain', 'History'], tabBarStyle),
+        })}
+      />
+      <Tab.Screen
+        name="Track"
+        component={TrackStackNavigator}
+        options={({ route }) => ({
+          title: 'Track',
+          tabBarStyle: tabBarStyleForRoute(route, ['Tracking'], tabBarStyle),
+        })}
+      />
+      <Tab.Screen
+        name="CallDriver"
+        component={CallDriverTabScreen}
+        options={{ tabBarStyle }}
+        listeners={{
+          tabPress: (e) => {
+            e.preventDefault();
+          },
+        }}
+      />
       <Tab.Screen
         name="Subscription"
         component={MySubscriptionScreen}
         options={{ title: 'Plan', tabBarStyle }}
       />
-      <Tab.Screen name="Profile" component={ProfileStackNavigator} options={({ route }) => ({ tabBarStyle: tabBarStyleForRoute(route, ['ProfileMain'], tabBarStyle) })} />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileStackNavigator}
+        options={({ route }) => ({
+          tabBarStyle: tabBarStyleForRoute(route, ['ProfileMain'], tabBarStyle),
+        })}
+      />
     </Tab.Navigator>
   );
 }
 
 function DriverTabsNavigator() {
-  const tabBarStyle = useTabBarStyle();
+  const tabBarStyle = useDriverTabBarStyle();
 
   return (
     <DriverTripProvider>
-    <DriverTab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarActiveTintColor: colors.orange,
-        tabBarInactiveTintColor: colors.muted,
-        tabBarStyle,
-        tabBarLabelStyle,
-        tabBarIconStyle,
-        tabBarIcon: ({ color, size }) => {
-          const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
-            DriverHome: 'home',
-            DriverRoute: 'map',
-            DriverDeliveries: 'list',
-            DriverProfile: 'person',
-          };
-          return <Ionicons name={icons[route.name]} size={size} color={color} />;
-        },
-      })}
-    >
-      <DriverTab.Screen name="DriverHome" component={DriverHomeScreen} options={{ title: 'Home' }} />
-      <DriverTab.Screen name="DriverRoute" component={DriverRouteScreen} options={{ title: 'Route' }} />
-      <DriverTab.Screen name="DriverDeliveries" component={DriverDeliveriesScreen} options={{ title: 'Deliveries' }} />
-      <DriverTab.Screen name="DriverProfile" component={DriverProfileScreen} options={{ title: 'Profile' }} />
-    </DriverTab.Navigator>
+      <DriverTab.Navigator
+        screenOptions={({ route }) => ({
+          headerShown: false,
+          tabBarActiveTintColor: colors.orange,
+          tabBarInactiveTintColor: colors.muted,
+          tabBarStyle,
+          tabBarLabelStyle,
+          tabBarIconStyle,
+          tabBarIcon: ({ color, size }) => {
+            const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
+              DriverHome: 'home',
+              DriverRoute: 'map',
+              DriverDeliveries: 'list',
+              DriverProfile: 'person',
+            };
+            return <Ionicons name={icons[route.name]} size={size} color={color} />;
+          },
+        })}
+      >
+        <DriverTab.Screen name="DriverHome" component={DriverHomeScreen} options={{ title: 'Home' }} />
+        <DriverTab.Screen name="DriverRoute" component={DriverRouteScreen} options={{ title: 'Route' }} />
+        <DriverTab.Screen name="DriverDeliveries" component={DriverDeliveriesScreen} options={{ title: 'Deliveries' }} />
+        <DriverTab.Screen name="DriverProfile" component={DriverProfileScreen} options={{ title: 'Profile' }} />
+      </DriverTab.Navigator>
     </DriverTripProvider>
   );
 }

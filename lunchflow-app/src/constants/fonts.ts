@@ -1,34 +1,63 @@
-import { Platform, TextStyle } from 'react-native';
+import type { TextStyle } from 'react-native';
 
-/** Bundled Inter faces — same look on every Android OEM / iOS device. */
+/** Bundled Roboto faces — same look on every Android OEM / iOS / web device. */
 export const fonts = {
-  regular: 'Inter_400Regular',
-  medium: 'Inter_500Medium',
-  semibold: 'Inter_600SemiBold',
-  bold: 'Inter_700Bold',
-  extrabold: 'Inter_800ExtraBold',
+  regular: 'Roboto_400Regular',
+  /** Content / UI weight — alias of regular (only 400 + 700 shipped). */
+  medium: 'Roboto_400Regular',
+  /** Emphasis — maps to bold (only 400 + 700 shipped). */
+  semibold: 'Roboto_700Bold',
+  bold: 'Roboto_700Bold',
+  /** Headings — maps to bold (only 400 + 700 shipped). */
+  extrabold: 'Roboto_700Bold',
 } as const;
 
 export type AppFontWeight = keyof typeof fonts;
 
+const APP_FONT_PREFIXES = ['Roboto_', 'Inter_'] as const;
+
+export function isAppFontFamily(family: string | undefined): boolean {
+  if (!family) return false;
+  return APP_FONT_PREFIXES.some((prefix) => family.startsWith(prefix)) || Object.values(fonts).includes(family as (typeof fonts)[AppFontWeight]);
+}
+
 /**
- * Android applies fontWeight on top of fontFamily and often picks a wrong face.
- * Use the weight-specific Inter file and keep fontWeight normal on Android.
+ * Map numeric/named fontWeight to the bundled Roboto face.
+ * Content → 400 Regular; headings / bold UI → 700 Bold.
+ */
+export function resolveAppFontFamily(
+  fontWeight?: TextStyle['fontWeight'],
+  existingFamily?: string,
+): string {
+  if (existingFamily && !isAppFontFamily(existingFamily)) {
+    return existingFamily;
+  }
+  if (existingFamily === fonts.bold || existingFamily === 'Roboto_700Bold') {
+    return fonts.bold;
+  }
+  if (existingFamily === fonts.regular || existingFamily === 'Roboto_400Regular') {
+    // Still honor an explicit bold weight on top of regular family.
+    const w = String(fontWeight ?? '400');
+    if (w === 'bold' || w === '600' || w === '700' || w === '800' || w === '900') {
+      return fonts.bold;
+    }
+    return fonts.regular;
+  }
+
+  const w = String(fontWeight ?? '400');
+  if (w === 'bold' || w === '600' || w === '700' || w === '800' || w === '900') {
+    return fonts.bold;
+  }
+  return fonts.regular;
+}
+
+/**
+ * Use the weight-specific Roboto file and keep fontWeight normal so platforms
+ * do not fall back to the system font.
  */
 export function fontStyle(weight: AppFontWeight = 'regular'): Pick<TextStyle, 'fontFamily' | 'fontWeight'> {
-  const fontFamily = fonts[weight];
-  if (Platform.OS === 'android') {
-    return { fontFamily, fontWeight: 'normal' };
-  }
-  const iosWeight =
-    weight === 'regular'
-      ? ('400' as const)
-      : weight === 'medium'
-        ? ('500' as const)
-        : weight === 'semibold'
-          ? ('600' as const)
-          : weight === 'bold'
-            ? ('700' as const)
-            : ('800' as const);
-  return { fontFamily, fontWeight: iosWeight };
+  return {
+    fontFamily: fonts[weight],
+    fontWeight: 'normal',
+  };
 }

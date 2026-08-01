@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -112,6 +112,7 @@ function HistoryOrderCard({ entry }: { entry: DeliveryHistoryEntry }) {
 }
 
 export function HistoryScreen() {
+  const navigation = useNavigation();
   const { user } = useAuth();
   const { horizontalPadding } = useResponsive();
   const [history, setHistory] = useState<DeliveryHistoryEntry[]>([]);
@@ -174,6 +175,20 @@ export function HistoryScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      <View style={[styles.navRow, { paddingHorizontal: horizontalPadding }]}>
+        <Pressable
+          style={styles.backBtn}
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={8}
+        >
+          <Ionicons name="arrow-back" size={20} color={colors.text} />
+        </Pressable>
+        <Text style={styles.navTitle}>History</Text>
+        <View style={styles.navSpacer} />
+      </View>
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
@@ -236,6 +251,32 @@ export function HistoryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
+  navRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.sm,
+    gap: 10,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navTitle: {
+    flex: 1,
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  navSpacer: {
+    width: 36,
+  },
   scroll: { paddingBottom: 32, paddingTop: spacing.sm },
   heroBanner: {
     borderRadius: 20,

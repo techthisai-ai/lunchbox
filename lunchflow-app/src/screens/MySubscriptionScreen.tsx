@@ -215,7 +215,7 @@ export function MySubscriptionScreen({ navigation }: Props) {
             <DetailRow label="End Date" value={getSubscriptionEndLabel(plan, subscription)} />
             <Pressable
               style={({ pressed }) => [styles.invoiceBtn, pressed && styles.invoiceBtnPressed]}
-              onPress={() => navigation.navigate('History')}
+              onPress={() => navigation.navigate('Home', { screen: 'History' })}
             >
               <Text style={styles.invoiceBtnText}>View Invoice History</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.orange} />
