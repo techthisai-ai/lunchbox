@@ -1,5 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
   NativeScrollEvent,
@@ -10,6 +10,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { brandHeadingStyle, taglineStyle } from '../constants/fonts';
 import { colors, radius, shadow, spacing } from '../constants/theme';
 
 export type PromoAction = 'subscription' | 'referral' | 'track';
@@ -26,19 +27,19 @@ type PromoSlide = {
   gradient: readonly [string, string, string];
 };
 
-const PROMO_LUNCH_ART = require('../../assets/promo-lunch-hero.png');
+const PROMO_LUNCH_ART = require('../../assets/driver-promo-meal.png');
 
 const SLIDES: PromoSlide[] = [
   {
     id: 'offer',
-    eyebrow: 'Limited Offer',
+    eyebrow: 'Made with Love',
     title: 'Healthy Food',
     titleAccent: 'Happy Kids!',
     sub: 'Daily lunch delivery from home to school.',
     cta: 'Order Now',
     discount: '20%\nOFF',
     action: 'subscription',
-    gradient: ['#FCE4EC', '#FFF5F8', '#FFFFFF'],
+    gradient: [colors.orangeLight, colors.yellowLight, colors.white],
   },
   {
     id: 'refer',
@@ -49,7 +50,7 @@ const SLIDES: PromoSlide[] = [
     cta: 'Refer Now',
     discount: 'Bonus',
     action: 'referral',
-    gradient: ['#F8E1F4', '#FFF7FB', '#FFFFFF'],
+    gradient: [colors.greenLight, colors.yellowLight, colors.white],
   },
   {
     id: 'track',
@@ -60,7 +61,7 @@ const SLIDES: PromoSlide[] = [
     cta: 'View Plans',
     discount: 'Live',
     action: 'track',
-    gradient: ['#FFE8F0', '#FFF9FC', '#FFFFFF'],
+    gradient: [colors.yellow, colors.yellowLight, colors.white],
   },
 ];
 
@@ -83,7 +84,7 @@ function PromoLunchVisual({ discount }: { discount: string }) {
   return (
     <View style={art.wrap}>
       <View style={art.clip}>
-        <Image source={PROMO_LUNCH_ART} style={art.photo} resizeMode="cover" accessibilityLabel="Lunch box and bag" />
+        <Image source={PROMO_LUNCH_ART} style={art.photo} resizeMode="cover" accessibilityLabel="Homemade lunch plate" />
       </View>
       <View style={art.badge}>
         <Text style={art.badgeText}>{discount}</Text>
@@ -112,7 +113,7 @@ function PromoSlideContent({
       <View style={styles.content}>
         <View style={styles.copy}>
           <View style={styles.eyebrowPill}>
-            <Text style={styles.eyebrow}>{slide.eyebrow}</Text>
+            <Text style={[styles.eyebrow, isOffer && styles.eyebrowTagline]}>{slide.eyebrow}</Text>
           </View>
           <Text style={styles.title}>{slide.title}</Text>
           <Text style={styles.titleAccent}>{slide.titleAccent}</Text>
@@ -139,12 +140,30 @@ function PromoBadgeOnly({ discount }: { discount: string }) {
 
 export function HomePromoBanner({ width, onAction }: Props) {
   const scrollRef = useRef<ScrollView>(null);
+  const activeIndexRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const slideHeight = useMemo(() => Math.max(204, Math.round(width * 0.54)), [width]);
 
+  const goToSlide = (index: number, animated = true) => {
+    const next = ((index % SLIDES.length) + SLIDES.length) % SLIDES.length;
+    activeIndexRef.current = next;
+    setActiveIndex(next);
+    scrollRef.current?.scrollTo({ x: width * next, animated });
+  };
+
+  useEffect(() => {
+    if (!width) return undefined;
+    const timer = setInterval(() => {
+      goToSlide(activeIndexRef.current + 1);
+    }, 3800);
+    return () => clearInterval(timer);
+  }, [width]);
+
   const onScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const index = Math.round(event.nativeEvent.contentOffset.x / width);
-    setActiveIndex(index);
+    const next = Math.max(0, Math.min(SLIDES.length - 1, index));
+    activeIndexRef.current = next;
+    setActiveIndex(next);
   };
 
   return (
@@ -173,10 +192,7 @@ export function HomePromoBanner({ width, onAction }: Props) {
           <Pressable
             key={slide.id}
             style={[styles.dot, index === activeIndex && styles.dotActive]}
-            onPress={() => {
-              setActiveIndex(index);
-              scrollRef.current?.scrollTo({ x: width * index, animated: true });
-            }}
+            onPress={() => goToSlide(index)}
             accessibilityRole="button"
             accessibilityLabel={`Show promo slide ${index + 1}`}
           />
@@ -193,8 +209,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#F3D6E2',
-    backgroundColor: '#FFF5F8',
+    borderColor: colors.border,
+    backgroundColor: colors.yellowLight,
     ...shadow.card,
   },
   slideInner: {
@@ -225,11 +241,12 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: 'rgba(233, 30, 99, 0.1)',
+    borderColor: 'rgba(228, 94, 26, 0.12)',
   },
-  eyebrow: { fontSize: 11, fontWeight: '700', color: colors.orange, lineHeight: 14 },
-  title: { fontSize: 22, fontWeight: '800', color: colors.text, lineHeight: 26 },
-  titleAccent: { fontSize: 22, fontWeight: '800', color: colors.orange, lineHeight: 28, marginBottom: 4 },
+  eyebrow: { fontSize: 11, fontWeight: '500', color: colors.orange, lineHeight: 14 },
+  eyebrowTagline: { fontSize: 14, ...taglineStyle(), color: colors.orange, lineHeight: 18 },
+  title: { fontSize: 22, ...brandHeadingStyle(), color: colors.text, lineHeight: 26 },
+  titleAccent: { fontSize: 22, ...brandHeadingStyle(), color: colors.orange, lineHeight: 28, marginBottom: 4 },
   sub: { fontSize: 12, color: colors.muted, lineHeight: 17, fontWeight: '500' },
   cta: {
     alignSelf: 'flex-start',
@@ -254,7 +271,7 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: '#E2CBD6',
+    backgroundColor: '#E8D9C8',
   },
   dotActive: {
     width: 22,
@@ -278,12 +295,11 @@ const art = StyleSheet.create({
     height: 118,
     borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: '#FCE4EC',
+    backgroundColor: colors.orangeLight,
   },
   photo: {
-    width: 220,
+    width: 118,
     height: 118,
-    marginLeft: -72,
   },
   badge: {
     position: 'absolute',
@@ -323,7 +339,7 @@ const decor = StyleSheet.create({
     width: 16,
     height: 9,
     borderRadius: 8,
-    backgroundColor: 'rgba(233, 30, 99, 0.1)',
+    backgroundColor: 'rgba(228, 94, 26, 0.1)',
     transform: [{ rotate: '-24deg' }],
   },
   petalOne: { top: 14, right: 28 },

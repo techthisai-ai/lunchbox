@@ -8,6 +8,7 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { colors, radius, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { ProfileStackParamList } from '../navigation/types';
+import { goBackInProfileStack } from '../navigation/customerRoutes';
 import {
   AppLanguage,
   LANGUAGE_OPTIONS,
@@ -42,7 +43,7 @@ export function LanguageScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScreenHeader title="Language" subtitle="Choose your preferred language" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Language" subtitle="Choose your preferred language" onBack={() => goBackInProfileStack(navigation)} />
       <ScrollView contentContainerStyle={styles.scroll}>
         {LANGUAGE_OPTIONS.map((option) => {
           const active = selected === option.code;

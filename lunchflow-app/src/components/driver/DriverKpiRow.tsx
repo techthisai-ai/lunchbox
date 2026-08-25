@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { StyleSheet, Text, View } from 'react-native';
 import { colors } from '../../constants/theme';
 
@@ -9,13 +10,13 @@ export type DriverKpiItem = {
   icon?: keyof typeof Ionicons.glyphMap;
 };
 
-const toneStyles: Record<DriverKpiItem['tone'], { bg: string; border: string; icon: string }> = {
-  purple: { bg: colors.purpleLight, border: 'rgba(124, 58, 237, 0.12)', icon: colors.purple },
-  green: { bg: colors.greenLight, border: 'rgba(34, 197, 94, 0.15)', icon: colors.green },
-  pink: { bg: colors.orangeLight, border: 'rgba(236, 72, 153, 0.15)', icon: colors.orange },
-  orange: { bg: colors.orangeLight, border: 'rgba(255, 107, 53, 0.2)', icon: colors.orange },
-  blue: { bg: colors.blueLight, border: 'rgba(59, 130, 246, 0.15)', icon: colors.blue },
-  red: { bg: colors.redLight, border: 'rgba(239, 68, 68, 0.15)', icon: colors.red },
+const toneGradients: Record<DriverKpiItem['tone'], readonly [string, string]> = {
+  purple: ['#E8ECD8', '#D4DABF'],
+  green: ['#E4EDE4', '#D0DFD2'],
+  blue: ['#E8EEF2', '#D5E0E8'],
+  pink: ['#F7EBDA', '#EED9C4'],
+  orange: ['#F6E6D8', '#EBD4C2'],
+  red: ['#F6E4DC', '#EBD0C6'],
 };
 
 type Props = {
@@ -29,14 +30,17 @@ export function DriverKpiRow({ items, compact }: Props) {
   return (
     <View style={styles.row}>
       {items.map((item) => {
-        const tone = toneStyles[item.tone];
+        const colorsPair = toneGradients[item.tone];
         return (
-          <View
+          <LinearGradient
             key={item.label}
-            style={[styles.box, dense && styles.boxDense, { backgroundColor: tone.bg, borderColor: tone.border }]}
+            colors={[...colorsPair]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.box, dense && styles.boxDense]}
           >
             {item.icon ? (
-              <Ionicons name={item.icon} size={dense ? 13 : 16} color={tone.icon} style={styles.icon} />
+              <Ionicons name={item.icon} size={dense ? 13 : 16} color={colors.text} style={styles.icon} />
             ) : null}
             <Text style={[styles.value, dense && styles.valueDense]} numberOfLines={1} adjustsFontSizeToFit>
               {item.value}
@@ -44,7 +48,7 @@ export function DriverKpiRow({ items, compact }: Props) {
             <Text style={[styles.label, dense && styles.labelDense]} numberOfLines={2}>
               {item.label}
             </Text>
-          </View>
+          </LinearGradient>
         );
       })}
     </View>
@@ -57,11 +61,10 @@ const styles = StyleSheet.create({
     flex: 1,
     aspectRatio: 1,
     minWidth: 0,
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
   },
   boxDense: {
     padding: 6,

@@ -4,7 +4,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, radius, shadow, spacing } from '../constants/theme';
+import { colors, gradients, radius, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { DeliveryHistoryEntry, syncDeliveryHistory } from '../services/deliveryHistoryService';
@@ -74,16 +74,10 @@ function HistoryOrderCard({ entry }: { entry: DeliveryHistoryEntry }) {
       </View>
 
       {entry.status === 'Delivered' ? (
-        <>
-          <View style={styles.infoRow}>
-            <InfoBox label="Date" value={entry.date} />
-            <InfoBox label="Time" value={entry.time} />
-          </View>
-          <View style={styles.orderFooter}>
-            <Text style={styles.footerMuted}>Amount paid</Text>
-            <Text style={styles.footerPrice}>{entry.price}</Text>
-          </View>
-        </>
+        <View style={styles.infoRow}>
+          <InfoBox label="Date" value={entry.date} />
+          <InfoBox label="Time" value={entry.time} />
+        </View>
       ) : entry.status === 'In Transit' ? (
         <>
           <View style={styles.infoRow}>
@@ -193,7 +187,7 @@ export function HistoryScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
       >
-        <LinearGradient colors={['#E91E63', '#C2185B']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroBanner}>
+        <LinearGradient colors={[...gradients.premium]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroBanner}>
           <View style={styles.heroCopy}>
             <Text style={styles.heroEyebrow}>{periodEyebrow}</Text>
             <View style={styles.heroStatsRow}>
@@ -454,11 +448,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: colors.muted,
     lineHeight: 14,
-  },
-  footerPrice: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: colors.orange,
   },
   footerOrderId: {
     fontSize: 12,

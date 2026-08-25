@@ -33,10 +33,10 @@ const styles = StyleSheet.create({
   panel: {
     flex: 1,
     backgroundColor: colors.white,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
+    borderColor: colors.borderSubtle,
+    padding: spacing.lg,
     minWidth: 280,
   },
   panelCompact: {

@@ -6,10 +6,26 @@ import { sendExpoPush } from './push';
 import { sendSms } from './sms';
 import { sendOrderWhatsApp, sendWhatsAppImage } from './whatsapp';
 
+function expoTokenFromUser(user: UserDoc | null | undefined): string | null {
+  const token = user?.expoPushToken?.trim() || user?.fcmToken?.trim() || '';
+  if (!token) return null;
+  if (token.startsWith('ExponentPushToken') || token.startsWith('ExpoPushToken')) return token;
+  return user?.expoPushToken?.trim() || null;
+}
+
 async function loadUser(phone: string): Promise<UserDoc | null> {
   const db = getFirestore();
   const snap = await db.collection('users').doc(phone).get();
-  return snap.exists ? (snap.data() as UserDoc) : null;
+  if (snap.exists) return snap.data() as UserDoc;
+
+  const matches = await db.collection('users').where('phone', '==', phone).limit(5).get();
+  let fallback: UserDoc | null = null;
+  for (const docSnap of matches.docs) {
+    const data = docSnap.data() as UserDoc;
+    if (expoTokenFromUser(data)) return data;
+    fallback = data;
+  }
+  return fallback;
 }
 
 async function loadDriverPhone(order: OrderDoc): Promise<string | null> {
@@ -110,7 +126,7 @@ export async function notifyOrderStatusChange(before: OrderDoc | undefined, afte
     }
   }
   if (prefs.push) {
-    await dispatchChannel('push', customerPhone, message, after, nextStatus, user?.expoPushToken);
+    await dispatchChannel('push', customerPhone, message, after, nextStatus, expoTokenFromUser(user));
   }
 
   await writeInboxNotification(customerPhone, message, {
@@ -134,7 +150,14 @@ export async function notifyOrderStatusChange(before: OrderDoc | undefined, afte
       await dispatchChannel('whatsapp', driverPhone, driverMessage, after, `${nextStatus}:driver`, null);
     }
     if (driverPrefs.push) {
-      await dispatchChannel('push', driverPhone, driverMessage, after, `${nextStatus}:driver`, driverUser?.expoPushToken);
+      await dispatchChannel(
+        'push',
+        driverPhone,
+        driverMessage,
+        after,
+        `${nextStatus}:driver`,
+        expoTokenFromUser(driverUser),
+      );
     }
   }
 }

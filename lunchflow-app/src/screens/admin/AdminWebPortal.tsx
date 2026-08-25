@@ -15,6 +15,7 @@ import { AdminReportsScreen } from './AdminReportsScreen';
 import { AdminSalaryScreen } from './AdminSalaryScreen';
 import { AdminSlotsScreen } from './AdminSlotsScreen';
 import { AdminTelecallersScreen } from './AdminTelecallersScreen';
+import { AdminPromoPostsScreen } from './AdminPromoPostsScreen';
 
 type Props = {
   onLogout: () => void;
@@ -36,6 +37,7 @@ export function AdminWebPortal({ onLogout }: Props) {
   const { logout } = useAuth();
   const [page, setPage] = useState<AdminPage>('dashboard');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [promoPostsOpen, setPromoPostsOpen] = useState(false);
   const { isSidebarCollapsed, showMobileHeader } = useAdminLayout();
   const Screen = PAGES[page];
 
@@ -92,11 +94,18 @@ export function AdminWebPortal({ onLogout }: Props) {
 
       <View style={[styles.main, !isSidebarCollapsed && styles.mainWithSidebar]}>
         {showMobileHeader ? (
-          <AdminMobileHeader title={ADMIN_PAGE_LABELS[page]} onMenuPress={() => setMenuOpen(true)} />
+          <AdminMobileHeader
+            title={promoPostsOpen ? 'Ad Posts' : ADMIN_PAGE_LABELS[page]}
+            onMenuPress={() => setMenuOpen(true)}
+          />
         ) : null}
-        <AdminPortalProvider navigate={handleNavigate} logout={handleLogout}>
+        <AdminPortalProvider
+          navigate={handleNavigate}
+          logout={handleLogout}
+          openPromoPosts={() => setPromoPostsOpen(true)}
+        >
           <View style={styles.screenWrap}>
-            <Screen />
+            {promoPostsOpen ? <AdminPromoPostsScreen onClose={() => setPromoPostsOpen(false)} /> : <Screen />}
           </View>
         </AdminPortalProvider>
       </View>
@@ -124,8 +133,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
     ...(Platform.OS === 'web'
       ? {
-          minHeight: '100vh' as unknown as number,
-          height: '100vh' as unknown as number,
+          minHeight: '100%' as unknown as number,
+          height: '100%' as unknown as number,
           width: '100%' as unknown as number,
           overflow: 'hidden' as const,
         }

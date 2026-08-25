@@ -27,13 +27,22 @@ export async function sendExpoPush(
       data: payload.data ?? {},
       priority: 'high',
       channelId: 'order-updates',
+      collapseId: payload.data?.orderId
+        ? `lunchbox-${payload.data.status ?? 'update'}-${payload.data.orderId}`
+        : undefined,
     }),
   });
 
-  const result = (await response.json()) as { data?: { status?: string; message?: string }[] };
-  const ticket = result.data?.[0];
+  const result = (await response.json()) as {
+    data?: { status?: string; message?: string } | { status?: string; message?: string }[];
+    errors?: { message?: string }[];
+  };
+  const ticket = Array.isArray(result.data) ? result.data[0] : result.data;
   if (!response.ok || ticket?.status === 'error') {
-    return { ok: false, error: ticket?.message ?? response.statusText };
+    return {
+      ok: false,
+      error: ticket?.message ?? result.errors?.[0]?.message ?? response.statusText,
+    };
   }
 
   return { ok: true };

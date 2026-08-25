@@ -7,7 +7,7 @@ type TextInputProps = Record<string, unknown> & {
 };
 
 /**
- * Drop-in TextInput that forces bundled Roboto on every device.
+ * Drop-in TextInput that forces bundled Poppins on every device.
  */
 const PatchedTextInput = React.forwardRef<unknown, TextInputProps>(function PatchedTextInput(
   props,

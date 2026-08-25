@@ -1,8 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { colors, palette, radius, shadow, spacing } from '../constants/theme';
-import { LogoMark } from './LogoMark';
+import { colors, radius, shadow, spacing } from '../constants/theme';
+import { ChefQueenLogo } from './ChefQueenLogo';
 
 export type AdminPage =
   | 'dashboard'
@@ -49,15 +47,14 @@ const SIDEBAR_WIDTH = 252;
 export const ADMIN_SIDEBAR_WIDTH = SIDEBAR_WIDTH;
 
 const SIDEBAR = {
-  bg: palette.purple10,
-  bgSoft: palette.purple10Soft,
-  border: 'rgba(255, 255, 255, 0.12)',
-  text: colors.onPrimary,
-  textMuted: 'rgba(255, 255, 255, 0.62)',
-  hover: 'rgba(255, 255, 255, 0.08)',
-  surface: 'rgba(255, 255, 255, 0.1)',
-  activeBg: palette.yellow30,
-  activeText: palette.purple10,
+  bg: colors.bg,
+  border: colors.border,
+  text: colors.text,
+  textMuted: colors.muted,
+  hover: colors.greenLight,
+  surface: colors.white,
+  activeBg: colors.orange,
+  activeText: colors.onPrimary,
 };
 
 type Props = {
@@ -70,10 +67,7 @@ export function AdminSidebar({ active, onNavigate, variant = 'fixed' }: Props) {
   const isDesktopFixed = variant === 'fixed' && Platform.OS === 'web';
 
   return (
-    <LinearGradient
-      colors={[SIDEBAR.bg, SIDEBAR.bgSoft, '#1E0F33']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 0, y: 1 }}
+    <View
       style={[
         styles.sidebar,
         isDesktopFixed && styles.sidebarDesktopFixed,
@@ -81,16 +75,7 @@ export function AdminSidebar({ active, onNavigate, variant = 'fixed' }: Props) {
       ]}
     >
       <View style={styles.brandCard}>
-        <LogoMark size={48} />
-        <View style={styles.brandText}>
-          <Text style={styles.brandTitle}>
-            Lunch<Text style={styles.brandAccent}>Flow</Text>
-          </Text>
-          <View style={styles.brandBadge}>
-            <Ionicons name="shield-checkmark" size={9} color={SIDEBAR.activeText} />
-            <Text style={styles.brandSub}>Admin Portal</Text>
-          </View>
-        </View>
+        <ChefQueenLogo variant="splash" height={64} />
       </View>
 
       {isDesktopFixed ? (
@@ -142,7 +127,7 @@ export function AdminSidebar({ active, onNavigate, variant = 'fixed' }: Props) {
           })}
         </ScrollView>
       )}
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -151,6 +136,7 @@ const styles = StyleSheet.create({
     width: SIDEBAR_WIDTH,
     flex: 1,
     flexDirection: 'column',
+    backgroundColor: SIDEBAR.bg,
     borderRightWidth: 1,
     borderRightColor: SIDEBAR.border,
     alignSelf: 'stretch',
@@ -175,50 +161,18 @@ const styles = StyleSheet.create({
     ...shadow.elevated,
   },
   brandCard: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
     marginHorizontal: spacing.sm,
     marginTop: spacing.sm,
     marginBottom: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
     backgroundColor: SIDEBAR.surface,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: SIDEBAR.border,
     flexShrink: 0,
-  },
-  brandText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  brandTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: SIDEBAR.text,
-    letterSpacing: -0.3,
-  },
-  brandAccent: {
-    color: palette.yellow30,
-  },
-  brandBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    marginTop: 4,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: radius.full,
-    backgroundColor: SIDEBAR.activeBg,
-  },
-  brandSub: {
-    fontSize: 8,
-    color: SIDEBAR.activeText,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
   },
   navScroll: {
     flex: 1,
@@ -245,7 +199,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 11,
     paddingHorizontal: 10,
-    borderRadius: 10,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: SIDEBAR.border,
     backgroundColor: SIDEBAR.surface,
@@ -262,7 +216,7 @@ const styles = StyleSheet.create({
   },
   navItemActive: {
     backgroundColor: SIDEBAR.activeBg,
-    borderColor: 'rgba(255, 240, 168, 0.45)',
+    borderColor: colors.orange,
   },
   navLabel: {
     width: '100%',

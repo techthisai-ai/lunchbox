@@ -1,12 +1,21 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Button } from '../components/Button';
-import { Input } from '../components/Input';
-import { LogoMark } from '../components/LogoMark';
-import { normalizePhone } from '../constants/auth';
-import { colors, radius, spacing } from '../constants/theme';
+import { ChefQueenLogo } from '../components/ChefQueenLogo';
+import { formatPhoneInput, normalizePhone } from '../constants/auth';
+import { colors, gradients, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { RootStackParamList } from '../navigation/types';
@@ -19,9 +28,12 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 export function LoginScreen({ navigation, route }: Props) {
   const { loginAsCustomerPhone, loginAsDriver } = useAuth();
   const { horizontalPadding } = useResponsive();
+  const { width } = useWindowDimensions();
+  const logoHeight = Math.min(148, Math.round(width * 0.36));
   const [phone, setPhone] = useState(route.params?.phone ?? '');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [focused, setFocused] = useState(false);
 
   const handleContinue = async () => {
     setError('');
@@ -67,55 +79,187 @@ export function LoginScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={[styles.content, { paddingHorizontal: horizontalPadding }]}>
-        <View style={styles.centerBlock}>
-          <LogoMark size={96} />
-
-          <View style={styles.formCard}>
-            <Input
-              label="Mobile Number"
-              value={phone}
-              onChangeText={setPhone}
-              phone
-              placeholder="10-digit mobile number"
-            />
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-            <Button
-              title={submitting ? 'Please wait...' : 'Login'}
-              onPress={handleContinue}
-              style={{ marginTop: 4 }}
-            />
-          </View>
-
-          <Pressable
-            onPress={() =>
-              navigation.navigate('Register', { phone: normalizePhone(phone) || undefined })
-            }
-          >
-            <Text style={styles.register}>
-              New user? <Text style={styles.link}>Register</Text>
-            </Text>
-          </Pressable>
-        </View>
+      <View pointerEvents="none" style={styles.decorLayer}>
+        <Ionicons name="restaurant-outline" size={42} color="rgba(81,91,47,0.08)" style={styles.decorPot} />
+        <Ionicons name="cafe-outline" size={36} color="rgba(228,94,26,0.08)" style={styles.decorCup} />
+        <Ionicons name="leaf-outline" size={28} color="rgba(81,91,47,0.1)" style={styles.decorLeaf} />
       </View>
+
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={[styles.content, { paddingHorizontal: horizontalPadding }]}>
+          <View style={styles.centerBlock}>
+            <ChefQueenLogo variant="stacked" height={logoHeight} />
+
+            <View style={styles.formCard}>
+              <Text style={styles.welcome}>Welcome</Text>
+              <View style={styles.continueRow}>
+                <View style={styles.continueLine} />
+                <Text style={styles.continueText}>Login to continue</Text>
+                <View style={styles.continueLine} />
+              </View>
+
+              <Text style={styles.fieldLabel}>Mobile Number</Text>
+              <View style={[styles.inputWrap, focused && styles.inputWrapFocused]}>
+                <View style={styles.phoneIcon}>
+                  <Ionicons name="call" size={16} color={colors.orange} />
+                </View>
+                <TextInput
+                  value={phone}
+                  onChangeText={(text) => setPhone(formatPhoneInput(text))}
+                  placeholder="Enter 10-digit mobile number"
+                  placeholderTextColor={colors.muted}
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                  style={styles.input}
+                  underlineColorAndroid="transparent"
+                  onFocus={() => setFocused(true)}
+                  onBlur={() => setFocused(false)}
+                />
+              </View>
+
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+
+              <Pressable
+                onPress={handleContinue}
+                disabled={submitting}
+                style={({ pressed }) => [pressed && styles.loginPressed]}
+              >
+                <LinearGradient
+                  colors={[...gradients.primary]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.loginBtn}
+                >
+                  <Text style={styles.loginText}>{submitting ? 'Please wait...' : 'Login'}</Text>
+                  {!submitting ? <Ionicons name="arrow-forward" size={18} color={colors.onPrimary} /> : null}
+                </LinearGradient>
+              </Pressable>
+
+              <Pressable
+                onPress={() =>
+                  navigation.navigate('Register', { phone: normalizePhone(phone) || undefined })
+                }
+                style={styles.registerWrap}
+              >
+                <Text style={styles.register}>
+                  New user? <Text style={styles.link}>Register {'>'}</Text>
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
+  container: { flex: 1, backgroundColor: colors.bg, overflow: 'hidden' },
+  flex: { flex: 1 },
+  decorLayer: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+  },
+  decorPot: { position: 'absolute', top: 72, left: 18 },
+  decorCup: { position: 'absolute', top: 160, left: 40 },
+  decorLeaf: { position: 'absolute', bottom: 90, left: 28 },
   content: { flex: 1, justifyContent: 'center' },
-  centerBlock: { width: '100%', maxWidth: 380, alignSelf: 'center', alignItems: 'center' },
+  centerBlock: { width: '100%', maxWidth: 400, alignSelf: 'center', alignItems: 'center' },
   formCard: {
     width: '100%',
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
     backgroundColor: colors.white,
-    borderRadius: radius.md,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    padding: spacing.md,
+    borderRadius: 28,
+    paddingHorizontal: 22,
+    paddingTop: 22,
+    paddingBottom: 18,
+    ...shadow.card,
   },
-  error: { color: colors.red, fontSize: 13, marginBottom: 8 },
-  register: { textAlign: 'center', marginTop: spacing.lg, fontSize: 13, color: colors.muted },
-  link: { color: colors.orange, fontWeight: '700' },
+  welcome: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.green,
+    textAlign: 'center',
+  },
+  continueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 22,
+  },
+  continueLine: {
+    flex: 1,
+    height: 1.5,
+    backgroundColor: colors.orange,
+    opacity: 0.7,
+  },
+  continueText: {
+    fontSize: 12,
+    color: colors.muted,
+    fontWeight: '600',
+  },
+  fieldLabel: {
+    fontSize: 12,
+    color: colors.muted,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  inputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.orangeLight,
+    borderWidth: 1.5,
+    borderColor: colors.orange,
+    borderRadius: 14,
+    paddingLeft: 8,
+    paddingRight: 12,
+    minHeight: 50,
+  },
+  inputWrapFocused: {
+    borderColor: colors.orangeDark,
+  },
+  phoneIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F8D7C0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  input: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.text,
+    paddingVertical: 12,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+    outlineWidth: 0,
+    outlineStyle: 'none' as const,
+    outlineColor: 'transparent',
+  },
+  error: { color: colors.red, fontSize: 13, marginTop: 8 },
+  loginPressed: { opacity: 0.92, transform: [{ scale: 0.99 }] },
+  loginBtn: {
+    marginTop: 16,
+    minHeight: 50,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 22,
+  },
+  loginText: {
+    color: colors.onPrimary,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  registerWrap: { marginTop: 16, alignItems: 'center' },
+  register: { textAlign: 'center', fontSize: 13, color: colors.muted, fontWeight: '600' },
+  link: { color: colors.orange, fontWeight: '800' },
 });

@@ -37,6 +37,7 @@ import {
   getPaymentInfo,
   getTableStatusLabel,
   getTableStatusTone,
+  resolveAssignedDriver,
 } from '../../utils/adminOrderHelpers';
 import { buildCustomerDetail, CustomerDetail, formatCustomerName } from '../../utils/adminCustomerHelpers';
 import { normalizePhone } from '../../constants/auth';
@@ -165,11 +166,16 @@ export function AdminOrdersScreen() {
     buildCustomerDetail(order, orders).then(setCustomerDetail);
   }, [selectedOrderId, orders]);
 
-  const tabCounts = useMemo(() => countByTab(orders), [orders]);
-  const todayOrders = useMemo(() => orders.filter((o) => isToday(o.date)), [orders]);
-  const completed = useMemo(() => orders.filter((o) => o.status === 'delivered'), [orders]);
-  const pending = useMemo(() => orders.filter((o) => getOrderTab(o.status) === 'pending'), [orders]);
-  const cancelled = useMemo(() => orders.filter((o) => getOrderTab(o.status) === 'cancelled'), [orders]);
+  const ordersWithDrivers = useMemo(
+    () => orders.map((order) => ({ ...order, driver: resolveAssignedDriver(order, drivers) })),
+    [orders, drivers],
+  );
+
+  const tabCounts = useMemo(() => countByTab(ordersWithDrivers), [ordersWithDrivers]);
+  const todayOrders = useMemo(() => ordersWithDrivers.filter((o) => isToday(o.date)), [ordersWithDrivers]);
+  const completed = useMemo(() => ordersWithDrivers.filter((o) => o.status === 'delivered'), [ordersWithDrivers]);
+  const pending = useMemo(() => ordersWithDrivers.filter((o) => getOrderTab(o.status) === 'pending'), [ordersWithDrivers]);
+  const cancelled = useMemo(() => ordersWithDrivers.filter((o) => getOrderTab(o.status) === 'cancelled'), [ordersWithDrivers]);
 
   const driverOptions = useMemo(
     () => [{ id: 'all', label: 'All Drivers' }, ...drivers.map((d) => ({ id: d.id, label: d.name }))],
@@ -178,14 +184,14 @@ export function AdminOrdersScreen() {
 
   const filtered = useMemo(
     () =>
-      filterOrders(orders, {
+      filterOrders(ordersWithDrivers, {
         tab,
         query,
         statusFilter: 'all',
         paymentFilter,
         driverFilter,
       }),
-    [orders, tab, query, paymentFilter, driverFilter],
+    [ordersWithDrivers, tab, query, paymentFilter, driverFilter],
   );
 
   const handleExport = () => {
@@ -426,7 +432,7 @@ export function AdminOrdersScreen() {
                     </View>
                     <View style={c.amount}>
                       <Text style={[styles.td, styles.amountText]} numberOfLines={1}>
-                        ₹{orderAmount.toLocaleString('en-IN')}
+                        {orderAmount > 0 ? `₹${orderAmount.toLocaleString('en-IN')}` : '—'}
                       </Text>
                     </View>
                   </Pressable>

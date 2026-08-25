@@ -5,7 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TimelineStep } from '../components/Timeline';
 import { WhatsAppDeliveryConfirmationCard } from '../components/WhatsAppDeliveryConfirmationCard';
-import { colors, shadow, spacing } from '../constants/theme';
+import { colors, gradients, shadow, spacing } from '../constants/theme';
 import { useDelivery } from '../context/DeliveryContext';
 import { useLiveEta } from '../hooks/useLiveEta';
 import { useResponsive } from '../hooks/useResponsive';
@@ -159,13 +159,15 @@ function JourneyTimeline({ steps }: { steps: TimelineStep[] }) {
 
 function QuickFacts({ order, etaMinutes }: { order: DeliveryOrder; etaMinutes: number | null }) {
   const driverName = order.driver?.name ?? 'Awaiting rider';
-  const eta =
-    order.estimatedArrival?.trim() ||
-    (etaMinutes != null
-      ? `${etaMinutes} min`
-      : order.driver?.etaMinutes != null
-        ? `${order.driver.etaMinutes} min`
-        : '—');
+  const delivered = order.status === 'delivered';
+  const eta = delivered
+    ? order.deliveredAt?.trim() || 'Delivered'
+    : order.estimatedArrival?.trim() ||
+      (etaMinutes != null
+        ? `${etaMinutes} min`
+        : order.driver?.etaMinutes != null
+          ? `${order.driver.etaMinutes} min`
+          : '—');
 
   return (
     <View style={styles.factsRow}>
@@ -182,7 +184,7 @@ function QuickFacts({ order, etaMinutes }: { order: DeliveryOrder; etaMinutes: n
       <View style={styles.factItem}>
         <Ionicons name="time-outline" size={16} color={colors.orange} />
         <View style={styles.factCopy}>
-          <Text style={styles.factLabel}>ETA</Text>
+          <Text style={styles.factLabel}>{delivered ? 'Delivered' : 'ETA'}</Text>
           <Text style={styles.factValue}>{eta}</Text>
         </View>
       </View>
@@ -216,7 +218,7 @@ export function DeliveryStatusScreen({ navigation }: Props) {
               accessibilityRole="button"
               accessibilityLabel="Track on map"
             >
-              <LinearGradient colors={['#E91E63', '#C2185B']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mapBtnGradient}>
+              <LinearGradient colors={[...gradients.brand]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mapBtnGradient}>
                 <Ionicons name="map-outline" size={20} color={colors.onPrimary} />
                 <Text style={styles.mapBtnText}>Track on Map</Text>
                 <Ionicons name="chevron-forward" size={18} color={colors.onPrimary} />
@@ -264,7 +266,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(233,30,99,0.2)',
+    backgroundColor: 'rgba(81,91,47,0.16)',
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 5,
@@ -274,12 +276,12 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: colors.orange,
+    backgroundColor: colors.green,
   },
   liveChipText: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#F8BBD0',
+    color: colors.green,
     letterSpacing: 0.6,
   },
   heroMain: {
@@ -298,7 +300,7 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     borderWidth: 3,
     borderColor: colors.orange,
-    backgroundColor: 'rgba(233,30,99,0.18)',
+    backgroundColor: 'rgba(228,94,26,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,

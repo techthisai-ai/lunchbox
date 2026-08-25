@@ -2,6 +2,7 @@ import { NavigatorScreenParams } from '@react-navigation/native';
 
 export type RootStackParamList = {
   Splash: undefined;
+  CustomerOnboarding: undefined;
   RoleSelect: undefined;
   Login: { phone?: string } | undefined;
   OtpVerify: { phone: string; role?: 'customer' | 'driver' };
@@ -62,7 +63,7 @@ export type TrackStackParamList = {
 export type ProfileStackParamList = {
   ProfileMain: undefined;
   PersonalDetails: undefined;
-  SavedAddresses: undefined;
+  SavedAddresses: { focus?: 'pickup' | 'drop' } | undefined;
   Settings: undefined;
   Language: undefined;
   PrivacySecurity: undefined;

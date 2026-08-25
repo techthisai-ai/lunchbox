@@ -15,7 +15,11 @@ type Props = {
   bulkLoading?: boolean;
   singleDeliveringId?: string | null;
   readOnly?: boolean;
-  onNavigate?: (address: string) => void;
+  selectable?: boolean;
+  selected?: boolean;
+  hidePerGroupDeliver?: boolean;
+  onToggleSelect?: () => void;
+  onNavigate?: () => void;
   onDeliverAll?: (group: DriverLocationGroup) => void;
   onDeliverOne?: (order: DeliveryOrder) => void;
 };
@@ -25,12 +29,14 @@ function StudentRow({
   disabled,
   delivering,
   readOnly,
+  hideDeliverAction,
   onDeliver,
 }: {
   order: DeliveryOrder;
   disabled?: boolean;
   delivering?: boolean;
   readOnly?: boolean;
+  hideDeliverAction?: boolean;
   onDeliver: () => void;
 }) {
   const isDelivered = readOnly || order.status === 'delivered';
@@ -48,7 +54,7 @@ function StudentRow({
           <Ionicons name="checkmark-circle" size={14} color={colors.green} />
           <Text style={styles.deliveredPillText}>Delivered</Text>
         </View>
-      ) : (
+      ) : hideDeliverAction ? null : (
         <Pressable
           style={({ pressed }) => [styles.deliverOneBtn, (disabled || delivering) && styles.deliverOneBtnDisabled, pressed && !disabled && styles.deliverOneBtnPressed]}
           onPress={onDeliver}
@@ -71,14 +77,21 @@ export function DriverBulkDeliveryCard({
   bulkLoading = false,
   singleDeliveringId = null,
   readOnly = false,
+  selectable = false,
+  selected = false,
+  hidePerGroupDeliver = false,
+  onToggleSelect,
   onNavigate,
   onDeliverAll,
   onDeliverOne,
 }: Props) {
   const [expanded, setExpanded] = useState(true);
   const isSuccess = readOnly || Boolean(deliveredAt) || group.isFullyDelivered;
-  const showBulkButton = !readOnly && group.pendingCount > 0 && group.pendingCount === group.totalCount;
-  const showPartialActions = !readOnly && group.pendingCount > 0 && group.deliveredCount > 0;
+  const showBulkButton =
+    !readOnly && !hidePerGroupDeliver && group.pendingCount > 0 && group.pendingCount === group.totalCount;
+  const showPartialActions = !readOnly && !hidePerGroupDeliver && group.pendingCount > 0 && group.deliveredCount > 0;
+
+  const isSingleLunchbox = group.totalCount === 1;
 
   const toggleExpanded = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -88,9 +101,28 @@ export function DriverBulkDeliveryCard({
   return (
     <View style={[styles.card, isSuccess && styles.cardDelivered]}>
       <Pressable style={styles.header} onPress={toggleExpanded}>
+        {selectable && !isSuccess ? (
+          <Pressable
+            style={styles.checkboxHit}
+            onPress={onToggleSelect}
+            hitSlop={8}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: selected }}
+          >
+            <Ionicons
+              name={selected ? 'checkbox' : 'square-outline'}
+              size={22}
+              color={selected ? colors.orange : colors.muted}
+            />
+          </Pressable>
+        ) : null}
         <View style={styles.headerCopy}>
           <View style={styles.locationRow}>
-            <Ionicons name="location-outline" size={18} color={isSuccess ? colors.green : colors.orange} />
+            <Ionicons
+              name={isSingleLunchbox ? 'person-outline' : 'location-outline'}
+              size={18}
+              color={isSuccess ? colors.green : colors.orange}
+            />
             <Text style={styles.locationName} numberOfLines={2}>
               {group.locationName}
             </Text>
@@ -107,17 +139,22 @@ export function DriverBulkDeliveryCard({
 
       {expanded ? (
         <View style={styles.body}>
-          <Text style={styles.sectionLabel}>Student List</Text>
-          {group.orders.map((order) => (
-            <StudentRow
-              key={order.id}
-              order={order}
-              disabled={bulkLoading || readOnly}
-              delivering={singleDeliveringId === order.id}
-              readOnly={readOnly}
-              onDeliver={() => onDeliverOne?.(order)}
-            />
-          ))}
+          {!isSingleLunchbox ? (
+            <>
+              <Text style={styles.sectionLabel}>Student List</Text>
+              {group.orders.map((order) => (
+                <StudentRow
+                  key={order.id}
+                  order={order}
+                  disabled={bulkLoading || readOnly}
+                  delivering={singleDeliveringId === order.id}
+                  readOnly={readOnly}
+                  hideDeliverAction={hidePerGroupDeliver}
+                  onDeliver={() => onDeliverOne?.(order)}
+                />
+              ))}
+            </>
+          ) : null}
 
           <View style={styles.progressRow}>
             <Text style={styles.progressLabel}>Progress</Text>
@@ -139,7 +176,7 @@ export function DriverBulkDeliveryCard({
             <View style={styles.actions}>
               <Pressable
                 style={({ pressed }) => [styles.navBtn, pressed && styles.actionPressed]}
-                onPress={() => onNavigate?.(group.address)}
+                onPress={() => onNavigate?.()}
               >
                 <Ionicons name="navigate-outline" size={16} color={colors.orange} />
                 <Text style={styles.navBtnText}>Navigate</Text>
@@ -199,6 +236,7 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: spacing.md,
   },
+  checkboxHit: { paddingTop: 2 },
   headerCopy: { flex: 1, minWidth: 0, gap: 4 },
   locationRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   locationName: { flex: 1, fontSize: 15, fontWeight: '800', color: colors.text },

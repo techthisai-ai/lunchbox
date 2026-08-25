@@ -60,6 +60,19 @@ export function isTrustedMapPoint(stored: GeoPoint | null | undefined, address: 
   const addr = address.trim().toLowerCase();
   if (!addr) return distFromChennai <= CHENNAI_SERVICE_RADIUS_KM;
 
+  const mentionsChennai =
+    addressMentions(addr, 'chennai') ||
+    addressMentions(addr, 'anna nagar') ||
+    addressMentions(addr, 't nagar') ||
+    addressMentions(addr, 't. nagar');
+  if (!mentionsChennai && distFromChennai <= 55) {
+    const localityAnchor = resolveAddressLocalityAnchor(address);
+    if (localityAnchor) {
+      return haversineDistanceKm(stored, localityAnchor.point) <= localityAnchor.radiusKm;
+    }
+    return false;
+  }
+
   if (addressMentions(addr, 'coimbatore')) return distFromChennai < 450;
   if (addressMentions(addr, 'madurai')) return distFromChennai < 450;
   if (addressMentions(addr, 'vellore')) return distFromChennai < 220;
@@ -109,26 +122,34 @@ export function geocodeAddress(address: string, fallback: GeoPoint): GeoPoint {
   const cached = MEMORY_CACHE.get(normalized);
   if (cached && isTrustedMapPoint(cached, address)) return cached;
 
+  const knownLocality = resolveKnownLocalityPoint(address) ?? resolveKnownLocalityPoint(normalized);
+  if (knownLocality) {
+    return knownLocality;
+  }
+
+  const fallbackLooksLikeChennaiDemo =
+    haversineDistanceKm(fallback, DEFAULT_MAP_CENTER) <= 40 ||
+    haversineDistanceKm(fallback, DEMO_PICKUP) <= 8 ||
+    haversineDistanceKm(fallback, DEMO_DROP) <= 8;
+  const safeFallback = fallbackLooksLikeChennaiDemo
+    ? resolveKnownLocalityPoint('thisaiyanvilai') ?? { lat: 8.297, lng: 77.318 }
+    : fallback;
+
   if (normalized.includes('stella') || (normalized.includes('school') && normalized.includes('chennai'))) {
     return DEMO_DROP;
   }
   if (
+    normalized.includes('chennai') &&
     (normalized.includes('north street') ||
       normalized.includes('anna nagar') ||
       normalized.includes('t nagar') ||
       normalized.includes('mc nichols') ||
-      normalized.includes('mcnichols')) &&
-    !resolveKnownLocalityPoint(normalized)
+      normalized.includes('mcnichols'))
   ) {
     return DEMO_PICKUP;
   }
   if (normalized.includes('home') && normalized.includes('chennai')) {
     return DEMO_PICKUP;
-  }
-
-  const knownLocality = resolveKnownLocalityPoint(normalized);
-  if (knownLocality) {
-    return knownLocality;
   }
   if (normalized.includes('chennai') || normalized.includes('coimbatore') || normalized.includes('madurai')) {
     const cityHash = hashAddress(normalized);
@@ -143,8 +164,8 @@ export function geocodeAddress(address: string, fallback: GeoPoint): GeoPoint {
   const lngOffset = (((hash >> 10) % 1000) - 500) / 10000;
 
   return {
-    lat: fallback.lat + latOffset,
-    lng: fallback.lng + lngOffset,
+    lat: safeFallback.lat + latOffset,
+    lng: safeFallback.lng + lngOffset,
   };
 }
 
@@ -221,7 +242,11 @@ async function cacheGeocodeResult(key: string, point: GeoPoint, address: string)
 
 export async function geocodeTripStopAddress(address: string): Promise<GeoPoint> {
   const trimmed = address.trim();
-  if (!trimmed) return DEFAULT_MAP_CENTER;
+  const southFallback = resolveKnownLocalityPoint(trimmed) ?? resolveKnownLocalityPoint('thisaiyanvilai') ?? {
+    lat: 8.297,
+    lng: 77.318,
+  };
+  if (!trimmed) return southFallback;
 
   const key = cacheKey(trimmed);
 
@@ -274,7 +299,7 @@ export async function geocodeTripStopAddress(address: string): Promise<GeoPoint>
     return cacheGeocodeResult(key, localityFallback, trimmed);
   }
 
-  const fallback = geocodeAddress(trimmed, DEFAULT_MAP_CENTER);
+  const fallback = geocodeAddress(trimmed, southFallback);
   MEMORY_CACHE.set(key, fallback);
   return fallback;
 }

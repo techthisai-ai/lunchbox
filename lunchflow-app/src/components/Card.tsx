@@ -33,13 +33,14 @@ export function Card({ children, flat, style, title, badge, headerRight }: Props
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.white,
-    borderRadius: radius.md,
-    padding: spacing.md,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
     marginBottom: 14,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
     ...shadow.card,
   },
   flat: {
-    ...shadow.card,
     shadowOpacity: 0,
     elevation: 0,
     borderWidth: 1,

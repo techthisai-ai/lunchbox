@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { colors, radius, spacing } from '../constants/theme';
 import { ProfileStackParamList } from '../navigation/types';
+import { goBackInProfileStack } from '../navigation/customerRoutes';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'PrivacySecurity'>;
 
@@ -63,7 +64,7 @@ const sections: PrivacySection[] = [
 export function PrivacySecurityScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScreenHeader title="Privacy & Security" subtitle="How we keep your account safe" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Privacy & Security" subtitle="How we keep your account safe" onBack={() => goBackInProfileStack(navigation)} />
       <ScrollView contentContainerStyle={styles.scroll}>
         {sections.map((section) => (
           <View key={section.title} style={styles.section}>

@@ -1,10 +1,8 @@
 import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Platform } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CustomerTabBar } from '../components/CustomerTabBar';
+import { DriverTabBar } from '../components/DriverTabBar';
 import { colors } from '../constants/theme';
 import { DriverTripProvider } from '../context/DriverTripContext';
 import { DriverChangePasswordScreen } from '../screens/driver/DriverChangePasswordScreen';
@@ -36,6 +34,7 @@ import { ReferralScreen } from '../screens/ReferralScreen';
 import { OtpVerifyScreen } from '../screens/OtpVerifyScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { SplashScreen } from '../screens/SplashScreen';
+import { CustomerOnboardingScreen } from '../screens/CustomerOnboardingScreen';
 import { SubscriptionDetailsScreen } from '../screens/SubscriptionDetailsScreen';
 import { SubscriptionScreen } from '../screens/SubscriptionScreen';
 import { SupportScreen } from '../screens/SupportScreen';
@@ -71,32 +70,6 @@ function useTabBarStyle() {
     elevation: 0,
   };
 }
-
-function useDriverTabBarStyle() {
-  const insets = useSafeAreaInsets();
-  const bottomInset = Math.max(insets.bottom, Platform.OS === 'web' ? 12 : 8);
-
-  return {
-    minHeight: 68 + bottomInset,
-    paddingBottom: bottomInset,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.white,
-  };
-}
-
-const tabBarLabelStyle = {
-  fontSize: 11,
-  fontWeight: '600' as const,
-  lineHeight: 14,
-  marginTop: 2,
-  marginBottom: Platform.OS === 'web' ? 4 : 0,
-};
-
-const tabBarIconStyle = {
-  marginBottom: 0,
-};
 
 function tabBarStyleForRoute(
   route: Parameters<typeof getFocusedRouteNameFromRoute>[0],
@@ -201,28 +174,13 @@ function CustomerTabs() {
 }
 
 function DriverTabsNavigator() {
-  const tabBarStyle = useDriverTabBarStyle();
-
   return (
     <DriverTripProvider>
       <DriverTab.Navigator
-        screenOptions={({ route }) => ({
+        tabBar={(props) => <DriverTabBar {...props} />}
+        screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: colors.orange,
-          tabBarInactiveTintColor: colors.muted,
-          tabBarStyle,
-          tabBarLabelStyle,
-          tabBarIconStyle,
-          tabBarIcon: ({ color, size }) => {
-            const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
-              DriverHome: 'home',
-              DriverRoute: 'map',
-              DriverDeliveries: 'list',
-              DriverProfile: 'person',
-            };
-            return <Ionicons name={icons[route.name]} size={size} color={color} />;
-          },
-        })}
+        }}
       >
         <DriverTab.Screen name="DriverHome" component={DriverHomeScreen} options={{ title: 'Home' }} />
         <DriverTab.Screen name="DriverRoute" component={DriverRouteScreen} options={{ title: 'Route' }} />
@@ -244,6 +202,11 @@ export function RootNavigator() {
       }}
     >
       <RootStack.Screen name="Splash" component={SplashScreen} options={{ animation: 'fade' }} />
+      <RootStack.Screen
+        name="CustomerOnboarding"
+        component={CustomerOnboardingScreen}
+        options={{ animation: 'fade', gestureEnabled: false }}
+      />
       <RootStack.Screen name="Login" component={LoginScreen} options={{ animation: 'fade' }} />
       <RootStack.Screen name="OtpVerify" component={OtpVerifyScreen} />
       <RootStack.Screen name="Register" component={RegisterScreen} />

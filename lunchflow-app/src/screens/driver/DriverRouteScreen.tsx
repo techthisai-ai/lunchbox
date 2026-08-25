@@ -2,8 +2,9 @@ import { CompositeNavigationProp, useFocusEffect, useNavigation } from '@react-n
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,15 +24,16 @@ import { useAuth } from '../../context/AuthContext';
 import { useDriverTrip } from '../../context/DriverTripContext';
 import { DriverTabParamList, RootStackParamList } from '../../navigation/types';
 import { isNearStop } from '../../services/enfieldMapsService';
-import { openMapsNavigation, openMapsNavigationToAddress } from '../../services/mapsNavigation';
 import {
   listDriverActiveOrders,
   listDriverCompletedToday,
   listPendingPickups,
 } from '../../services/orderHubService';
 import { subscribeToOrderChanges } from '../../services/orderSync';
-import { DeliveryOrder } from '../../types/delivery';
+import { DeliveryOrder, getDeliveryTypeLabel } from '../../types/delivery';
 import { getAssignedDriverOrders, getLunchboxCount, TripStopGroup } from '../../utils/driverTripNavigation';
+
+const ROUTE_LOGO = require('../../../assets/route-logo.png');
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<DriverTabParamList, 'DriverRoute'>,
@@ -58,7 +60,16 @@ function RouteSummaryStat({
   );
 }
 
+function lunchboxCountLabel(orders: DeliveryOrder[]): string {
+  const count = getLunchboxCount(orders);
+  return `${count} lunchbox${count === 1 ? '' : 'es'}`;
+}
+
 function UpcomingStopRow({ group, isNext }: { group: TripStopGroup; isNext: boolean }) {
+  const boxes = lunchboxCountLabel(group.orders);
+  const dropType = group.orders[0]?.deliveryType
+    ? getDeliveryTypeLabel(group.orders[0].deliveryType).toLowerCase()
+    : 'drop';
   return (
     <View style={[styles.upcomingRow, isNext && styles.upcomingRowNext]}>
       <View style={[styles.upcomingBadge, isNext && styles.upcomingBadgeNext]}>
@@ -71,7 +82,9 @@ function UpcomingStopRow({ group, isNext }: { group: TripStopGroup; isNext: bool
           {group.locationName}
         </Text>
         <Text style={styles.upcomingSub} numberOfLines={1}>
-          {getLunchboxCount(group.orders)} lunchbox{group.orders.length === 1 ? '' : 'es'}
+          {group.type === 'drop'
+            ? `${boxes}${group.orders.length > 1 ? ` at this ${dropType}` : ''}`
+            : `${boxes}${group.orders.length > 1 ? ' at this pickup' : ''}`}
         </Text>
       </View>
       {isNext ? <Badge label="Next" tone="orange" /> : null}
@@ -94,6 +107,7 @@ export function DriverRouteScreen() {
     currentPickupStop,
     currentDeliveryStop,
     refreshTripRoutes,
+    resumeTrip,
     refreshDriverLocation,
     completePickupStop,
     markPickupStopReached,
@@ -106,6 +120,8 @@ export function DriverRouteScreen() {
   const [tripPickupVerify, setTripPickupVerify] = useState(false);
   const [recenterToken, setRecenterToken] = useState(0);
   const [locating, setLocating] = useState(false);
+  const promptedStopRef = useRef<string | null>(null);
+  const suppressAutoVerifyUntilRef = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!user?.id) return;
@@ -130,18 +146,21 @@ export function DriverRouteScreen() {
   useEffect(() => subscribeToOrderChanges(refresh), [refresh]);
 
   useEffect(() => {
-    if (trip.phase === 'idle') return undefined;
-    void refreshTripRoutes([...assignedOrders, ...completedOrders]);
-    if (!tripActive) return undefined;
+    if (assignedOrders.length === 0) return undefined;
+    void resumeTrip(assignedOrders);
     const interval = setInterval(() => {
-      void refreshTripRoutes([...assignedOrders, ...completedOrders]);
+      void resumeTrip(assignedOrders);
     }, 8000);
     return () => clearInterval(interval);
-  }, [trip.phase, tripActive, assignedOrders, completedOrders, refreshTripRoutes]);
+  }, [assignedOrders, resumeTrip]);
 
   useEffect(() => {
     if (!tripActive || !driverLocation) return;
+    if (Date.now() < suppressAutoVerifyUntilRef.current) return;
+
     if (trip.phase === 'pickup' && currentPickupStop && isNearStop(driverLocation, currentPickupStop.point)) {
+      if (promptedStopRef.current === currentPickupStop.id) return;
+      promptedStopRef.current = currentPickupStop.id;
       markPickupStopReached(currentPickupStop.id);
       setTripPickupVerify(true);
     }
@@ -189,30 +208,18 @@ export function DriverRouteScreen() {
   };
 
   const handleStartNavigation = () => {
-    if (!currentStop) return;
-    if (driverLocation) {
-      void openMapsNavigation(currentStop.point, driverLocation, currentStop.address);
-      return;
-    }
-    void openMapsNavigationToAddress(currentStop.address);
+    setRecenterToken((token) => token + 1);
   };
 
   const handleVerify = async (code: string) => {
     if (!tripPickupVerify || !currentPickupStop) return 'No pickup selected';
-    const error = await completePickupStop(currentPickupStop.id, code, assignedOrders);
+    const stopId = currentPickupStop.id;
+    const error = await completePickupStop(stopId, code, assignedOrders);
     if (error) return error;
+    promptedStopRef.current = stopId;
+    suppressAutoVerifyUntilRef.current = Date.now() + 20000;
     setTripPickupVerify(false);
-    const nextPickup = trip.pickupGroups.find(
-      (group) => group.status === 'pending' && group.id !== currentPickupStop.id,
-    );
-    if (nextPickup) {
-      void openMapsNavigationToAddress(nextPickup.address);
-    } else {
-      const nextDrop = trip.deliveryGroups.find((group) => group.status === 'pending');
-      if (nextDrop) void openMapsNavigationToAddress(nextDrop.address);
-    }
     await refresh();
-    await refreshTripRoutes(assignedOrders);
     return null;
   };
 
@@ -222,14 +229,19 @@ export function DriverRouteScreen() {
         visible={tripPickupVerify}
         orderLabel={
           currentPickupStop
-            ? `${currentPickupStop.orders.length} lunchbox${currentPickupStop.orders.length === 1 ? '' : 'es'} at ${currentPickupStop.locationName}`
+            ? `${lunchboxCountLabel(currentPickupStop.orders)} at ${currentPickupStop.locationName}`
             : ''
         }
         onVerify={handleVerify}
         onCancel={() => setTripPickupVerify(false)}
       />
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+      >
         <DriverScreenHeader
           title="Delivery Route"
           notificationCount={pendingCount}
@@ -249,9 +261,12 @@ export function DriverRouteScreen() {
 
         {!tripActive ? (
           <Card style={styles.emptyCard}>
-            <View style={styles.emptyIconWrap}>
-              <Ionicons name="map-outline" size={32} color={colors.orange} />
-            </View>
+            <Image
+              source={ROUTE_LOGO}
+              style={styles.emptyLogo}
+              resizeMode="contain"
+              accessibilityLabel="Chef Queen"
+            />
             <Text style={styles.emptyTitle}>No active route</Text>
             <Text style={styles.emptyText}>
               Accept pickups on Home, then tap Start Trip to see your optimized delivery route here.
@@ -268,7 +283,7 @@ export function DriverRouteScreen() {
               <RouteSummaryStat icon="time-outline" label="Est. time" value={etaLabel} />
             </View>
 
-            <View style={styles.mapSection}>
+            <View style={[styles.mapSection, { height: mapHeight }]}>
               <DriverTripMap
                 variant="full"
                 height={mapHeight}
@@ -281,7 +296,7 @@ export function DriverRouteScreen() {
                 recenterToken={recenterToken}
               />
 
-              <View style={styles.floatingActions}>
+              <View style={styles.floatingActions} pointerEvents="box-none">
                 <Pressable
                   style={({ pressed }) => [styles.fab, styles.fabSecondary, pressed && styles.fabPressed]}
                   onPress={() => void handleCurrentLocation()}
@@ -293,16 +308,10 @@ export function DriverRouteScreen() {
                 </Pressable>
 
                 <Pressable
-                  style={({ pressed }) => [
-                    styles.fab,
-                    styles.fabPrimary,
-                    !currentStop && styles.fabDisabled,
-                    pressed && currentStop && styles.fabPressed,
-                  ]}
+                  style={({ pressed }) => [styles.fab, styles.fabPrimary, pressed && styles.fabPressed]}
                   onPress={handleStartNavigation}
-                  disabled={!currentStop}
                   accessibilityRole="button"
-                  accessibilityLabel="Start navigation"
+                  accessibilityLabel="Show full route on this map"
                 >
                   <Ionicons name="navigate" size={20} color={colors.onPrimary} />
                   <Text style={styles.fabPrimaryText}>Start Navigation</Text>
@@ -326,11 +335,16 @@ export function DriverRouteScreen() {
                   </View>
                   <Badge label="Now" tone="orange" />
                 </View>
-                <Text style={styles.currentStopAddress} numberOfLines={3}>
-                  {currentStop.address}
-                </Text>
+                {currentStop.address &&
+                currentStop.address.trim().toLowerCase() !== currentStop.locationName.trim().toLowerCase() ? (
+                  <Text style={styles.currentStopAddress} numberOfLines={3}>
+                    {currentStop.address}
+                  </Text>
+                ) : null}
                 <Text style={styles.currentStopOrders}>
-                  {getLunchboxCount(currentStop.orders)} lunchbox{currentStop.orders.length === 1 ? '' : 'es'}
+                  {trip.phase === 'delivery'
+                    ? `${lunchboxCountLabel(currentStop.orders)}${currentStop.orders.length > 1 ? ` at this ${getDeliveryTypeLabel(currentStop.orders[0]?.deliveryType || 'school').toLowerCase()}` : ''}`
+                    : `${lunchboxCountLabel(currentStop.orders)}${currentStop.orders.length > 1 ? ' at this pickup' : ''}`}
                 </Text>
                 {trip.phase === 'pickup' ? (
                   <Pressable style={styles.verifyBtn} onPress={() => setTripPickupVerify(true)}>
@@ -366,7 +380,7 @@ export function DriverRouteScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  scroll: { paddingHorizontal: spacing.md, paddingBottom: 32, gap: 16 },
+  scroll: { paddingHorizontal: spacing.md, paddingBottom: 40, gap: 16 },
   phasePill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -402,7 +416,7 @@ const styles = StyleSheet.create({
   summaryValue: { fontSize: 16, fontWeight: '800', color: colors.text },
   summaryLabel: { fontSize: 11, fontWeight: '600', color: colors.muted },
   summaryDivider: { width: 1, height: 36, backgroundColor: colors.borderSubtle },
-  mapSection: { position: 'relative' },
+  mapSection: { position: 'relative', zIndex: 2 },
   floatingActions: {
     position: 'absolute',
     bottom: 16,
@@ -512,14 +526,10 @@ const styles = StyleSheet.create({
   },
   deliveriesLinkText: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.text },
   emptyCard: { alignItems: 'center', paddingVertical: 32, paddingHorizontal: 24, ...shadow.card },
-  emptyIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.orangeLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
+  emptyLogo: {
+    width: 168,
+    height: 168,
+    marginBottom: 8,
   },
   emptyTitle: { fontSize: 18, fontWeight: '800', color: colors.text },
   emptyText: {

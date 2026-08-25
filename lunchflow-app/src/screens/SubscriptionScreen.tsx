@@ -5,6 +5,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { OnlinePaymentDialog } from '../components/OnlinePaymentDialog';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { SubscriptionPlanPriceText } from '../components/SubscriptionPlanPriceText';
 import { SubscriptionPlan, getSubscriptionDetailLineLabel, isAddonSubscriptionPlan } from '../constants/subscriptions';
 import { colors, radius, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
@@ -103,7 +104,7 @@ export function SubscriptionScreen() {
         {plans.map((plan) => (
           <PlanCard
             key={plan.id}
-            label={getSubscriptionDetailLineLabel(plan)}
+            plan={plan}
             disabled={isAddonSubscriptionPlan(plan) && !monthlyActive}
             onPress={() => void handlePlanPress(plan)}
           />
@@ -115,14 +116,15 @@ export function SubscriptionScreen() {
 }
 
 function PlanCard({
-  label,
+  plan,
   disabled,
   onPress,
 }: {
-  label: string;
+  plan: SubscriptionPlan;
   disabled?: boolean;
   onPress: () => void;
 }) {
+  const label = getSubscriptionDetailLineLabel(plan);
   const dashIndex = label.lastIndexOf(' - ');
   const titlePart = dashIndex >= 0 ? label.slice(0, dashIndex) : label;
   const pricePart = dashIndex >= 0 ? label.slice(dashIndex + 3) : '';
@@ -136,7 +138,7 @@ function PlanCard({
     >
       <Text style={styles.planLine} numberOfLines={2}>
         <Text style={styles.planLabel}>{titlePart}</Text>
-        {pricePart ? <Text style={styles.planPrice}> - {pricePart}</Text> : null}
+        {pricePart ? <SubscriptionPlanPriceText plan={plan} amountText={pricePart} /> : null}
       </Text>
     </Pressable>
   );
@@ -164,10 +166,6 @@ const styles = StyleSheet.create({
   planLabel: {
     fontWeight: '700',
     color: colors.text,
-  },
-  planPrice: {
-    fontWeight: '800',
-    color: colors.orange,
   },
   message: { fontSize: 13, color: colors.green, marginTop: 8, fontWeight: '600' },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },

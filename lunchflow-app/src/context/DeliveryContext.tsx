@@ -23,6 +23,7 @@ import {
 import { subscribeToOrderChanges } from '../services/orderSync';
 import { saveFoodReadyDefaults } from '../services/foodReadyDefaultsService';
 import { DeliveryOrder, FoodReadyDetails } from '../types/delivery';
+import { presentLunchboxDeliveredBanner } from '../services/pushNotificationService';
 import { useAuth } from './AuthContext';
 import { useRatingOverlay } from './RatingOverlayContext';
 
@@ -82,6 +83,7 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
   const phoneRef = useRef('');
   const customerIdRef = useRef('');
   const userNameRef = useRef<string | undefined>(undefined);
+  const markReadyLockRef = useRef(false);
 
   const isCustomer = user?.role === 'customer';
   const phone = isCustomer ? (user?.phone ?? '') : '';
@@ -189,7 +191,11 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
         hasLoadedRef.current = true;
         return;
       }
+      const previousStatus = localOrderRef.current?.status;
       syncOrder(remote);
+      if (previousStatus && previousStatus !== 'delivered' && remote.status === 'delivered') {
+        void presentLunchboxDeliveredBanner(remote);
+      }
       void handleDeliveredOrder(remote);
       void handleCancelledOrder(remote);
       setLoading(false);
@@ -248,8 +254,12 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
     if (!phone || !customerId) {
       return { error: 'Please log in to request pickup', order: null };
     }
+    if (markReadyLockRef.current) {
+      return { error: 'You already sent a pickup request', order: order ?? localOrderRef.current };
+    }
 
     setSubmitting(true);
+    markReadyLockRef.current = true;
     try {
       const students = details.students?.filter((entry) => entry.name.trim()) ?? [];
       const peopleCount = Math.max(1, students.length || (details.person?.trim() ? 1 : 0));
@@ -291,6 +301,7 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       return { error: error instanceof Error ? error.message : 'Could not mark food ready', order: null };
     } finally {
+      markReadyLockRef.current = false;
       setSubmitting(false);
     }
   }, [phone, customerId, order, user?.name, syncOrder]);

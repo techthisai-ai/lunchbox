@@ -26,8 +26,10 @@ export function Badge({ label, tone = 'orange' }: { label: string; tone?: Tone }
 const styles = StyleSheet.create({
   badge: {
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
-  text: { fontSize: 11, ...fontStyle('bold') },
+  text: { fontSize: 11, letterSpacing: 0.2, ...fontStyle('bold') },
 });

@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ReactNode, useEffect, useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors, radius, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { useDelivery } from '../context/DeliveryContext';
 import {
   DeliveryType,
   FoodReadyDetails,
@@ -13,6 +14,7 @@ import {
   getDeliveryTypeLabel,
   getDetailLabel,
   getPersonLabel,
+  hasSentPickupRequest,
   normalizeDeliveryType,
   normalizeDeliveryTypes,
 } from '../types/delivery';
@@ -30,6 +32,7 @@ type Props = {
   initialValues?: Partial<FoodReadyDetails>;
   startInReviewMode?: boolean;
   submitting?: boolean;
+  allowUpdate?: boolean;
   onConfirm: (details: FoodReadyDetails) => void;
   onCancel: () => void;
 };
@@ -129,23 +132,27 @@ function ReviewActionButton({
   onPress,
   variant,
   compact,
+  disabled,
 }: {
   title: string;
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
   variant: 'primary' | 'outlineGreen' | 'outlineRed';
   compact?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       style={({ pressed }) => [
         styles.reviewActionBtn,
         compact && styles.reviewActionBtnCompact,
         variant === 'primary' && styles.reviewActionPrimary,
         variant === 'outlineGreen' && styles.reviewActionOutlineGreen,
         variant === 'outlineRed' && styles.reviewActionOutlineRed,
-        pressed && styles.reviewActionPressed,
+        disabled && styles.reviewActionDisabled,
+        pressed && !disabled && styles.reviewActionPressed,
       ]}
     >
       <Ionicons
@@ -170,10 +177,12 @@ function DialogBody({
   initialValues,
   startInReviewMode = false,
   submitting,
+  allowUpdate = false,
   onConfirm,
   onCancel,
 }: Omit<Props, 'visible'>) {
   const { user } = useAuth();
+  const { order } = useDelivery();
   const [mode, setMode] = useState<'review' | 'edit'>(startInReviewMode ? 'review' : 'edit');
   const [name, setName] = useState('');
   const [pickupAddress, setPickupAddress] = useState('');
@@ -188,6 +197,17 @@ function DialogBody({
     sameDropSeats: 0,
     diffDropSeats: 0,
   });
+  const alreadySent = hasSentPickupRequest(order) && !allowUpdate;
+
+  const blockIfAlreadySent = () => {
+    if (!alreadySent) return false;
+    Alert.alert(
+      'Pickup request already sent',
+      'You already sent a pickup request. Please wait for a rider to accept.',
+    );
+    onCancel();
+    return true;
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -296,6 +316,7 @@ function DialogBody({
   };
 
   const handleReady = async () => {
+    if (blockIfAlreadySent() || submitting) return;
     const details = await buildConfirmedDetails();
     if (!details) return;
     setError('');
@@ -303,6 +324,7 @@ function DialogBody({
   };
 
   const handleReviewConfirm = async () => {
+    if (blockIfAlreadySent() || submitting) return;
     const details = normalizeFoodReadyDetails({
       name,
       pickupAddress,
@@ -365,10 +387,11 @@ function DialogBody({
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
             <ReviewActionButton
-              title={submitting ? 'Sending...' : 'Food Ready'}
+              title={alreadySent ? 'Already sent' : submitting ? 'Sending...' : 'Food Ready'}
               icon="checkmark-circle"
               onPress={handleReviewConfirm}
               variant="primary"
+              disabled={alreadySent || submitting}
             />
             <View style={styles.reviewActionRow}>
               <ReviewActionButton
@@ -840,6 +863,7 @@ const styles = StyleSheet.create({
     opacity: 0.92,
     transform: [{ scale: 0.99 }],
   },
+  reviewActionDisabled: { opacity: 0.45 },
   reviewActionText: {
     fontSize: 14,
     fontWeight: '700',

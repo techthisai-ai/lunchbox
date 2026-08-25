@@ -11,14 +11,15 @@ type Props = TextInputProps & {
   phone?: boolean;
 };
 
-export function Input({ label, style, secureTextEntry, phone, onChangeText, keyboardType, maxLength, placeholder, ...props }: Props) {
+export function Input({ label, style, secureTextEntry, phone, onChangeText, keyboardType, maxLength, placeholder, onFocus, onBlur, ...props }: Props) {
   const [hidden, setHidden] = useState(Boolean(secureTextEntry));
+  const [focused, setFocused] = useState(false);
   const handleChange = phone && onChangeText ? (text: string) => onChangeText(formatPhoneInput(text)) : onChangeText;
 
   return (
     <View style={styles.field}>
       <AppText style={styles.label}>{label}</AppText>
-      <View style={styles.inputWrap}>
+      <View style={[styles.inputWrap, focused && styles.inputWrapFocused]}>
         <TextInput
           placeholderTextColor={colors.muted}
           style={[styles.input, secureTextEntry && styles.inputWithToggle, style]}
@@ -28,6 +29,14 @@ export function Input({ label, style, secureTextEntry, phone, onChangeText, keyb
           maxLength={phone ? 10 : maxLength}
           placeholder={phone && !placeholder ? 'Enter 10-digit mobile number' : placeholder}
           onChangeText={handleChange}
+          onFocus={(e) => {
+            setFocused(true);
+            onFocus?.(e);
+          }}
+          onBlur={(e) => {
+            setFocused(false);
+            onBlur?.(e);
+          }}
           {...props}
         />
         {secureTextEntry ? (
@@ -36,6 +45,7 @@ export function Input({ label, style, secureTextEntry, phone, onChangeText, keyb
             onPress={() => setHidden((value) => !value)}
             accessibilityRole="button"
             accessibilityLabel={hidden ? 'Show password' : 'Hide password'}
+            hitSlop={8}
           >
             <Ionicons name={hidden ? 'eye-outline' : 'eye-off-outline'} size={20} color={colors.muted} />
           </Pressable>
@@ -47,18 +57,25 @@ export function Input({ label, style, secureTextEntry, phone, onChangeText, keyb
 
 const styles = StyleSheet.create({
   field: { marginBottom: 16 },
-  label: { fontSize: 13, marginBottom: 6, color: colors.text, ...fontStyle('semibold') },
-  inputWrap: { position: 'relative' },
-  input: {
+  label: { fontSize: 12, marginBottom: 8, color: colors.muted, letterSpacing: 0.2, ...fontStyle('medium') },
+  inputWrap: {
+    position: 'relative',
     borderWidth: 1.5,
     borderColor: colors.border,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.white,
+  },
+  inputWrapFocused: {
+    borderColor: colors.orange,
+  },
+  input: {
     paddingVertical: 14,
     paddingHorizontal: 16,
     fontSize: 15,
+    lineHeight: 22,
     fontFamily: fonts.regular,
-    backgroundColor: colors.white,
     color: colors.text,
+    minHeight: 48,
   },
   inputWithToggle: { paddingRight: 48 },
   toggle: {

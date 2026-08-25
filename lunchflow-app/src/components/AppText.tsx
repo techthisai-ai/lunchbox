@@ -2,8 +2,8 @@ import { StyleSheet, Text as RNText, type TextProps, type TextStyle } from 'reac
 import { resolveAppFontFamily } from '../constants/fonts';
 
 /**
- * Drop-in Text that maps fontWeight to bundled Roboto faces (device-safe).
- * Content (≤500) → Roboto Regular 400; headings / bold (≥600) → Roboto Bold 700.
+ * Drop-in Text that maps fontWeight to bundled Poppins faces (device-safe).
+ * Playfair Display / Tahu stay as accent families when set explicitly.
  *
  * Note: Metro already patches RN Text globally; AppText remains for explicit use.
  */

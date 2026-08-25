@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, radius } from '../../constants/theme';
+import { colors, radius, shadow } from '../../constants/theme';
 
 type Props = {
   label: string;
@@ -85,14 +85,15 @@ const styles = StyleSheet.create({
     minWidth: 160,
     width: '100%',
     backgroundColor: colors.white,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
+    borderColor: colors.borderSubtle,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 96,
+    ...shadow.subtle,
   },
   cardCompact: {
     flex: 1,

@@ -19,19 +19,18 @@ export async function openDriverRouteMap(
   options: {
     tripActive: boolean;
     startTrip: (orders: DeliveryOrder[]) => Promise<void>;
+    resumeTrip?: (orders: DeliveryOrder[]) => Promise<void>;
     refreshTripRoutes?: (orders: DeliveryOrder[]) => Promise<void>;
     assignedOrders: DeliveryOrder[];
   },
 ): Promise<void> {
   const pickupOrders = getPickupOrdersForTrip(options.assignedOrders);
-  if (pickupOrders.length === 0) {
-    throw new Error('Accept at least one pickup to open the route map.');
-  }
+  const resume = options.resumeTrip ?? options.refreshTripRoutes ?? options.startTrip;
 
-  if (!options.tripActive) {
+  if (options.assignedOrders.length > 0) {
+    await resume(options.assignedOrders);
+  } else if (!options.tripActive && pickupOrders.length > 0) {
     await options.startTrip(pickupOrders);
-  } else if (options.refreshTripRoutes) {
-    await options.refreshTripRoutes(options.assignedOrders);
   }
 
   navigation.navigate('DriverRoute');

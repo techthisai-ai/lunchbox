@@ -17,6 +17,7 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { colors, radius, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { ProfileStackParamList } from '../navigation/types';
+import { goBackInProfileStack } from '../navigation/customerRoutes';
 import {
   SUPPORT_FAQS,
   SUPPORT_PHONE_DISPLAY,
@@ -71,7 +72,7 @@ export function SupportScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScreenHeader title="Help & Support" subtitle="We're here to help you" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Help & Support" subtitle="We're here to help you" onBack={() => goBackInProfileStack(navigation)} />
       <ScrollView contentContainerStyle={styles.scroll}>
         <SupportOption
           icon="chatbubble-ellipses"

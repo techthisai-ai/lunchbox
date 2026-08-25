@@ -7,8 +7,8 @@ type TextProps = Record<string, unknown> & {
 };
 
 /**
- * Drop-in Text that forces bundled Roboto on every device.
- * Content (≤500) → Roboto_400Regular; headings / bold (≥600) → Roboto_700Bold.
+ * Drop-in Text that forces bundled Poppins on every device.
+ * Playfair Display / Tahu are left intact when set as fontFamily.
  */
 const PatchedText = React.forwardRef<unknown, TextProps>(function PatchedText(props, ref) {
   const { style, ...rest } = props;

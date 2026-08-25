@@ -7,7 +7,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SubscriptionPlan, getSubscriptionPlan, isSingleOrderPlan } from '../constants/subscriptions';
-import { colors, radius, shadow, spacing } from '../constants/theme';
+import { brandHeadingStyle } from '../constants/fonts';
+import { colors, gradients, radius, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { MainTabParamList, ProfileStackParamList, RootStackParamList } from '../navigation/types';
@@ -133,7 +134,7 @@ export function MySubscriptionScreen({ navigation }: Props) {
   );
 
   const goToProfile = (screen: keyof ProfileStackParamList) => {
-    navigation.navigate('Profile', { screen });
+    navigation.navigate('Profile', { screen, initial: false });
   };
 
   return (
@@ -143,7 +144,7 @@ export function MySubscriptionScreen({ navigation }: Props) {
         contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
       >
         {plan && subscription ? (
-          <LinearGradient colors={['#FCE4EC', '#F8BBD0']} style={styles.activeCard}>
+          <LinearGradient colors={[colors.orangeLight, colors.yellow]} style={styles.activeCard}>
             <View style={styles.activeTop}>
               <View style={styles.activeTopCopy}>
                 <Text style={styles.activePlanName} numberOfLines={1}>
@@ -159,38 +160,19 @@ export function MySubscriptionScreen({ navigation }: Props) {
               </View>
             </View>
 
-            <View style={styles.activeMetaRow}>
-              <View style={styles.activeMetaItem}>
-                <Text style={styles.activeMetaLabel}>
-                  {plan && isSingleOrderPlan(plan) ? 'Plan Validity' : 'Next Billing Date'}
-                </Text>
-                <Text style={styles.activeMetaValue}>
-                  {plan && isSingleOrderPlan(plan)
-                    ? 'Until delivery completes'
-                    : formatFullDate(subscription.renewalDate)}
-                </Text>
-              </View>
-              <View style={styles.activeMetaItem}>
-                <Text style={styles.activeMetaLabel}>Auto-Renew</Text>
-                <Text style={styles.autoRenewOn}>{plan && isSingleOrderPlan(plan) ? 'OFF' : 'ON'}</Text>
-              </View>
-            </View>
-
             <View style={styles.statsRow}>
-              <View style={styles.statItem}>
+              <LinearGradient colors={[...gradients.primary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.statCard}>
                 <Text style={styles.statValue}>{totalDeliveries}</Text>
                 <Text style={styles.statLabel}>Total Deliveries</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
+              </LinearGradient>
+              <LinearGradient colors={[...gradients.premium]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.statCard}>
                 <Text style={styles.statValue}>{monthDeliveries}</Text>
                 <Text style={styles.statLabel}>This Month</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
+              </LinearGradient>
+              <LinearGradient colors={[...gradients.brand]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.statCard}>
                 <Text style={styles.statValue}>{remainingValue}</Text>
                 <Text style={styles.statLabel}>{remainingLabel}</Text>
-              </View>
+              </LinearGradient>
             </View>
           </LinearGradient>
         ) : (
@@ -209,7 +191,6 @@ export function MySubscriptionScreen({ navigation }: Props) {
             <Text style={styles.sectionTitle}>Plan Details</Text>
             <DetailRow label="Plan Name" value={getPlanDisplayName(plan)} />
             <DetailRow label="Delivery Type" value={getDeliveryTypeLabel(deliveryType)} />
-            <DetailRow label="Meal Type" value="Lunch" />
             <DetailRow label="Plan Duration" value={getSubscriptionDurationLabel(plan)} />
             <DetailRow label="Start Date" value={formatFullDate(subscription.startDate)} />
             <DetailRow label="End Date" value={getSubscriptionEndLabel(plan, subscription)} />
@@ -223,7 +204,7 @@ export function MySubscriptionScreen({ navigation }: Props) {
           </View>
         ) : null}
 
-        <LinearGradient colors={['#E91E63', '#C2185B']} style={styles.upgradeBanner}>
+        <LinearGradient colors={[...gradients.premium]} style={styles.upgradeBanner}>
           <View style={styles.upgradeCopy}>
             <Text style={styles.upgradeTitle}>Upgrade your plan!</Text>
             <Pressable style={styles.upgradeLinkRow} onPress={() => goToProfile('SubscriptionDetails')}>
@@ -232,7 +213,7 @@ export function MySubscriptionScreen({ navigation }: Props) {
             </Pressable>
           </View>
           <View style={styles.upgradeArt}>
-            <Ionicons name="bicycle" size={28} color={colors.onPrimary} />
+            <Ionicons name="bicycle" size={28} color={colors.orange} />
           </View>
         </LinearGradient>
       </ScrollView>
@@ -257,36 +238,24 @@ const styles = StyleSheet.create({
   },
   activeBadgeText: { fontSize: 11, fontWeight: '800', color: colors.green },
   activePrice: { fontSize: 16, fontWeight: '800', color: colors.orange, lineHeight: 18, flexShrink: 0 },
-  activeMetaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginTop: spacing.md,
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(233,30,99,0.12)',
-  },
-  activeMetaItem: { flex: 1, minWidth: 0 },
-  activeMetaLabel: { fontSize: 10, color: colors.muted, fontWeight: '600' },
-  activeMetaValue: { fontSize: 12, fontWeight: '800', color: colors.text, marginTop: 2 },
-  autoRenewOn: { fontSize: 14, fontWeight: '800', color: colors.green, marginTop: 2 },
   statsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.65)',
-    borderRadius: 12,
+    alignItems: 'stretch',
+    gap: 8,
     marginTop: spacing.md,
+  },
+  statCard: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 14,
     paddingVertical: 12,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
   },
-  statItem: { flex: 1, alignItems: 'center', minWidth: 0, gap: 4 },
-  statDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: 'rgba(233,30,99,0.15)',
-  },
-  statValue: { fontSize: 16, fontWeight: '800', color: colors.text },
-  statLabel: { fontSize: 9, fontWeight: '700', color: colors.muted, textAlign: 'center' },
+  statValue: { fontSize: 15, fontWeight: '800', color: colors.onPrimary, textAlign: 'center' },
+  statLabel: { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.9)', textAlign: 'center' },
   emptyCard: {
     backgroundColor: colors.white,
     borderRadius: 18,
@@ -342,14 +311,14 @@ const styles = StyleSheet.create({
     ...shadow.card,
   },
   upgradeCopy: { flex: 1, minWidth: 0 },
-  upgradeTitle: { fontSize: 15, fontWeight: '800', color: colors.onPrimary },
+  upgradeTitle: { fontSize: 18, ...brandHeadingStyle(), color: colors.onPrimary },
   upgradeLinkRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
   upgradeLink: { fontSize: 12, fontWeight: '800', color: colors.onPrimary },
   upgradeArt: {
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: colors.orange,
     alignItems: 'center',
     justifyContent: 'center',
   },

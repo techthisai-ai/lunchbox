@@ -22,6 +22,7 @@ import {
   normalizeDeliveryTypes,
 } from '../types/delivery';
 import { loadCustomerRegistration, loadRegisteredDrivers, incrementDriverCompletedDeliveries, updateCustomerRegistration } from './userRegistryService';
+import { loadSubscriptionPaymentSnapshot } from './subscriptionService';
 import { getDriverRatingSummary } from './ratingService';
 import {
   geocodeAddressAsync,
@@ -158,8 +159,35 @@ async function loadOrderLocal(orderId: string): Promise<DeliveryOrder | null> {
   }
 }
 
+function stripUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefinedDeep(item)) as T;
+  }
+  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entry]) => entry !== undefined)
+        .map(([key, entry]) => [key, stripUndefinedDeep(entry)]),
+    ) as T;
+  }
+  return value;
+}
+
+function asRemoteOrder(data: Record<string, unknown>, docId: string): DeliveryOrder {
+  const raw = data as unknown as DeliveryOrder;
+  const driver = raw.driver && typeof raw.driver === 'object' && raw.driver.id ? raw.driver : null;
+  return {
+    ...raw,
+    id: String(raw.id || docId),
+    driver,
+    assignedDriverPhone: raw.assignedDriverPhone || driver?.phone,
+    amountPaid: typeof raw.amountPaid === 'number' ? raw.amountPaid : undefined,
+    paymentMethod: raw.paymentMethod?.trim() || undefined,
+  };
+}
+
 async function persistOrder(order: DeliveryOrder): Promise<void> {
-  const payload = { ...order, updatedAt: new Date().toISOString() };
+  const payload = stripUndefinedDeep({ ...order, updatedAt: new Date().toISOString() });
   await saveOrderLocal(payload);
   try {
     await setDoc(doc(db, 'orders', order.id), payload);
@@ -180,7 +208,7 @@ async function loadOrderById(orderId: string): Promise<DeliveryOrder | null> {
   try {
     const snap = await getDoc(doc(db, 'orders', orderId));
     if (!snap.exists()) return null;
-    const remote = snap.data() as DeliveryOrder;
+    const remote = asRemoteOrder(snap.data() as Record<string, unknown>, snap.id);
     await stashOrderFromRemote(remote);
     return hydrateOrderLocations((await loadOrderLocal(orderId)) ?? remote);
   } catch {
@@ -325,7 +353,7 @@ export async function listOrdersByDateRange(startDate: string, endDate: string):
     const q = query(collection(db, 'orders'), where('date', '>=', startDate), where('date', '<=', endDate));
     const snap = await getDocs(q);
     for (const docSnap of snap.docs) {
-      const order = withLocations({ ...(docSnap.data() as DeliveryOrder), id: docSnap.id });
+      const order = withLocations(asRemoteOrder(docSnap.data() as Record<string, unknown>, docSnap.id));
       await saveOrderLocal(order);
       results.push(order);
     }
@@ -367,12 +395,13 @@ export function listLiveFleetDrivers(orders: DeliveryOrder[]): Array<{
     const driverId = order.driver?.id;
     if (!driverId) continue;
     const existing = byDriver.get(driverId);
-    const location =
+    const gps =
       order.driverLocation &&
       Number.isFinite(order.driverLocation.lat) &&
       Number.isFinite(order.driverLocation.lng)
         ? order.driverLocation
-        : existing?.location ?? order.pickupLocation;
+        : null;
+    const location = gps ?? existing?.location ?? null;
 
     byDriver.set(driverId, {
       driverId,
@@ -394,7 +423,7 @@ export function subscribeToOrder(orderId: string, onOrder: (order: DeliveryOrder
         onOrder(null);
         return;
       }
-      const order = await stashOrderFromRemote(snap.data() as DeliveryOrder);
+      const order = await stashOrderFromRemote(asRemoteOrder(snap.data() as Record<string, unknown>, snap.id));
       onOrder(order);
     },
     () => onOrder(null),
@@ -420,7 +449,9 @@ export function subscribeToCustomerOrderToday(
         onOrder(local);
         return;
       }
-      const order = await stashOrderFromRemote(snap.docs[0].data() as DeliveryOrder);
+      const order = await stashOrderFromRemote(
+        asRemoteOrder(snap.docs[0].data() as Record<string, unknown>, snap.docs[0].id),
+      );
       onOrder(order);
     },
     async () => {
@@ -446,7 +477,7 @@ export function subscribeToAllOrdersToday(onOrders: (orders: DeliveryOrder[]) =>
     q,
     async (snap) => {
       for (const docSnap of snap.docs) {
-        await stashOrderFromRemote(docSnap.data() as DeliveryOrder);
+        await stashOrderFromRemote(asRemoteOrder(docSnap.data() as Record<string, unknown>, docSnap.id));
       }
       await publishTodayOrders(onOrders);
     },
@@ -467,7 +498,7 @@ async function syncFromFirestore(): Promise<void> {
     const q = query(collection(db, 'orders'), where('date', '==', todayKey()));
     const snap = await getDocs(q);
     for (const docSnap of snap.docs) {
-      await stashOrderFromRemote(docSnap.data() as DeliveryOrder);
+      await stashOrderFromRemote(asRemoteOrder(docSnap.data() as Record<string, unknown>, docSnap.id));
     }
   } catch {
     // Ignore remote sync failures.
@@ -573,6 +604,7 @@ export async function createBooking(
     pickupLocation: await geocodeAddressAsync(profile.address, DEMO_PICKUP),
     dropLocation: await geocodeAddressAsync(profile.school, DEMO_DROP),
   };
+  const payment = await loadSubscriptionPaymentSnapshot(normalizedPhone);
   const order: DeliveryOrder = {
     id,
     customerId,
@@ -600,6 +632,8 @@ export async function createBooking(
     driver: null,
     routePlan: null,
     date: todayKey(),
+    amountPaid: payment?.amountPaid,
+    paymentMethod: payment?.paymentMethod,
   };
 
   await persistOrder(order);
@@ -807,7 +841,11 @@ export async function listDriverActiveOrders(driverId: string): Promise<Delivery
   await syncFromFirestore();
   const orders = await loadAllOrdersLocal();
   return orders.filter(
-    (o) => o.driver?.id === driverId && o.status !== 'delivered' && o.status !== 'booked',
+    (o) =>
+      o.driver?.id === driverId &&
+      o.status !== 'delivered' &&
+      o.status !== 'booked' &&
+      o.status !== 'pickup_closed',
   );
 }
 
@@ -819,6 +857,18 @@ export async function listDriverCompletedToday(driverId: string): Promise<Delive
     (o) =>
       o.driver?.id === driverId &&
       o.status === 'delivered' &&
+      (o.date === today || o.date.startsWith(today)),
+  );
+}
+
+export async function listDriverCancelledToday(driverId: string): Promise<DeliveryOrder[]> {
+  await syncFromFirestore();
+  const orders = await loadAllOrdersLocal();
+  const today = new Date().toISOString().slice(0, 10);
+  return orders.filter(
+    (o) =>
+      o.driver?.id === driverId &&
+      o.status === 'pickup_closed' &&
       (o.date === today || o.date.startsWith(today)),
   );
 }
@@ -971,9 +1021,16 @@ function buildDriverInfo(
     rating,
     initials: getInitials(driver.name),
     etaMinutes: 8,
-    phone: driver.phone ? normalizePhone(driver.phone) : undefined,
+    ...(driver.phone ? { phone: normalizePhone(driver.phone) } : {}),
   };
 }
+
+const ASSIGNABLE_STATUSES: DeliveryStatus[] = [
+  'booked',
+  'food_ready',
+  'awaiting_driver',
+  'driver_assigned',
+];
 
 export async function acceptPickup(
   orderId: string,
@@ -981,12 +1038,12 @@ export async function acceptPickup(
 ): Promise<DeliveryOrder> {
   const order = await loadOrder(orderId);
   if (!order) throw new Error('Order not found');
-  if (order.status !== 'awaiting_driver') throw new Error('Order is no longer available');
+  if (!ASSIGNABLE_STATUSES.includes(order.status)) throw new Error('Order is no longer available');
 
   const locatedOrder = await hydrateOrderLocations(order);
 
   const driverRecord = driver.phone ? { phone: driver.phone } : await resolveDriverById(driver.id);
-  const driverPhone = driverRecord?.phone;
+  const driverPhone = driverRecord?.phone ? normalizePhone(driverRecord.phone) : undefined;
   const ratingSummary = await getDriverRatingSummary(driver.id);
 
   const driverInfo = buildDriverInfo(
@@ -1003,7 +1060,7 @@ export async function acceptPickup(
   const updated: DeliveryOrder = {
     ...locatedOrder,
     status: 'driver_assigned',
-    assignedDriverPhone: driverPhone,
+    ...(driverPhone ? { assignedDriverPhone: driverPhone } : {}),
     routePlan,
     driver: driverInfo,
     driverLocation: computeDriverLocation({
@@ -1144,6 +1201,13 @@ export async function markDelivered(
     },
   };
   await persistOrder(updated);
+
+  try {
+    const { notifyCustomerLunchboxDelivered } = await import('./pushNotificationService');
+    await notifyCustomerLunchboxDelivered(updated);
+  } catch {
+    // Home-screen push is best-effort; delivery still completes.
+  }
 
   if (order.customerPhone) {
     const { expireSubscriptionAfterDelivery } = await import('./subscriptionService');

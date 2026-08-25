@@ -50,6 +50,7 @@ function AddressPreviewRow({
           {subtitle || 'Not saved yet'}
         </Text>
       </View>
+      {onPress ? <Ionicons name="chevron-forward" size={18} color={colors.muted} /> : null}
     </Pressable>
   );
 }
@@ -82,7 +83,7 @@ function WalletPreviewRow({
       </View>
       {trailing ? <Text style={styles.trailingPink}>{trailing}</Text> : null}
       {onPress && !trailing ? (
-        <Text style={styles.manageLink}>Manage</Text>
+        <Ionicons name="chevron-forward" size={18} color={colors.muted} />
       ) : null}
     </Pressable>
   );
@@ -203,21 +204,23 @@ export function ProfileScreen({ navigation }: Props) {
         contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
       >
         <SectionCard title="Saved Addresses">
+          <Text style={styles.addressGroupLabel}>Pickup address</Text>
           <AddressPreviewRow
             icon="home-outline"
             iconBg={colors.orangeLight}
             iconColor={colors.orange}
             title="Home Pickup"
             subtitle={homeAddress}
-            onPress={() => navigation.navigate('SavedAddresses')}
+            onPress={() => navigation.navigate('SavedAddresses', { focus: 'pickup' })}
           />
+          <Text style={[styles.addressGroupLabel, styles.addressGroupLabelSpaced]}>Drop address</Text>
           <AddressPreviewRow
             icon="location-outline"
             iconBg={colors.orangeLight}
             iconColor={colors.orange}
             title={dropLabel}
             subtitle={dropAddress}
-            onPress={() => navigation.navigate('SavedAddresses')}
+            onPress={() => navigation.navigate('SavedAddresses', { focus: 'drop' })}
           />
         </SectionCard>
 
@@ -301,18 +304,25 @@ const styles = StyleSheet.create({
   scroll: { paddingBottom: 32, gap: 12 },
   sectionCard: {
     backgroundColor: colors.white,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
+    borderRadius: 22,
     padding: spacing.md,
     gap: 10,
-    ...shadow.subtle,
+    ...shadow.card,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '800',
     color: colors.text,
     marginBottom: 2,
+  },
+  addressGroupLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+    marginTop: 2,
+  },
+  addressGroupLabelSpaced: {
+    marginTop: 8,
   },
   previewRow: {
     flexDirection: 'row',
@@ -350,12 +360,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     backgroundColor: colors.white,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
+    borderRadius: 22,
     paddingHorizontal: spacing.md,
     paddingVertical: 14,
-    ...shadow.subtle,
+    ...shadow.card,
   },
   menuRowHighlighted: {
     borderColor: colors.orange,

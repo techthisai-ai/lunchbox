@@ -56,6 +56,7 @@ function buildSubscriptionRecord(
   amountPaid: number,
   couponCode?: string,
   discountAmount?: number,
+  paymentMethod?: string,
 ): CustomerSubscription {
   const now = new Date();
 
@@ -72,6 +73,7 @@ function buildSubscriptionRecord(
       endDate: today,
       renewalDate: today,
       amountPaid,
+      paymentMethod,
       couponCode,
       discountAmount,
       expiresOnDelivery: true,
@@ -96,6 +98,7 @@ function buildSubscriptionRecord(
     endDate: isoDate(end),
     renewalDate: isoDate(renewal),
     amountPaid,
+    paymentMethod,
     couponCode,
     discountAmount,
     createdAt: now.toISOString(),
@@ -229,21 +232,34 @@ export async function hasActiveMonthlySubscription(phone: string): Promise<boole
 }
 
 export async function resolveCustomerSubscriptionAmount(phone: string): Promise<number> {
+  const snapshot = await loadSubscriptionPaymentSnapshot(phone);
+  return snapshot?.amountPaid ?? 0;
+}
+
+export async function loadSubscriptionPaymentSnapshot(
+  phone: string,
+): Promise<{ amountPaid: number; paymentMethod?: string; planId?: string } | null> {
   const normalized = normalizePhone(phone);
-  const fallback = getPlanBaseAmount(getSubscriptionPlan(DEFAULT_SUBSCRIPTION_PLAN_ID));
-  if (normalized.length !== 10) return fallback;
+  if (normalized.length !== 10) return null;
 
   let record = await loadActiveSubscriptionRecord(normalized);
   if (!record) {
     record = await hydrateActiveSubscriptionFromRemote(normalized);
   }
+  if (!record) return null;
 
-  if (record) {
-    if (record.amountPaid > 0) return record.amountPaid;
-    return getPlanBaseAmount(getSubscriptionPlan(record.planId));
-  }
+  const addons = await loadSubscriptionAddons(normalized);
+  const today = isoDate(new Date());
+  const addonPaid = addons
+    .filter((entry) => entry.validDate === today)
+    .reduce((sum, entry) => sum + (entry.amountPaid || 0), 0);
 
-  return fallback;
+  const amountPaid = (record.amountPaid > 0 ? record.amountPaid : getPlanBaseAmount(getSubscriptionPlan(record.planId))) + addonPaid;
+  return {
+    amountPaid,
+    paymentMethod: record.paymentMethod,
+    planId: record.planId,
+  };
 }
 
 export async function loadSubscriptionAmountsByPhone(phones: string[]): Promise<Map<string, number>> {
@@ -394,6 +410,7 @@ export async function saveActiveSubscription(
   amountPaid?: number,
   couponCode?: string,
   discountAmount?: number,
+  paymentMethod?: string,
 ): Promise<SubscriptionPlan> {
   const normalized = normalizePhone(phone);
   const plan = getSubscriptionPlan(planId);
@@ -417,7 +434,7 @@ export async function saveActiveSubscription(
     throw new Error('You already have an active monthly subscription. Use it for daily deliveries.');
   }
 
-  const record = buildSubscriptionRecord(normalized, plan, paid, couponCode, discountAmount);
+  const record = buildSubscriptionRecord(normalized, plan, paid, couponCode, discountAmount, paymentMethod);
 
   await AsyncStorage.setItem(activeKey(normalized), JSON.stringify(record));
   await appendHistory(normalized, record);

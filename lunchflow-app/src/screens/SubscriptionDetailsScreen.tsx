@@ -6,6 +6,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { OnlinePaymentDialog } from '../components/OnlinePaymentDialog';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { SubscriptionPlanPriceText } from '../components/SubscriptionPlanPriceText';
 import { SubscriptionPlan, getSubscriptionDetailLineLabel, isAddonSubscriptionPlan } from '../constants/subscriptions';
 import { colors, radius, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
@@ -14,6 +15,7 @@ import { useSubscriptionDetailPlans } from '../hooks/useSubscriptionDetailPlans'
 import { useSubscriptionPayment } from '../hooks/useSubscriptionPayment';
 import { ProfileStackParamList } from '../navigation/types';
 import { hasActiveMonthlySubscription } from '../services/subscriptionService';
+import { goBackInProfileStack } from '../navigation/customerRoutes';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'SubscriptionDetails'>;
 
@@ -44,10 +46,9 @@ function DetailPlanCard({
         </View>
         <Text style={styles.planLine} numberOfLines={2}>
           <Text style={styles.planLabel}>{titlePart}</Text>
-          {pricePart ? <Text style={styles.planPrice}> - {pricePart}</Text> : null}
+          {pricePart ? <SubscriptionPlanPriceText plan={plan} amountText={pricePart} /> : null}
         </Text>
       </View>
-      {disabled ? <Text style={styles.disabledHint}>Requires an active monthly plan</Text> : null}
     </Pressable>
   );
 }
@@ -95,7 +96,7 @@ export function SubscriptionDetailsScreen({ navigation }: Props) {
         onSelect={handlePaymentSelect}
         onCancel={closePayment}
       />
-      <ScreenHeader title="Subscription Details" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Subscription Details" onBack={() => goBackInProfileStack(navigation)} />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
@@ -172,16 +173,6 @@ const styles = StyleSheet.create({
   planLabel: {
     fontWeight: '700',
     color: colors.text,
-  },
-  planPrice: {
-    fontWeight: '800',
-    color: colors.orange,
-  },
-  disabledHint: {
-    fontSize: 11,
-    color: colors.muted,
-    fontWeight: '700',
-    marginLeft: 44,
   },
   successMessage: {
     fontSize: 13,

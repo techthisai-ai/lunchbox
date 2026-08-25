@@ -1,11 +1,44 @@
-import { DeliveryOrder, DeliveryStatus, getDropAddress } from '../types/delivery';
-import { normalizePhone } from '../constants/auth';
+import { DeliveryDriver, DeliveryOrder, DeliveryStatus, getDropAddress } from '../types/delivery';
+import { getInitials, normalizePhone } from '../constants/auth';
 import { DEFAULT_SUBSCRIPTION_PLAN_ID, getSubscriptionPlan } from '../constants/subscriptions';
 import { getPlanBaseAmount } from '../utils/subscription';
 
 export const DEFAULT_ORDER_AMOUNT = getPlanBaseAmount(getSubscriptionPlan(DEFAULT_SUBSCRIPTION_PLAN_ID));
 
-/** Delivery / drop location for admin tables and exports. */
+export function resolveAssignedDriver(
+  order: DeliveryOrder,
+  drivers: Array<{ id: string; name: string; phone: string; vehicle?: string }>,
+): DeliveryDriver | null {
+  if (order.driver?.name?.trim()) {
+    return order.driver;
+  }
+
+  const byId = order.driver?.id ? drivers.find((driver) => driver.id === order.driver?.id) : undefined;
+  const assignedPhone = normalizePhone(order.assignedDriverPhone ?? order.driver?.phone ?? '');
+  const byPhone = assignedPhone.length === 10
+    ? drivers.find((driver) => normalizePhone(driver.phone) === assignedPhone)
+    : undefined;
+  const match = byId ?? byPhone;
+  if (!match) return order.driver ?? null;
+
+  return {
+    id: match.id,
+    name: match.name,
+    vehicle: order.driver?.vehicle ?? match.vehicle ?? '',
+    rating: order.driver?.rating ?? '5.0',
+    initials: order.driver?.initials || getInitials(match.name),
+    etaMinutes: order.driver?.etaMinutes ?? null,
+    phone: match.phone,
+  };
+}
+
+export function getOrderAmountForCustomer(order: DeliveryOrder, amountsByPhone: Map<string, number>): number {
+  if (typeof order.amountPaid === 'number' && order.amountPaid > 0) return order.amountPaid;
+  const phone = normalizePhone(order.customerPhone);
+  const fromSubscription = amountsByPhone.get(phone);
+  return fromSubscription && fromSubscription > 0 ? fromSubscription : 0;
+}
+
 export function getOrderDeliveryLocation(
   order: DeliveryOrder,
   fallbackByPhone?: Map<string, string>,
@@ -14,11 +47,6 @@ export function getOrderDeliveryLocation(
   if (fromOrder) return fromOrder;
   const fallback = fallbackByPhone?.get(normalizePhone(order.customerPhone))?.trim();
   return fallback || '';
-}
-
-export function getOrderAmountForCustomer(order: DeliveryOrder, amountsByPhone: Map<string, number>): number {
-  const phone = normalizePhone(order.customerPhone);
-  return amountsByPhone.get(phone) ?? DEFAULT_ORDER_AMOUNT;
 }
 
 export type OrderTab = 'all' | 'pending' | 'picked_up' | 'in_transit' | 'delivered' | 'cancelled';
@@ -86,10 +114,22 @@ export function getTableStatusTone(status: DeliveryStatus): 'blue' | 'green' | '
 
 export function getPaymentInfo(order: DeliveryOrder): { label: string; tone: 'green' | 'orange' | 'blue' | 'red' } {
   if (order.status === 'pickup_closed') return { label: 'Refunded', tone: 'red' };
+  const method = (order.paymentMethod ?? '').toLowerCase();
+  if (method.includes('cash')) return { label: 'Cash', tone: 'orange' };
+  if (
+    method.includes('upi') ||
+    method.includes('gpay') ||
+    method.includes('google') ||
+    method.includes('phonepe') ||
+    method.includes('paytm')
+  ) {
+    return { label: 'UPI', tone: 'blue' };
+  }
+  if (method.includes('card') || method.includes('debit') || method.includes('credit')) {
+    return { label: 'Paid', tone: 'green' };
+  }
+  if (typeof order.amountPaid === 'number' && order.amountPaid > 0) return { label: 'Paid', tone: 'green' };
   if (order.status === 'delivered') return { label: 'Paid', tone: 'green' };
-  const digit = Number(order.customerPhone?.slice(-1) ?? 0);
-  if (digit % 3 === 0) return { label: 'Cash', tone: 'orange' };
-  if (digit % 3 === 1) return { label: 'UPI', tone: 'blue' };
   return { label: 'Paid', tone: 'green' };
 }
 

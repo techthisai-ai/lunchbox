@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { db } from '../lib/firebase';
 import { GeoPoint } from '../types/delivery';
 import { updateDriverLocation } from './orderHubService';
@@ -30,12 +30,23 @@ function isUsablePoint(point: GeoPoint | null | undefined): point is GeoPoint {
   );
 }
 
+let locationHintShown = false;
+
 export async function requestLocationPermission(): Promise<boolean> {
   if (Platform.OS === 'web') {
     return typeof navigator !== 'undefined' && Boolean(navigator.geolocation);
   }
   const { status } = await Location.requestForegroundPermissionsAsync();
   return status === 'granted';
+}
+
+export function suggestTurnOnLocation(): void {
+  if (locationHintShown) return;
+  locationHintShown = true;
+  Alert.alert(
+    'Turn on location',
+    'Please turn on location so LunchFlow can show your live delivery route on the map.',
+  );
 }
 
 async function publishDriverLiveLocation(driverId: string, point: GeoPoint): Promise<void> {
@@ -45,7 +56,7 @@ async function publishDriverLiveLocation(driverId: string, point: GeoPoint): Pro
       {
         liveLocation: { ...point, updatedAt: new Date().toISOString() },
         lastSeenAt: new Date().toISOString(),
-        status: 'On Route',
+        status: tracking?.activeOrderIds.length ? 'On Route' : 'Available',
       },
       { merge: true },
     );
@@ -67,7 +78,9 @@ function startWebWatch(driverId: string, orderIds: string[]): { remove: () => vo
       const point: GeoPoint = { lat: position.coords.latitude, lng: position.coords.longitude };
       void publishPoint(driverId, tracking.activeOrderIds, point);
     },
-    () => undefined,
+    () => {
+      suggestTurnOnLocation();
+    },
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
   );
   return {
@@ -78,7 +91,10 @@ function startWebWatch(driverId: string, orderIds: string[]): { remove: () => vo
 
 export async function startDriverLocationTracking(driverId: string, orderIds: string[]): Promise<void> {
   const granted = await requestLocationPermission();
-  if (!granted) return;
+  if (!granted) {
+    suggestTurnOnLocation();
+    return;
+  }
 
   await stopDriverLocationTracking();
 
@@ -124,15 +140,10 @@ export async function stopDriverLocationTracking(): Promise<void> {
 }
 
 /**
- * Keep GPS publishing while the driver has accepted active orders.
- * Call with empty orderIds to stop. Safe to call repeatedly when order list changes.
+ * Keep GPS publishing while the driver app is open, including while waiting for pickups.
+ * Safe to call repeatedly when the order list changes.
  */
 export async function refreshDriverLocationForOrders(driverId: string, orderIds: string[]): Promise<void> {
-  if (orderIds.length === 0) {
-    await stopDriverLocationTracking();
-    return;
-  }
-
   if (tracking?.driverId === driverId) {
     tracking.activeOrderIds = [...orderIds];
     return;
@@ -149,14 +160,20 @@ export async function getCurrentDeviceLocation(): Promise<GeoPoint | null> {
         (position) => {
           resolve({ lat: position.coords.latitude, lng: position.coords.longitude });
         },
-        () => resolve(null),
+        () => {
+          suggestTurnOnLocation();
+          resolve(null);
+        },
         { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 },
       );
     });
   }
 
   const granted = await requestLocationPermission();
-  if (!granted) return null;
+  if (!granted) {
+    suggestTurnOnLocation();
+    return null;
+  }
   const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
   return { lat: position.coords.latitude, lng: position.coords.longitude };
 }
@@ -176,12 +193,17 @@ export function subscribeToDriverLiveLocations(
         const approval = data.approvalStatus;
         if (approval === 'pending' || approval === 'rejected') continue;
         if (data.status === 'Offline') continue;
+        const updatedAt = live?.updatedAt ? String(live.updatedAt) : undefined;
+        if (updatedAt) {
+          const ageMs = Date.now() - new Date(updatedAt).getTime();
+          if (Number.isFinite(ageMs) && ageMs > 30 * 60 * 1000) continue;
+        }
         locations.push({
           driverId: String(data.id ?? docSnap.id),
           name: data.name ? String(data.name) : undefined,
           lat: live!.lat!,
           lng: live!.lng!,
-          updatedAt: live?.updatedAt ? String(live.updatedAt) : undefined,
+          updatedAt,
         });
       }
       onUpdate(locations);

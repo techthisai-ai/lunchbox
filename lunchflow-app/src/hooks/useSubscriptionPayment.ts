@@ -82,7 +82,7 @@ export function useSubscriptionPayment(options: Options = {}) {
         }
 
         await processOnlinePayment(user.phone, amountPaid, description, methodLabel, plan.id);
-        await saveActiveSubscription(user.phone, plan.id, amountPaid);
+        await saveActiveSubscription(user.phone, plan.id, amountPaid, undefined, undefined, methodLabel);
 
         let pickupError: string | null = null;
         if (bookPickupAfterPurchase && !isAddonSubscriptionPlan(plan)) {

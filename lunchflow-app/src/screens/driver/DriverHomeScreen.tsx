@@ -9,6 +9,7 @@ import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
 import { DriverKpiRow } from '../../components/driver/DriverKpiRow';
+import { DriverPromoBanner } from '../../components/driver/DriverPromoBanner';
 import { DriverScreenHeader } from '../../components/driver/DriverScreenHeader';
 import { DriverOrderAddressDialog } from '../../components/DriverOrderAddressDialog';
 import { colors, spacing } from '../../constants/theme';
@@ -23,7 +24,7 @@ import {
   subscribeToDriverOrdersToday,
   subscribeToPendingPickups,
 } from '../../services/orderHubService';
-import { refreshDriverLocationForOrders, stopDriverLocationTracking } from '../../services/driverLocationService';
+import { refreshDriverLocationForOrders } from '../../services/driverLocationService';
 import { useDriverTrip } from '../../context/DriverTripContext';
 import { getAssignedDriverOrders } from '../../utils/driverTripNavigation';
 import { subscribeToOrderChanges } from '../../services/orderSync';
@@ -91,18 +92,9 @@ export function DriverHomeScreen() {
     if (!user?.id) return undefined;
     const orderIds = activeOrders.map((o) => o.id);
     void refreshDriverLocationForOrders(user.id, orderIds);
-    // Keep tracking across tab switches while orders remain active.
-    // Stopping happens only when orderIds becomes empty (handled above).
   }, [user?.id, activeOrders]);
 
-  useEffect(() => {
-    return () => {
-      // On full unmount (logout / leave driver area), stop GPS.
-      void stopDriverLocationTracking();
-    };
-  }, []);
-
-  const { startTrip, refreshTripRoutes, tripActive, activeRoute, trip } = useDriverTrip();
+  const { startTrip, resumeTrip, refreshTripRoutes, tripActive, activeRoute, trip } = useDriverTrip();
   const assignedToday = pending.length + activeOrders.length + completedToday.length;
   const routePlan = activeOrders.find((o) => o.routePlan)?.routePlan;
   const assignedOrders = useMemo(() => getAssignedDriverOrders(activeOrders), [activeOrders]);
@@ -158,6 +150,7 @@ export function DriverHomeScreen() {
       await openDriverRouteMap(navigation, {
         tripActive,
         startTrip,
+        resumeTrip,
         refreshTripRoutes,
         assignedOrders,
       });
@@ -174,6 +167,7 @@ export function DriverHomeScreen() {
         visible={Boolean(addressOrder)}
         order={addressOrder}
         onClose={() => setAddressOrder(null)}
+        onOpenRouteMap={() => void handleNavigateToRoute()}
       />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -207,6 +201,8 @@ export function DriverHomeScreen() {
             },
           ]}
         />
+
+        <DriverPromoBanner />
 
         {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 

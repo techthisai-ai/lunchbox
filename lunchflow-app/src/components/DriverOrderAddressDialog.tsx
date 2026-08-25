@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, radius, spacing } from '../constants/theme';
-import { openMapsNavigationToAddress } from '../services/mapsNavigation';
 import {
   DeliveryOrder,
   buildFoodReadyStudents,
@@ -15,9 +14,10 @@ type Props = {
   visible: boolean;
   order: DeliveryOrder | null;
   onClose: () => void;
+  onOpenRouteMap?: () => void;
 };
 
-export function DriverOrderAddressDialog({ visible, order, onClose }: Props) {
+export function DriverOrderAddressDialog({ visible, order, onClose, onOpenRouteMap }: Props) {
   if (!order) return null;
 
   const students = buildFoodReadyStudents({
@@ -54,7 +54,10 @@ export function DriverOrderAddressDialog({ visible, order, onClose }: Props) {
                   title="Navigate to Pickup"
                   variant="outline"
                   small
-                  onPress={() => openMapsNavigationToAddress(order.pickupAddress)}
+                  onPress={() => {
+                    onClose();
+                    onOpenRouteMap?.();
+                  }}
                   style={styles.navBtn}
                 />
               ) : null}
@@ -84,7 +87,10 @@ export function DriverOrderAddressDialog({ visible, order, onClose }: Props) {
                         title="Navigate"
                         variant="outline"
                         small
-                        onPress={() => openMapsNavigationToAddress(student.dropLocation)}
+                        onPress={() => {
+                          onClose();
+                          onOpenRouteMap?.();
+                        }}
                         style={styles.navBtn}
                       />
                     ) : null}
@@ -98,7 +104,10 @@ export function DriverOrderAddressDialog({ visible, order, onClose }: Props) {
                       title="Navigate to Drop"
                       variant="outline"
                       small
-                      onPress={() => openMapsNavigationToAddress(dropFallback)}
+                      onPress={() => {
+                        onClose();
+                        onOpenRouteMap?.();
+                      }}
                       style={styles.navBtn}
                     />
                   ) : null}

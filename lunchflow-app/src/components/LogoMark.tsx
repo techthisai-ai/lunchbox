@@ -1,20 +1,23 @@
 import { Image, StyleSheet, View } from 'react-native';
 
-const logo = require('../../assets/logo.png');
+const logo = require('../../assets/logo-primary.png');
 
 type Props = {
-  /** Square logo size in points. */
+  /** Logo height in points. */
   size?: number;
+  /** Optional width; defaults to size (square). */
+  width?: number;
 };
 
-export function LogoMark({ size = 96 }: Props) {
+export function LogoMark({ size = 96, width }: Props) {
+  const w = width ?? size;
   return (
-    <View style={[styles.wrap, { width: size, height: size }]}>
+    <View style={[styles.wrap, { width: w, height: size }]}>
       <Image
         source={logo}
-        style={{ width: size, height: size, borderRadius: Math.round(size * 0.22) }}
+        style={{ width: w, height: size }}
         resizeMode="contain"
-        accessibilityLabel="Chef Queen logo"
+        accessibilityLabel="Chef Queen"
       />
     </View>
   );

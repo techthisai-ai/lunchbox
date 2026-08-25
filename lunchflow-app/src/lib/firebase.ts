@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, Firestore } from 'firebase/firestore';
 import { getFunctions, Functions } from 'firebase/functions';
 import { getStorage, FirebaseStorage } from 'firebase/storage';
 
@@ -34,9 +34,30 @@ function createAuth(app: FirebaseApp): Auth {
   return getAuth(app);
 }
 
+function isMobileWebBrowser(): boolean {
+  if (Platform.OS !== 'web' || typeof navigator === 'undefined') return false;
+  return /Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent,
+  );
+}
+
+/** Mobile browsers often block Firestore WebSockets; long polling fixes empty reads. */
+function createDb(app: FirebaseApp): Firestore {
+  if (isMobileWebBrowser()) {
+    try {
+      return initializeFirestore(app, {
+        experimentalForceLongPolling: true,
+      });
+    } catch {
+      return getFirestore(app);
+    }
+  }
+  return getFirestore(app);
+}
+
 export const app: FirebaseApp = getOrCreateApp();
 export const auth: Auth = createAuth(app);
-export const db: Firestore = getFirestore(app);
+export const db: Firestore = createDb(app);
 export const storage: FirebaseStorage = getStorage(app);
 export const functions: Functions = getFunctions(app, 'asia-south1');
 

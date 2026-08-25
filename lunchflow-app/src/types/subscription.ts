@@ -13,6 +13,7 @@ export type CustomerSubscription = {
   endDate: string;
   renewalDate: string;
   amountPaid: number;
+  paymentMethod?: string;
   couponCode?: string;
   discountAmount?: number;
   expiresOnDelivery?: boolean;

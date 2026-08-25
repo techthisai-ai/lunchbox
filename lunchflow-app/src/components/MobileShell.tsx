@@ -2,6 +2,7 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks/useResponsive';
+import { useWebViewportLock } from '../hooks/useWebViewportLock';
 
 type Props = {
   children: React.ReactNode;
@@ -13,6 +14,7 @@ type FrameProps = Props & {
 };
 
 export function MobileShell({ children }: Props) {
+  useWebViewportLock();
   return (
     <SafeAreaProvider style={[styles.root, Platform.OS === 'web' && styles.webRoot]}>
       {children}
@@ -36,10 +38,12 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: colors.bg,
+    color: colors.text,
   },
   webRoot: {
-    minHeight: '100vh' as unknown as number,
+    height: '100%' as unknown as number,
     width: '100%' as unknown as number,
+    overflow: 'hidden' as const,
   },
   frame: {
     flex: 1,

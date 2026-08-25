@@ -1,8 +1,8 @@
 import { DEMO_DROP, DEMO_PICKUP, resolveKnownLocalityPoint } from '../constants/maps';
 import { EnfieldMapStop, EnfieldRouteResult } from '../services/enfieldMapsService';
-import { isTrustedMapPoint, resolveMapPoint } from '../services/mapGeocoding';
+import { haversineDistanceKm, isTrustedMapPoint, resolveMapPoint } from '../services/mapGeocoding';
 import { DeliveryOrder, GeoPoint, getDropAddress } from '../types/delivery';
-import { getLocationGroupKey } from './driverLocationGroups';
+import { getDropInstitutionName, getLocationGroupKey, dropsShareSamePlace } from './driverLocationGroups';
 
 export type TripStopGroup = {
   id: string;
@@ -32,14 +32,115 @@ export type DriverTripSnapshot = {
 };
 
 function normalizeAddressKey(address: string): string {
-  return address.trim().toLowerCase();
+  return address
+    .toLowerCase()
+    .replace(/[.,/#_'"`-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function pickupGroupKey(address: string): string {
+  const normalized = normalizeAddressKey(address);
+  let street = normalized;
+  const geoTokens = [
+    'thisaiyanvilai',
+    'thisaiyan vilai',
+    'thisaiyan',
+    'idaichivilai',
+    'nagercoil',
+    'tirunelveli',
+    'thirunelveli',
+    'chennai',
+    'kanyakumari',
+    'marthandam',
+    'tuticorin',
+    'thoothukudi',
+    'tenkasi',
+    'tamil nadu',
+    'india',
+  ];
+  for (const token of geoTokens) {
+    street = street.split(token).join(' ');
+  }
+  street = street.replace(/\s+/g, ' ').trim();
+  return street.length >= 6 ? street : normalized;
+}
+
+function pickBestGroupPoint(members: TripStopGroup[]): GeoPoint {
+  const named =
+    members.find((member) => resolveKnownLocalityMatch(member.address) || resolveKnownLocalityMatch(member.locationName)) ??
+    members[0];
+  return (
+    resolveKnownLocalityPoint(named.address) ??
+    resolveKnownLocalityPoint(named.locationName) ??
+    named.point
+  );
+}
+
+function clusterStopGroups(
+  groups: TripStopGroup[],
+  radiusKm: number,
+  canMerge: (a: TripStopGroup, b: TripStopGroup, close: boolean) => boolean,
+): TripStopGroup[] {
+  const used = new Set<number>();
+  const clustered: TripStopGroup[] = [];
+
+  for (let index = 0; index < groups.length; index += 1) {
+    if (used.has(index)) continue;
+    const members = [groups[index]];
+    used.add(index);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (let other = 0; other < groups.length; other += 1) {
+        if (used.has(other)) continue;
+        const close = members.some(
+          (member) => haversineDistanceKm(member.point, groups[other].point) <= radiusKm,
+        );
+        if (!members.some((member) => canMerge(member, groups[other], close))) continue;
+        members.push(groups[other]);
+        used.add(other);
+        grew = true;
+      }
+    }
+
+    if (members.length === 1) {
+      clustered.push(members[0]);
+      continue;
+    }
+
+    const named =
+      members.find((member) => member.orders[0] && getDropInstitutionName(member.orders[0])) ?? members[0];
+    clustered.push({
+      ...named,
+      point: pickBestGroupPoint(members),
+      orders: members.flatMap((member) => member.orders),
+      status: members.every((member) => member.status === 'completed') ? 'completed' : 'pending',
+    });
+  }
+
+  return clustered;
+}
+
+export function clusterNearbyPickupGroups(groups: TripStopGroup[], radiusKm = 1.25): TripStopGroup[] {
+  return clusterStopGroups(groups, radiusKm, (_left, _right, close) => close);
+}
+
+export function clusterNearbyDropGroups(groups: TripStopGroup[], radiusKm = 8): TripStopGroup[] {
+  return clusterStopGroups(groups, radiusKm, (left, right, close) => {
+    const leftOrder = left.orders[0];
+    const rightOrder = right.orders[0];
+    if (!leftOrder || !rightOrder) return close;
+    if (dropsShareSamePlace(leftOrder, rightOrder)) return true;
+    return close && leftOrder.deliveryType === rightOrder.deliveryType;
+  });
 }
 
 export function groupOrdersByPickupLocation(orders: DeliveryOrder[]): TripStopGroup[] {
   const groups = new Map<string, DeliveryOrder[]>();
 
   for (const order of orders) {
-    const key = normalizeAddressKey(order.pickupAddress);
+    const key = pickupGroupKey(order.pickupAddress);
     const list = groups.get(key) ?? [];
     list.push(order);
     groups.set(key, list);
@@ -84,12 +185,14 @@ export function groupOrdersByDropLocation(orders: DeliveryOrder[]): TripStopGrou
         return order.dropLocation && isTrustedMapPoint(order.dropLocation, dropAddress);
       }) ?? groupOrders[0];
     const address = getDropAddress(sample);
+    const locationName = getDropInstitutionName(sample) || sample.school?.trim() || address;
     return {
       id: `drop-${key}`,
       type: 'drop' as const,
       address,
-      locationName: sample.school?.trim() || address,
+      locationName,
       point:
+        resolveKnownLocalityPoint(locationName) ??
         resolveKnownLocalityPoint(address) ??
         resolveMapPoint(sample.dropLocation, address, DEMO_DROP),
       orders: groupOrders,

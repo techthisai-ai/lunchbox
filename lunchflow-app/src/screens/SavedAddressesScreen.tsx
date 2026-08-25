@@ -11,6 +11,7 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { colors, radius, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { ProfileStackParamList } from '../navigation/types';
+import { goBackInProfileStack } from '../navigation/customerRoutes';
 import {
   getCustomerOrderToday,
   loadCustomerProfile,
@@ -96,7 +97,12 @@ function buildDeliveryCards(
   ];
 }
 
-export function SavedAddressesScreen({ navigation }: Props) {
+export function SavedAddressesScreen({ navigation, route }: Props) {
+  const focus = route.params?.focus;
+  const showPickup = !focus || focus === 'pickup';
+  const showDrop = !focus || focus === 'drop';
+  const screenTitle =
+    focus === 'pickup' ? 'Pickup Address' : focus === 'drop' ? 'Drop Address' : 'Saved Addresses';
   const { user } = useAuth();
   const [homeAddress, setHomeAddress] = useState('');
   const [deliveryCards, setDeliveryCards] = useState<DeliveryAddressCard[]>([]);
@@ -172,29 +178,37 @@ export function SavedAddressesScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScreenHeader title="Saved Addresses" onBack={() => navigation.goBack()} />
+      <ScreenHeader title={screenTitle} onBack={() => goBackInProfileStack(navigation)} />
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Card>
-          <View style={styles.row}>
-            <View style={styles.iconWrap}>
-              <Ionicons name="home" size={18} color={colors.orange} />
-            </View>
-            <View style={styles.info}>
-              <View style={styles.titleRow}>
-                <Text style={styles.title}>Home Pickup</Text>
-                <View style={styles.titleActions}>
-                  <Badge label="Default" tone="green" />
-                  <Pressable style={styles.editBtn} onPress={openHomeEdit} accessibilityLabel="Edit home address">
-                    <Ionicons name="create-outline" size={18} color={colors.orange} />
-                  </Pressable>
+        {showPickup ? (
+          <>
+            {!focus ? <Text style={styles.groupLabel}>Pickup address</Text> : null}
+            <Card>
+              <View style={styles.row}>
+                <View style={styles.iconWrap}>
+                  <Ionicons name="home" size={18} color={colors.orange} />
+                </View>
+                <View style={styles.info}>
+                  <View style={styles.titleRow}>
+                    <Text style={styles.title}>Home Pickup</Text>
+                    <View style={styles.titleActions}>
+                      <Badge label="Default" tone="green" />
+                      <Pressable style={styles.editBtn} onPress={openHomeEdit} accessibilityLabel="Edit home address">
+                        <Ionicons name="create-outline" size={18} color={colors.orange} />
+                      </Pressable>
+                    </View>
+                  </View>
+                  <Text style={styles.address}>{homeAddress || 'No home address saved'}</Text>
                 </View>
               </View>
-              <Text style={styles.address}>{homeAddress || 'No home address saved'}</Text>
-            </View>
-          </View>
-        </Card>
+            </Card>
+          </>
+        ) : null}
 
-        {deliveryCards.length ? (
+        {showDrop ? (
+          <>
+            {!focus ? <Text style={styles.groupLabel}>Drop address</Text> : null}
+            {deliveryCards.length ? (
           deliveryCards.map((entry) => {
             const icon = deliveryIcon(entry.type);
             return (
@@ -254,6 +268,8 @@ export function SavedAddressesScreen({ navigation }: Props) {
             </View>
           </Card>
         )}
+          </>
+        ) : null}
       </ScrollView>
 
       <Modal visible={Boolean(editTarget)} transparent animationType="fade" onRequestClose={() => setEditTarget(null)}>
@@ -314,6 +330,12 @@ export function SavedAddressesScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   scroll: { padding: spacing.md, paddingBottom: 32, gap: spacing.md },
+  groupLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: -4,
+  },
   row: { flexDirection: 'row', gap: 14 },
   iconWrap: {
     width: 40,

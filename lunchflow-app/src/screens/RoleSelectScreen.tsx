@@ -2,7 +2,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { LogoMark } from '../components/LogoMark';
+import { ChefQueenLogo } from '../components/ChefQueenLogo';
 import { colors, radius, spacing } from '../constants/theme';
 import { RootStackParamList } from '../navigation/types';
 
@@ -43,10 +43,7 @@ export function RoleSelectScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <LogoMark size={80} />
-        <Text style={styles.title}>
-          Lunch<Text style={styles.orange}>Flow</Text>
-        </Text>
+        <ChefQueenLogo variant="horizontal" height={58} />
         <Text style={styles.subtitle}>Choose how you want to continue</Text>
       </View>
       <View style={styles.list}>

@@ -212,7 +212,7 @@ export function PickupPlanSection({ mode = 'status', onPlanReady }: Props) {
         selectedPlan.id,
       );
 
-      await saveActiveSubscription(user.phone, selectedPlan.id, paymentDraft.amountPaid);
+      await saveActiveSubscription(user.phone, selectedPlan.id, paymentDraft.amountPaid, undefined, undefined, methodLabel);
 
       if (!isAddonSubscriptionPlan(selectedPlan)) {
         await bookPickup();

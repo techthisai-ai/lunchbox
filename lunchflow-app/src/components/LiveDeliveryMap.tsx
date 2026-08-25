@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
-import { DEMO_DROP, DEMO_PICKUP } from '../constants/maps';
+import { DEMO_DROP, DEMO_PICKUP, DEFAULT_MAP_CENTER, IDAICHIvilai_CENTER } from '../constants/maps';
 import { colors } from '../constants/theme';
-import { resolveMapPoint, resolveOrderLocationsAsync } from '../services/mapGeocoding';
+import { isTamilNaduPoint } from '../services/mapGeocoding';
 import { isUsablePoint, type DriverLiveLocation } from '../services/driverLocationService';
 import { DeliveryOrder, GeoPoint } from '../types/delivery';
 
@@ -23,8 +23,9 @@ type Props = {
 
 type LeafletMap = {
   remove: () => void;
-  fitBounds: (bounds: LeafletLatLngBounds, options?: { padding?: [number, number] }) => void;
+  fitBounds: (bounds: LeafletLatLngBounds, options?: { padding?: [number, number]; maxZoom?: number }) => void;
   setView: (latLng: [number, number], zoom: number) => void;
+  invalidateSize: (options?: boolean | { animate?: boolean }) => void;
 };
 
 type LeafletLatLngBounds = {
@@ -33,7 +34,6 @@ type LeafletLatLngBounds = {
 
 type LeafletLayer = {
   setLatLng: (latLng: [number, number]) => void;
-  setLatLngs?: (latLngs: [number, number][]) => void;
   remove?: () => void;
   bindTooltip?: (content: string, options?: object) => LeafletLayer;
 };
@@ -45,8 +45,10 @@ type LeafletApi = {
     latLng: [number, number],
     options?: object,
   ) => LeafletLayer & { addTo: (map: LeafletMap) => LeafletLayer };
-  polyline: (latLngs: [number, number][], options?: object) => LeafletLayer & { addTo: (map: LeafletMap) => LeafletLayer };
   latLngBounds: (latLngs: [number, number][]) => LeafletLatLngBounds;
+  DomEvent: {
+    disableScrollPropagation: (el: HTMLElement) => void;
+  };
 };
 
 let leafletPromise: Promise<LeafletApi> | null = null;
@@ -89,15 +91,24 @@ function loadLeaflet(): Promise<LeafletApi> {
   return leafletPromise;
 }
 
-function resolvePoints(order: DeliveryOrder) {
-  const pickup = resolveMapPoint(order.pickupLocation, order.pickupAddress, DEMO_PICKUP);
-  const drop = resolveMapPoint(order.dropLocation, order.dropAddress || order.school, DEMO_DROP);
-  const driver = isUsablePoint(order.driverLocation) ? order.driverLocation : pickup;
-  return { pickup, drop, driver };
-}
-
 function toLatLng(point: GeoPoint): [number, number] {
   return [point.lat, point.lng];
+}
+
+function nearly(a: number, b: number) {
+  return Math.abs(a - b) < 0.002;
+}
+
+function isPlaceholderPoint(point: GeoPoint): boolean {
+  return (
+    (nearly(point.lat, DEMO_PICKUP.lat) && nearly(point.lng, DEMO_PICKUP.lng)) ||
+    (nearly(point.lat, DEMO_DROP.lat) && nearly(point.lng, DEMO_DROP.lng)) ||
+    (nearly(point.lat, DEFAULT_MAP_CENTER.lat) && nearly(point.lng, DEFAULT_MAP_CENTER.lng))
+  );
+}
+
+function isLiveDriverPoint(point: GeoPoint | null | undefined): point is GeoPoint {
+  return Boolean(point && isUsablePoint(point) && isTamilNaduPoint(point) && !isPlaceholderPoint(point));
 }
 
 function mergeFleetMarkers(
@@ -108,12 +119,12 @@ function mergeFleetMarkers(
   const byId = new Map<string, FleetDriverMarker>();
 
   for (const driver of fleetDrivers) {
-    if (!isUsablePoint(driver.location)) continue;
+    if (!isLiveDriverPoint(driver.location)) continue;
     byId.set(driver.driverId, driver);
   }
 
   for (const live of liveLocations) {
-    if (!isUsablePoint(live)) continue;
+    if (!isLiveDriverPoint(live)) continue;
     const existing = byId.get(live.driverId);
     byId.set(live.driverId, {
       driverId: live.driverId,
@@ -126,11 +137,7 @@ function mergeFleetMarkers(
   for (const order of fleetOrders) {
     const driverId = order.driver?.id;
     if (!driverId || byId.has(driverId)) continue;
-    const location = isUsablePoint(order.driverLocation)
-      ? order.driverLocation
-      : isUsablePoint(order.pickupLocation)
-        ? order.pickupLocation
-        : null;
+    const location = isLiveDriverPoint(order.driverLocation) ? order.driverLocation : null;
     if (!location) continue;
     byId.set(driverId, {
       driverId,
@@ -143,35 +150,23 @@ function mergeFleetMarkers(
   return Array.from(byId.values());
 }
 
-function FallbackMap({ order, height = 280, fleetDrivers = [], fleetOrders = [], liveLocations = [] }: Props) {
+function FallbackMap({ height = 280, fleetDrivers = [], fleetOrders = [], liveLocations = [] }: Props) {
   const markers = mergeFleetMarkers(fleetDrivers, fleetOrders, liveLocations);
-  const points = order ? resolvePoints(order) : null;
   return (
     <View style={[styles.fallback, { height }]}>
       <Text style={styles.fallbackTitle}>Live Delivery Map</Text>
-      <Text style={styles.fallbackLine}>Live drivers on route: {markers.length}</Text>
-      {markers.slice(0, 4).map((marker) => (
+      <Text style={styles.fallbackLine}>Live drivers: {markers.length}</Text>
+      {markers.slice(0, 6).map((marker) => (
         <Text key={marker.driverId} style={styles.fallbackLine}>
           {marker.name}: {marker.location.lat.toFixed(4)}, {marker.location.lng.toFixed(4)}
         </Text>
       ))}
-      {points ? (
-        <>
-          <Text style={styles.fallbackLine}>
-            Pickup: {points.pickup.lat.toFixed(4)}, {points.pickup.lng.toFixed(4)}
-          </Text>
-          <Text style={styles.fallbackLine}>
-            Drop: {points.drop.lat.toFixed(4)}, {points.drop.lng.toFixed(4)}
-          </Text>
-        </>
-      ) : null}
       <Text style={styles.fallbackHint}>Full interactive map is available on web.</Text>
     </View>
   );
 }
 
 function WebLiveMap({
-  order,
   height = 280,
   fleetOrders = [],
   fleetDrivers = [],
@@ -179,48 +174,15 @@ function WebLiveMap({
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
-  const layersRef = useRef<{
-    pickup?: LeafletLayer;
-    drop?: LeafletLayer;
-    driver?: LeafletLayer;
-    route?: LeafletLayer;
-  } | null>(null);
-  const fleetLayerRef = useRef<LeafletLayer[]>([]);
+  const fleetLayerRef = useRef<Map<string, LeafletLayer>>(new Map());
+  const fittedKeyRef = useRef('');
+  const [mapReady, setMapReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [resolvedPoints, setResolvedPoints] = useState(() => (order ? resolvePoints(order) : null));
-
-  useEffect(() => {
-    if (!order) {
-      setResolvedPoints(null);
-      return;
-    }
-    let cancelled = false;
-    resolveOrderLocationsAsync(order).then((locations) => {
-      if (cancelled) return;
-      const pickup = locations.pickupLocation;
-      const drop = locations.dropLocation;
-      const driver = isUsablePoint(order.driverLocation) ? order.driverLocation : pickup;
-      setResolvedPoints({ pickup, drop, driver });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    order?.id,
-    order?.pickupAddress,
-    order?.dropAddress,
-    order?.school,
-    order?.pickupLocation?.lat,
-    order?.pickupLocation?.lng,
-    order?.dropLocation?.lat,
-    order?.dropLocation?.lng,
-    order?.driverLocation?.lat,
-    order?.driverLocation?.lng,
-  ]);
 
   useEffect(() => {
     let cancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
 
     loadLeaflet()
       .then((L) => {
@@ -229,57 +191,27 @@ function WebLiveMap({
         const map = L.map(containerRef.current, {
           zoomControl: true,
           attributionControl: true,
+          scrollWheelZoom: true,
         });
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19,
           attribution: '&copy; OpenStreetMap',
         }).addTo(map);
-
-        map.setView(toLatLng(DEMO_PICKUP), 7);
-
-        const nextLayers: {
-          pickup?: LeafletLayer;
-          drop?: LeafletLayer;
-          driver?: LeafletLayer;
-          route?: LeafletLayer;
-        } = {};
-
-        if (resolvedPoints) {
-          const { pickup, drop, driver } = resolvedPoints;
-          nextLayers.pickup = L.circleMarker(toLatLng(pickup), {
-            radius: 9,
-            color: '#ffffff',
-            weight: 2,
-            fillColor: colors.green,
-            fillOpacity: 1,
-          }).addTo(map);
-          nextLayers.drop = L.circleMarker(toLatLng(drop), {
-            radius: 9,
-            color: '#ffffff',
-            weight: 2,
-            fillColor: colors.blue,
-            fillOpacity: 1,
-          }).addTo(map);
-          nextLayers.driver = L.circleMarker(toLatLng(driver), {
-            radius: 10,
-            color: '#ffffff',
-            weight: 2,
-            fillColor: colors.orange,
-            fillOpacity: 1,
-          }).addTo(map);
-          nextLayers.route = L.polyline([toLatLng(pickup), toLatLng(driver), toLatLng(drop)], {
-            color: colors.orange,
-            weight: 4,
-            opacity: 0.9,
-          }).addTo(map);
-          map.fitBounds(L.latLngBounds([toLatLng(pickup), toLatLng(drop), toLatLng(driver)]), {
-            padding: [36, 36],
-          });
-        }
-
+        map.setView([IDAICHIvilai_CENTER.lat, IDAICHIvilai_CENTER.lng], 13);
+        L.DomEvent?.disableScrollPropagation?.(containerRef.current);
         mapRef.current = map;
-        layersRef.current = nextLayers;
+        setMapReady(true);
+        setLoading(false);
+
+        const refreshSize = () => map.invalidateSize(false);
+        requestAnimationFrame(refreshSize);
+        setTimeout(refreshSize, 80);
+        setTimeout(refreshSize, 320);
+        setTimeout(refreshSize, 800);
+        if (typeof ResizeObserver !== 'undefined') {
+          resizeObserver = new ResizeObserver(refreshSize);
+          resizeObserver.observe(containerRef.current);
+        }
         setLoading(false);
       })
       .catch((err) => {
@@ -291,78 +223,74 @@ function WebLiveMap({
 
     return () => {
       cancelled = true;
+      resizeObserver?.disconnect();
       mapRef.current?.remove();
       mapRef.current = null;
-      layersRef.current = null;
+      setMapReady(false);
+      fleetLayerRef.current.clear();
+      fittedKeyRef.current = '';
     };
-  }, [order?.id, resolvedPoints?.pickup.lat, resolvedPoints?.pickup.lng, resolvedPoints?.drop.lat, resolvedPoints?.drop.lng]);
+  }, []);
 
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!mapReady || !mapRef.current) return;
 
     loadLeaflet().then((L) => {
       if (!mapRef.current) return;
-      fleetLayerRef.current.forEach((layer) => layer.remove?.());
-      fleetLayerRef.current = [];
-
       const markers = mergeFleetMarkers(fleetDrivers, fleetOrders, liveLocations);
-      const boundsPoints: [number, number][] = [];
+      const nextIds = new Set(markers.map((marker) => marker.driverId));
 
-      markers.forEach((marker) => {
+      for (const [id, layer] of fleetLayerRef.current.entries()) {
+        if (!nextIds.has(id)) {
+          layer.remove?.();
+          fleetLayerRef.current.delete(id);
+        }
+      }
+
+      const boundsPoints: [number, number][] = [];
+      markers.forEach((marker, index) => {
         if (!mapRef.current) return;
-        const layer = L.circleMarker(toLatLng(marker.location), {
-          radius: 9,
-          color: '#ffffff',
-          weight: 2,
-          fillColor: colors.purple,
-          fillOpacity: 0.95,
-        }).addTo(mapRef.current);
-        layer.bindTooltip?.(
-          `${marker.name}${marker.orderCount ? ` · ${marker.orderCount} order(s)` : ''}`,
-          { permanent: false, direction: 'top' },
-        );
-        fleetLayerRef.current.push(layer);
+        const existing = fleetLayerRef.current.get(marker.driverId);
+        if (existing) {
+          existing.setLatLng(toLatLng(marker.location));
+        } else {
+          const layer = L.circleMarker(toLatLng(marker.location), {
+            radius: 10,
+            color: '#ffffff',
+            weight: 2,
+            fillColor: index === 0 ? colors.orange : colors.green,
+            fillOpacity: 0.95,
+          }).addTo(mapRef.current);
+          layer.bindTooltip?.(
+            `${marker.name}${marker.orderCount ? ` · ${marker.orderCount} lunchbox stop(s)` : ' · online'}`,
+            { permanent: false, direction: 'top' },
+          );
+          fleetLayerRef.current.set(marker.driverId, layer);
+        }
         boundsPoints.push(toLatLng(marker.location));
       });
 
-      if (resolvedPoints) {
-        boundsPoints.push(
-          toLatLng(resolvedPoints.pickup),
-          toLatLng(resolvedPoints.drop),
-          toLatLng(isUsablePoint(order?.driverLocation) ? order!.driverLocation! : resolvedPoints.driver),
-        );
+      const nextKey = markers
+        .map((marker) => marker.driverId)
+        .sort()
+        .join('|');
+      if (boundsPoints.length === 1) {
+        if (fittedKeyRef.current !== nextKey) {
+          mapRef.current.setView(boundsPoints[0], 15);
+          fittedKeyRef.current = nextKey;
+        }
+        return;
       }
-
-      if (boundsPoints.length > 0) {
-        mapRef.current.fitBounds(L.latLngBounds(boundsPoints), { padding: [40, 40] });
+      if (boundsPoints.length > 1 && fittedKeyRef.current !== nextKey) {
+        mapRef.current.fitBounds(L.latLngBounds(boundsPoints), { padding: [48, 48], maxZoom: 15 });
+        fittedKeyRef.current = nextKey;
       }
     });
-  }, [fleetDrivers, fleetOrders, liveLocations, resolvedPoints, order?.driverLocation?.lat, order?.driverLocation?.lng]);
-
-  useEffect(() => {
-    if (!mapRef.current || !layersRef.current || !resolvedPoints) return;
-
-    const driver = isUsablePoint(order?.driverLocation) ? order!.driverLocation! : resolvedPoints.pickup;
-    const path = [toLatLng(resolvedPoints.pickup), toLatLng(driver), toLatLng(resolvedPoints.drop)];
-
-    layersRef.current.pickup?.setLatLng(toLatLng(resolvedPoints.pickup));
-    layersRef.current.drop?.setLatLng(toLatLng(resolvedPoints.drop));
-    layersRef.current.driver?.setLatLng(toLatLng(driver));
-    layersRef.current.route?.setLatLngs?.(path);
-  }, [
-    order?.driverLocation?.lat,
-    order?.driverLocation?.lng,
-    order?.status,
-    resolvedPoints?.pickup.lat,
-    resolvedPoints?.pickup.lng,
-    resolvedPoints?.drop.lat,
-    resolvedPoints?.drop.lng,
-  ]);
+  }, [mapReady, fleetDrivers, fleetOrders, liveLocations]);
 
   if (error) {
     return (
       <FallbackMap
-        order={order}
         height={height}
         fleetDrivers={fleetDrivers}
         fleetOrders={fleetOrders}
@@ -370,6 +298,8 @@ function WebLiveMap({
       />
     );
   }
+
+  const liveCount = mergeFleetMarkers(fleetDrivers, fleetOrders, liveLocations).length;
 
   return (
     <View style={[styles.mapWrap, { height }]}>
@@ -380,6 +310,11 @@ function WebLiveMap({
         </View>
       ) : null}
       <div ref={containerRef} style={{ width: '100%', height: '100%', borderRadius: 16, overflow: 'hidden' }} />
+      <View style={styles.legend} pointerEvents="none">
+        <Text style={styles.legendText}>
+          {liveCount > 0 ? `${liveCount} driver${liveCount === 1 ? '' : 's'} live` : 'Waiting for online drivers'}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -405,6 +340,16 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   loaderText: { marginTop: 8, fontSize: 12, color: colors.muted },
+  legend: {
+    position: 'absolute',
+    left: 12,
+    bottom: 12,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  legendText: { fontSize: 11, fontWeight: '800', color: colors.text },
   fallback: {
     width: '100%',
     borderRadius: 16,

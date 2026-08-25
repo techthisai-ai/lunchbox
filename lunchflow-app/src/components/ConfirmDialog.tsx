@@ -1,5 +1,5 @@
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, radius, spacing } from '../constants/theme';
+import { colors, radius, shadow, spacing } from '../constants/theme';
 import { Button } from './Button';
 
 type Props = {
@@ -38,7 +38,7 @@ export function ConfirmDialog({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(63,71,36,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.lg,
@@ -47,8 +47,9 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 340,
     backgroundColor: colors.white,
-    borderRadius: radius.md,
-    padding: spacing.lg,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+    ...shadow.elevated,
   },
   title: { fontSize: 18, fontWeight: '800', color: colors.text },
   message: { fontSize: 14, color: colors.muted, marginTop: 8, lineHeight: 20 },

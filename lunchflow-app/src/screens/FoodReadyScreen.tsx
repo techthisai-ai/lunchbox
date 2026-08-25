@@ -3,12 +3,12 @@ import { CommonActions, RouteProp, useFocusEffect, useRoute } from '@react-navig
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Avatar } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { PickupPlanSection } from '../components/PickupPlanSection';
-import { colors, shadow, spacing } from '../constants/theme';
+import { colors, gradients, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useDelivery } from '../context/DeliveryContext';
 import { useFoodReadyOverlay } from '../context/FoodReadyOverlayContext';
@@ -22,6 +22,7 @@ import {
   DeliveryOrder,
   getDropAddress,
   getDeliveryTypeLabel,
+  hasSentPickupRequest,
   normalizeDeliveryType,
   normalizeDeliveryTypes,
 } from '../types/delivery';
@@ -58,6 +59,8 @@ function formatDropDetails(order: Pick<DeliveryOrder, 'studentName' | 'dropAddre
   return name;
 }
 
+const LUNCH_BAG = require('../../assets/lunch-bag.png');
+
 function SuccessHero({
   title,
   subtitle,
@@ -76,10 +79,17 @@ function SuccessHero({
       <View style={[styles.heroRingOuter, isCancelled && styles.heroRingCancelled]}>
         <View style={[styles.heroRingMid, isCancelled && styles.heroRingMidCancelled]}>
           <View style={[styles.heroRingCore, isCancelled && styles.heroRingCoreCancelled]}>
-            {loading ? (
-              <ActivityIndicator size="large" color={colors.orange} />
+            {isCancelled ? (
+              <Ionicons name="close" size={36} color={colors.red} />
             ) : (
-              <Ionicons name={isCancelled ? 'close' : 'checkmark'} size={42} color={isCancelled ? colors.red : colors.orange} />
+              <>
+                <Image source={LUNCH_BAG} style={styles.heroLunchBag} resizeMode="contain" accessibilityLabel="Lunch box" />
+                {loading ? (
+                  <View style={styles.heroSpinner}>
+                    <ActivityIndicator size="small" color={colors.orange} />
+                  </View>
+                ) : null}
+              </>
             )}
           </View>
         </View>
@@ -143,7 +153,7 @@ function DriverStatusCard({
   etaMinutes?: number | null;
 }) {
   return (
-    <LinearGradient colors={['#2D2D44', '#3D3D5C']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.driverCard}>
+    <LinearGradient colors={[...gradients.premium]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.driverCard}>
       <View style={styles.driverCardHeader}>
         <Text style={styles.driverCardTitle}>Driver Status</Text>
         <View style={[styles.driverBadge, hasDriver ? styles.driverBadgeLive : styles.driverBadgePending]}>
@@ -156,7 +166,7 @@ function DriverStatusCard({
 
       <View style={styles.driverMain}>
         {hasDriver ? (
-          <Avatar initials={driverInitials ?? '—'} />
+          <Avatar initials={driverInitials ?? '—'} onDark />
         ) : (
           <View style={styles.searchOrb}>
             <View style={styles.searchOrbMid}>
@@ -206,6 +216,13 @@ export function FoodReadyScreen({ navigation }: Props) {
 
   const openPickupDialog = useCallback(async () => {
     if (!user?.phone) return;
+    if (hasSentPickupRequest(order)) {
+      Alert.alert(
+        'Pickup request already sent',
+        'You already sent a pickup request. Please wait for a rider to accept.',
+      );
+      return;
+    }
 
     const [savedDefaults, profile] = await Promise.all([
       loadFoodReadyDefaults(user.phone),
@@ -240,7 +257,7 @@ export function FoodReadyScreen({ navigation }: Props) {
         deliveryType: normalizeDeliveryType(profile.deliveryType),
       }),
     });
-  }, [user, submitting, openFoodReadyDialog, markFoodReady, refreshDelivery]);
+  }, [user, order, submitting, openFoodReadyDialog, markFoodReady, refreshDelivery]);
 
   const handlePlanReady = useCallback(async () => {
     const hasPlan = user?.phone ? await hasActiveSubscription(user.phone) : false;
@@ -302,6 +319,7 @@ export function FoodReadyScreen({ navigation }: Props) {
         }),
       },
       submitting,
+      allowUpdate: true,
       onConfirm: async (details) => {
         await markFoodReady(details);
         await refreshDelivery();
@@ -389,7 +407,7 @@ export function FoodReadyScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <LinearGradient colors={['#FFF8FB', colors.bg]} style={styles.topGlow}>
+      <LinearGradient colors={[colors.bg, colors.bg]} style={styles.topGlow}>
         <View style={[styles.topBar, { paddingHorizontal: horizontalPadding }]}>
           <ScreenBackButton onPress={() => navigation.goBack()} />
           <View style={styles.requestPill}>
@@ -531,11 +549,11 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xs,
   },
   heroRingOuter: {
-    width: 132,
-    height: 132,
-    borderRadius: 66,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
     borderWidth: 2,
-    borderColor: 'rgba(233,30,99,0.18)',
+    borderColor: 'rgba(228,94,26,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
@@ -544,11 +562,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(198,40,40,0.2)',
   },
   heroRingMid: {
-    width: 108,
-    height: 108,
-    borderRadius: 54,
+    width: 124,
+    height: 124,
+    borderRadius: 62,
     borderWidth: 2,
-    borderColor: 'rgba(233,30,99,0.32)',
+    borderColor: 'rgba(228,94,26,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -556,12 +574,21 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(198,40,40,0.28)',
   },
   heroRingCore: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    backgroundColor: colors.orangeLight,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  heroLunchBag: {
+    width: 88,
+    height: 88,
+  },
+  heroSpinner: {
+    position: 'absolute',
+    bottom: 8,
   },
   heroRingCoreCancelled: {
     backgroundColor: colors.redLight,
@@ -675,7 +702,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   driverBadgeLive: { backgroundColor: 'rgba(67,160,71,0.2)' },
-  driverBadgePending: { backgroundColor: 'rgba(233,30,99,0.18)' },
+  driverBadgePending: { backgroundColor: 'rgba(228,94,26,0.22)' },
   driverBadgeDot: {
     width: 6,
     height: 6,
@@ -701,7 +728,7 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 26,
     borderWidth: 2,
-    borderColor: 'rgba(233,30,99,0.35)',
+    borderColor: 'rgba(228,94,26,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.08)',
@@ -789,7 +816,7 @@ const styles = StyleSheet.create({
     ...shadow.subtle,
   },
   primaryActionMuted: {
-    backgroundColor: '#C2185B',
+    backgroundColor: colors.orangeDark,
   },
   primaryActionText: {
     fontSize: 15,

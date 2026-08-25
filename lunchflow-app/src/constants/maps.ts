@@ -23,10 +23,20 @@ type LocalityEntry = {
 
 const KNOWN_LOCALITY_COORDS: LocalityEntry[] = [
   {
-    tokens: ['idaichivilai', 'idaichivil', 'idai chivilai', 'thisaiyanvilai', 'thisaiyan vilai', 'thisaiyan'],
+    tokens: [
+      'thisai technologies',
+      'thisai tech',
+      'thisaiyanvilai',
+      'thisaiyan vilai',
+      'thisaiyan',
+      'idaichivilai',
+      'idaichivil',
+      'idai chivilai',
+      'thisai',
+    ],
     point: IDAICHIvilai_CENTER,
-    priority: 20,
-    trustRadiusKm: 12,
+    priority: 22,
+    trustRadiusKm: 14,
   },
   {
     tokens: ['nagercoil', 'nagarkovil', 'nager coil'],
@@ -39,6 +49,24 @@ const KNOWN_LOCALITY_COORDS: LocalityEntry[] = [
     point: { lat: 8.3014, lng: 77.4122 },
     priority: 20,
     trustRadiusKm: 18,
+  },
+  {
+    tokens: ['tirunelveli', 'thirunelveli', 'nellai', 'palayamkottai'],
+    point: { lat: 8.7139, lng: 77.7567 },
+    priority: 20,
+    trustRadiusKm: 18,
+  },
+  {
+    tokens: ['tuticorin', 'thoothukudi', 'toothukudi'],
+    point: { lat: 8.7642, lng: 78.1348 },
+    priority: 18,
+    trustRadiusKm: 16,
+  },
+  {
+    tokens: ['tenkasi'],
+    point: { lat: 8.9593, lng: 77.3152 },
+    priority: 18,
+    trustRadiusKm: 14,
   },
   {
     tokens: ['kanyakumari', 'kumari'],

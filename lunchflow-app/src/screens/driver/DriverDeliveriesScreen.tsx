@@ -1,8 +1,8 @@
 import { CompositeNavigationProp, useFocusEffect, useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Badge } from '../../components/Badge';
@@ -22,6 +22,7 @@ import { openDriverRouteMap } from '../../navigation/driverRoutes';
 import {
   listDriverActiveOrders,
   listDriverCompletedToday,
+  listDriverCancelledToday,
   listPendingPickups,
   markAtDrop,
   markAtPickup,
@@ -30,14 +31,13 @@ import {
   markPickedUp,
   verifyPickup,
 } from '../../services/orderHubService';
-import { openMapsNavigationToAddress } from '../../services/mapsNavigation';
 import { isNearStop } from '../../services/enfieldMapsService';
 import { subscribeToOrderChanges } from '../../services/orderSync';
 import { buildSchoolBatches } from '../../services/batchDeliveryService';
 import { DeliveryBatch } from '../../types/batch';
 import { DeliveryOrder, getDropAddress } from '../../types/delivery';
 import { buildDriverDeliveryStops, DriverDeliveryStop } from '../../utils/driverDeliveryStops';
-import { buildDriverLocationGroups, buildCompletedLocationGroups, DriverLocationGroup, getLocationGroupKey } from '../../utils/driverLocationGroups';
+import { buildDriverLocationGroups, buildCompletedLocationGroups, DriverLocationGroup, flattenLocationGroupsToOrders, getLocationGroupKey } from '../../utils/driverLocationGroups';
 import { getAssignedDriverOrders } from '../../utils/driverTripNavigation';
 import { DRIVER_EARNING_PER_ORDER } from '../../utils/adminDriverHelpers';
 
@@ -97,6 +97,7 @@ export function DriverDeliveriesScreen() {
     currentPickupStop,
     currentDeliveryStop,
     refreshTripRoutes,
+    resumeTrip,
     startTrip,
     completePickupStop,
     markPickupStopReached,
@@ -106,6 +107,7 @@ export function DriverDeliveriesScreen() {
   } = useDriverTrip();
   const [activeOrders, setActiveOrders] = useState<DeliveryOrder[]>([]);
   const [completed, setCompleted] = useState<DeliveryOrder[]>([]);
+  const [cancelled, setCancelled] = useState<DeliveryOrder[]>([]);
   const [pending, setPending] = useState<DeliveryOrder[]>([]);
   const [verifyOrder, setVerifyOrder] = useState<DeliveryOrder | null>(null);
   const [tripPickupVerify, setTripPickupVerify] = useState(false);
@@ -116,18 +118,23 @@ export function DriverDeliveriesScreen() {
   const [bulkLoadingGroupId, setBulkLoadingGroupId] = useState<string | null>(null);
   const [singleDeliveringId, setSingleDeliveringId] = useState<string | null>(null);
   const [confirmGroup, setConfirmGroup] = useState<DriverLocationGroup | null>(null);
+  const [confirmAllSelected, setConfirmAllSelected] = useState(false);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [successGroups, setSuccessGroups] = useState<Record<string, string>>({});
   const [justDeliveredGroup, setJustDeliveredGroup] = useState<DriverLocationGroup | null>(null);
+  const deliveringRef = useRef(false);
 
   const refresh = useCallback(async () => {
     if (!user?.id) return;
-    const [activeList, done, pendingList] = await Promise.all([
+    const [activeList, done, cancelledList, pendingList] = await Promise.all([
       listDriverActiveOrders(user.id),
       listDriverCompletedToday(user.id),
+      listDriverCancelledToday(user.id),
       listPendingPickups(),
     ]);
     setActiveOrders(activeList);
     setCompleted(done);
+    setCancelled(cancelledList);
     setPending(pendingList);
     setBatches(await buildSchoolBatches([...activeList, ...done]));
   }, [user?.id]);
@@ -143,6 +150,21 @@ export function DriverDeliveriesScreen() {
   useEffect(() => subscribeToOrderChanges(refresh), [refresh]);
 
   const assignedOrders = useMemo(() => getAssignedDriverOrders(activeOrders), [activeOrders]);
+
+  const handleNavigateToRoute = useCallback(async () => {
+    setActionError('');
+    try {
+      await openDriverRouteMap(navigation, {
+        tripActive,
+        startTrip,
+        resumeTrip,
+        refreshTripRoutes,
+        assignedOrders,
+      });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not open route map');
+    }
+  }, [navigation, tripActive, startTrip, resumeTrip, refreshTripRoutes, assignedOrders]);
 
   useEffect(() => {
     if (trip.phase === 'idle') return undefined;
@@ -193,7 +215,7 @@ export function DriverDeliveriesScreen() {
   );
 
   const locationGroups = useMemo(
-    () => buildDriverLocationGroups(activeOrders, batches),
+    () => flattenLocationGroupsToOrders(buildDriverLocationGroups(activeOrders, batches)),
     [activeOrders, batches],
   );
 
@@ -212,9 +234,19 @@ export function DriverDeliveriesScreen() {
 
   const hasPickupQueue = pickupStops.length > 0;
   const hasDeliveryStops = displayLocationGroups.length > 0;
+  const pendingDeliveryGroups = useMemo(
+    () => displayLocationGroups.filter((group) => group.pendingCount > 0),
+    [displayLocationGroups],
+  );
+  const selectionMode = pickupPendingCount === 0 && pendingDeliveryGroups.length > 0;
+  const allPendingSelected =
+    pendingDeliveryGroups.length > 0 &&
+    pendingDeliveryGroups.every((group) => selectedGroupIds.includes(group.id));
+  const selectedPendingGroups = pendingDeliveryGroups.filter((group) => selectedGroupIds.includes(group.id));
+  const selectedLunchboxCount = selectedPendingGroups.reduce((total, group) => total + group.pendingCount, 0);
 
   const completedLocationGroups = useMemo(
-    () => buildCompletedLocationGroups(completed),
+    () => flattenLocationGroupsToOrders(buildCompletedLocationGroups(completed)),
     [completed],
   );
 
@@ -238,10 +270,10 @@ export function DriverDeliveriesScreen() {
         (group) => group.status === 'pending' && group.id !== currentPickupStop.id,
       );
       if (nextPickup) {
-        void openMapsNavigationToAddress(nextPickup.address);
+        void handleNavigateToRoute();
       } else {
         const nextDrop = trip.deliveryGroups.find((group) => group.status === 'pending');
-        if (nextDrop) void openMapsNavigationToAddress(nextDrop.address);
+        if (nextDrop) void handleNavigateToRoute();
       }
       await refresh();
       await refreshTripRoutes(assignedOrders);
@@ -279,10 +311,15 @@ export function DriverDeliveriesScreen() {
     }
   };
 
-  const executeBulkDeliver = async (group: DriverLocationGroup) => {
-    if (group.pendingCount === 0 || bulkLoadingGroupId) return;
+  const executeBulkDeliver = async (
+    group: DriverLocationGroup,
+    options?: { skipNextNav?: boolean; chained?: boolean },
+  ) => {
+    if (group.pendingCount === 0) return;
+    if (deliveringRef.current && !options?.chained) return;
 
-    setBulkLoadingGroupId(group.id);
+    deliveringRef.current = true;
+    setBulkLoadingGroupId(options?.chained ? '__all__' : group.id);
     setActionError('');
     try {
       const pendingOrders = group.pendingOrders.filter((order) => order.status !== 'delivered');
@@ -324,11 +361,13 @@ export function DriverDeliveriesScreen() {
 
       if (tripActive && group.orders[0]) {
         completeDeliveryStop(`drop-${getLocationGroupKey(group.orders[0])}`);
-        const nextDrop = trip.deliveryGroups.find(
-          (entry) => entry.status === 'pending' && entry.id !== `drop-${getLocationGroupKey(group.orders[0])}`,
-        );
-        if (nextDrop) {
-          void openMapsNavigationToAddress(nextDrop.address);
+        if (!options?.skipNextNav) {
+          const nextDrop = trip.deliveryGroups.find(
+            (entry) => entry.status === 'pending' && entry.id !== `drop-${getLocationGroupKey(group.orders[0])}`,
+          );
+          if (nextDrop) {
+            void handleNavigateToRoute();
+          }
         }
       }
 
@@ -338,9 +377,46 @@ export function DriverDeliveriesScreen() {
       }
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Could not deliver all lunchboxes');
+      if (options?.chained) throw error;
     } finally {
-      setBulkLoadingGroupId(null);
+      if (!options?.chained) {
+        deliveringRef.current = false;
+        setBulkLoadingGroupId(null);
+      }
       setConfirmGroup(null);
+    }
+  };
+
+  const toggleGroupSelected = (groupId: string) => {
+    setSelectedGroupIds((current) =>
+      current.includes(groupId) ? current.filter((id) => id !== groupId) : [...current, groupId],
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (allPendingSelected) {
+      setSelectedGroupIds([]);
+      return;
+    }
+    setSelectedGroupIds(pendingDeliveryGroups.map((group) => group.id));
+  };
+
+  const executeSelectedDeliver = async () => {
+    const groups = pendingDeliveryGroups.filter((group) => selectedGroupIds.includes(group.id));
+    if (groups.length === 0) return;
+    setConfirmAllSelected(false);
+    deliveringRef.current = true;
+    setBulkLoadingGroupId('__all__');
+    try {
+      for (const group of groups) {
+        await executeBulkDeliver(group, { skipNextNav: true, chained: true });
+      }
+      setSelectedGroupIds([]);
+    } catch {
+      // Error text is set inside executeBulkDeliver.
+    } finally {
+      deliveringRef.current = false;
+      setBulkLoadingGroupId(null);
     }
   };
 
@@ -348,20 +424,6 @@ export function DriverDeliveriesScreen() {
     const normalized = phone?.replace(/\D/g, '').slice(-10);
     if (!normalized) return;
     void Linking.openURL(`tel:+91${normalized}`);
-  };
-
-  const handleNavigateToRoute = async () => {
-    setActionError('');
-    try {
-      await openDriverRouteMap(navigation, {
-        tripActive,
-        startTrip,
-        refreshTripRoutes,
-        assignedOrders,
-      });
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Could not open route map');
-    }
   };
 
   return (
@@ -395,6 +457,7 @@ export function DriverDeliveriesScreen() {
         visible={Boolean(addressOrder)}
         order={addressOrder}
         onClose={() => setAddressOrder(null)}
+        onOpenRouteMap={() => void handleNavigateToRoute()}
       />
       <ConfirmDialog
         visible={Boolean(confirmGroup)}
@@ -413,6 +476,23 @@ export function DriverDeliveriesScreen() {
           if (!bulkLoadingGroupId) setConfirmGroup(null);
         }}
       />
+      <ConfirmDialog
+        visible={confirmAllSelected}
+        title="Confirm Delivery"
+        message={
+          selectedLunchboxCount > 0
+            ? `Mark ${selectedLunchboxCount} lunchbox${selectedLunchboxCount === 1 ? '' : 'es'} at ${selectedPendingGroups.length} location${selectedPendingGroups.length === 1 ? '' : 's'} as delivered?`
+            : ''
+        }
+        confirmLabel="Delivered"
+        cancelLabel="Cancel"
+        onConfirm={() => {
+          void executeSelectedDeliver();
+        }}
+        onCancel={() => {
+          if (!bulkLoadingGroupId) setConfirmAllSelected(false);
+        }}
+      />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <DriverScreenHeader
@@ -428,6 +508,7 @@ export function DriverDeliveriesScreen() {
             { label: 'Active', value: String(activeCount), tone: 'green' },
             { label: 'Delivered', value: String(completed.length), tone: 'blue' },
             { label: 'Pending', value: String(pending.length), tone: 'orange' },
+            { label: 'Cancelled', value: String(cancelled.length), tone: 'pink' },
           ]}
         />
 
@@ -525,19 +606,59 @@ export function DriverDeliveriesScreen() {
 
         {hasDeliveryStops ? (
           <>
-            <Text style={styles.section}>Delivery Stops</Text>
+            <View style={styles.sectionRow}>
+              <Text style={styles.section}>Delivery Stops</Text>
+              {selectionMode ? (
+                <Pressable onPress={toggleSelectAll} hitSlop={8}>
+                  <Text style={styles.selectAllText}>
+                    {allPendingSelected ? 'Clear all' : 'Select all'}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
             {displayLocationGroups.map((group) => (
               <DriverBulkDeliveryCard
                 key={group.id}
                 group={group}
                 deliveredAt={successGroups[group.id]}
-                bulkLoading={bulkLoadingGroupId === group.id}
+                bulkLoading={bulkLoadingGroupId === group.id || bulkLoadingGroupId === '__all__'}
                 singleDeliveringId={singleDeliveringId}
-                onNavigate={openMapsNavigationToAddress}
+                selectable={selectionMode && group.pendingCount > 0}
+                selected={selectedGroupIds.includes(group.id)}
+                hidePerGroupDeliver={selectionMode}
+                onToggleSelect={() => toggleGroupSelected(group.id)}
+                onNavigate={() => void handleNavigateToRoute()}
                 onDeliverAll={setConfirmGroup}
                 onDeliverOne={(order) => void handleDeliver(order.id)}
               />
             ))}
+            {selectionMode ? (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.commonDeliverBtn,
+                  (selectedLunchboxCount === 0 || Boolean(bulkLoadingGroupId)) && styles.commonDeliverBtnDisabled,
+                  pressed && selectedLunchboxCount > 0 && !bulkLoadingGroupId && styles.commonDeliverBtnPressed,
+                ]}
+                onPress={() => {
+                  if (selectedLunchboxCount === 0 || bulkLoadingGroupId) return;
+                  setConfirmAllSelected(true);
+                }}
+                disabled={selectedLunchboxCount === 0 || Boolean(bulkLoadingGroupId)}
+              >
+                {bulkLoadingGroupId === '__all__' ? (
+                  <ActivityIndicator size="small" color={colors.onPrimary} />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-done-outline" size={20} color={colors.onPrimary} />
+                    <Text style={styles.commonDeliverText}>
+                      {selectedLunchboxCount > 0
+                        ? `Delivered (${selectedLunchboxCount})`
+                        : 'Delivered'}
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+            ) : null}
           </>
         ) : null}
 
@@ -565,6 +686,27 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   scroll: { paddingHorizontal: spacing.md, paddingBottom: 28, gap: 14 },
   section: { fontSize: 16, fontWeight: '800', color: colors.text, marginTop: 4 },
+  sectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 4,
+  },
+  selectAllText: { fontSize: 13, fontWeight: '800', color: colors.orange },
+  commonDeliverBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.green,
+    borderRadius: 28,
+    paddingVertical: 14,
+    minHeight: 50,
+  },
+  commonDeliverBtnDisabled: { opacity: 0.45 },
+  commonDeliverBtnPressed: { opacity: 0.94, transform: [{ scale: 0.99 }] },
+  commonDeliverText: { fontSize: 15, fontWeight: '800', color: colors.onPrimary },
   stopRow: { flexDirection: 'row', gap: 10 },
   timelineCol: { width: 34, alignItems: 'center' },
   stopNumber: {

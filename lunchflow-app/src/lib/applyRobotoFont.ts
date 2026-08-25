@@ -16,7 +16,7 @@ function flattenStyle(style: StyleLike): Record<string, unknown> {
   return {};
 }
 
-/** Pin bundled Roboto Regular (content) or Bold (headings) from fontWeight. */
+/** Pin the correct bundled face from fontWeight / explicit accent family. */
 export function applyRobotoFontStyle(style: StyleLike): StyleLike {
   const flat = flattenStyle(style);
   const fontFamily = resolveAppFontFamily(

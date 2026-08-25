@@ -21,7 +21,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#141428",
+        "backgroundColor": "#FFF6E8",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
@@ -40,7 +40,20 @@
       ]
     },
     "plugins": [
-      "expo-font",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/Poppins_400Regular.ttf",
+            "./assets/fonts/Poppins_500Medium.ttf",
+            "./assets/fonts/Poppins_600SemiBold.ttf",
+            "./assets/fonts/Poppins_700Bold.ttf",
+            "./assets/fonts/PlayfairDisplay_400Regular.ttf",
+            "./assets/fonts/PlayfairDisplay_700Bold.ttf",
+            "./assets/fonts/Tahu.ttf"
+          ]
+        }
+      ],
       [
         "expo-notifications",
         {

@@ -1,5 +1,10 @@
 import { DeliveryBatch } from '../types/batch';
-import { DeliveryOrder, getDropAddress } from '../types/delivery';
+import {
+  DeliveryOrder,
+  FoodReadyStudentEntry,
+  getDropAddress,
+  normalizeDeliveryType,
+} from '../types/delivery';
 
 export type DriverLocationGroup = {
   id: string;
@@ -16,12 +21,120 @@ export type DriverLocationGroup = {
   isFullyDelivered: boolean;
 };
 
+function normalizePlaceText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[.,/#_'"`-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const INSTITUTION_PATTERN =
+  /\b(school|college|university|office|matric|academy|vidyalaya|engineering|polytechnic|campus|convent|institute|higher secondary|hss|cbse|icse|girls|boys|it park)\b/;
+
+function looksLikeInstitution(value: string): boolean {
+  return INSTITUTION_PATTERN.test(normalizePlaceText(value));
+}
+
+function studentEntriesOf(order: DeliveryOrder): FoodReadyStudentEntry[] {
+  if (order.studentEntries && order.studentEntries.length > 0) return order.studentEntries;
+  if (order.students && order.students.length > 0) return order.students;
+  return [];
+}
+
+function looksLikePersonPlace(order: DeliveryOrder, value: string): boolean {
+  const normalized = normalizePlaceText(value).split(',')[0]?.trim() ?? '';
+  if (!normalized) return false;
+  if (looksLikeInstitution(normalized)) return false;
+  const people = [order.studentName, order.customerName, ...studentEntriesOf(order).map((entry) => entry.name)]
+    .map((name) => normalizePlaceText(name ?? ''))
+    .filter(Boolean);
+  return people.some((person) => normalized === person || normalized.startsWith(`${person} `) || person.startsWith(normalized));
+}
+
+function institutionCore(value: string): string {
+  return normalizePlaceText(value)
+    .replace(/\b(the|of|and|girls|boys|high|higher|secondary|matriculation|matric|school|college|university|office|engineering|polytechnic|campus|convent|institute|academy|vidyalaya)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function getDropInstitutionName(order: DeliveryOrder): string {
+  const fromEntries = studentEntriesOf(order)
+    .map((entry) => entry.dropLocation.trim())
+    .filter(Boolean);
+  const candidates = [...fromEntries, order.school?.trim() ?? '', getDropAddress(order).split('|')[0]?.trim() ?? ''].filter(
+    Boolean,
+  );
+
+  const institutional = candidates.find((value) => looksLikeInstitution(value) && !looksLikePersonPlace(order, value));
+  if (institutional) return institutional;
+
+  const notPerson = candidates.find((value) => !looksLikePersonPlace(order, value));
+  return notPerson || candidates[0] || '';
+}
+
+/**
+ * Same school / college / office counts as one drop, even if the typed address
+ * differs by spaces, commas, or extra locality text. Student names are not used as the place.
+ */
 export function getLocationGroupKey(order: DeliveryOrder): string {
-  return `${order.deliveryType}::${getDropAddress(order).trim().toLowerCase()}`;
+  const type = normalizeDeliveryType(order.deliveryType);
+  const source = getDropInstitutionName(order);
+  const parts = source.split(',').map((part) => normalizePlaceText(part)).filter(Boolean);
+  const name = institutionCore(parts[0] || normalizePlaceText(source)) || normalizePlaceText(source);
+  const locality = parts.length > 1 ? parts[parts.length - 1] : '';
+  const uniqueOffice =
+    name.length >= 12 ||
+    /\b(technolog|pvt|ltd|limited|solutions|systems|infotech|office)\b/.test(name);
+
+  if (uniqueOffice || !locality || locality === name || name.includes(locality)) {
+    return `${type}::${name}`;
+  }
+  return `${type}::${locality}::${name}`;
+}
+
+export function dropsShareSamePlace(left: DeliveryOrder, right: DeliveryOrder): boolean {
+  if (left.deliveryType && right.deliveryType && left.deliveryType !== right.deliveryType) {
+    return false;
+  }
+  const leftKey = getLocationGroupKey(left);
+  const rightKey = getLocationGroupKey(right);
+  if (leftKey === rightKey) return true;
+
+  const leftName = leftKey.split('::').pop() ?? '';
+  const rightName = rightKey.split('::').pop() ?? '';
+  if (!leftName || !rightName) return false;
+  const shorter = leftName.length <= rightName.length ? leftName : rightName;
+  const longer = leftName.length > rightName.length ? leftName : rightName;
+  return shorter.length >= 6 && longer.includes(shorter);
 }
 
 export function getOrderStudentName(order: DeliveryOrder): string {
   return order.studentName?.trim() || order.customerName?.trim() || 'Student';
+}
+
+/** List cards: one lunchbox each. Map grouping stays on the route map. */
+export function flattenLocationGroupsToOrders(groups: DriverLocationGroup[]): DriverLocationGroup[] {
+  return groups.flatMap((group) =>
+    group.orders.map((order) => {
+      const delivered = order.status === 'delivered';
+      const place = group.locationName || group.address;
+      return {
+        ...group,
+        id: `${group.id}-${order.id}`,
+        locationName: getOrderStudentName(order),
+        address: place,
+        orders: [order],
+        pendingOrders: delivered ? [] : [order],
+        deliveredOrders: delivered ? [order] : [],
+        pendingCount: delivered ? 0 : 1,
+        deliveredCount: delivered ? 1 : 0,
+        totalCount: 1,
+        isFullyDelivered: delivered,
+      };
+    }),
+  );
 }
 
 const ACTIVE_DROP_STATUSES = new Set(['in_transit', 'at_drop', 'picked_up']);
@@ -59,7 +172,7 @@ export function buildDriverLocationGroups(
       return {
         id: batch?.id ?? `group-${key}`,
         batchId: batch?.id,
-        locationName: sample.school?.trim() || address,
+        locationName: getDropInstitutionName(sample) || sample.school?.trim() || address,
         address,
         deliveryType: sample.deliveryType,
         orders,
@@ -91,7 +204,7 @@ export function buildCompletedLocationGroups(completedOrders: DeliveryOrder[]): 
 
       return {
         id: `completed-${key}`,
-        locationName: sample.school?.trim() || address,
+        locationName: getDropInstitutionName(sample) || sample.school?.trim() || address,
         address,
         deliveryType: sample.deliveryType,
         orders,

@@ -2,19 +2,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { CommonActions, useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { Dimensions, Image, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Dimensions, Image, ImageSourcePropType, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { HistoryClockListIcon } from '../components/HistoryClockListIcon';
 import { HomeDeliveredProofCard } from '../components/HomeDeliveredProofCard';
+import { PromoBannerImage } from '../components/PromoBannerImage';
 import { Avatar } from '../components/Avatar';
 import { getInitials } from '../constants/auth';
-import { colors, shadow, spacing } from '../constants/theme';
+import { CUSTOMER_PICKUP_SLOT_LABEL } from '../constants/business';
+import { colors, gradients, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useDelivery } from '../context/DeliveryContext';
 import { useFoodReadyOverlay } from '../context/FoodReadyOverlayContext';
-import { useLiveEta } from '../hooks/useLiveEta';
 import { useResponsive } from '../hooks/useResponsive';
 import { HomeStackParamList, ProfileStackParamList } from '../navigation/types';
 import { DeliveryHistoryEntry, syncDeliveryHistory } from '../services/deliveryHistoryService';
@@ -22,6 +23,7 @@ import { loadFoodReadyDefaults } from '../services/foodReadyDefaultsService';
 import { listCustomerOrders, loadCustomerProfile } from '../services/orderHubService';
 import { checkSubscriptionRenewalReminders, hasActiveSubscription } from '../services/subscriptionService';
 import { countUnread, loadNotifications } from '../services/notificationService';
+import { subscribeToActivePromoAds, PROMO_CAROUSEL_HEIGHT } from '../services/promoAdService';
 import {
   DeliveryOrder,
   DeliveryProfile,
@@ -30,10 +32,12 @@ import {
   FoodReadyDetails,
   buildFoodReadyStudents,
   getDropAddress,
+  hasSentPickupRequest,
   normalizeDeliveryType,
   normalizeDeliveryTypes,
 } from '../types/delivery';
 import { isHistoryToday, isHistoryTodayOrYesterday, resolveHistoryDateKey } from '../utils/date';
+import { PromoAd, PromoAdAssetKey } from '../types/promoAd';
 
 function formatDeliveredClock(raw: string | null | undefined): string {
   if (!raw?.trim()) {
@@ -87,10 +91,10 @@ function getDeliveredAtTitleFromHistory(entry: DeliveryHistoryEntry): string {
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'HomeMain'>;
 
-const FOOD_READY_FORM_STATUSES = new Set(['booked', 'food_ready', 'awaiting_driver']);
+const FOOD_READY_FORM_STATUSES = new Set(['booked']);
 
-const GAUGE_SIZE = 192;
-const GAUGE_STROKE = 12;
+const GAUGE_SIZE = 208;
+const GAUGE_STROKE = 10;
 
 const HOME_PROGRESS_STEPS: {
   label: string;
@@ -101,7 +105,7 @@ const HOME_PROGRESS_STEPS: {
   { label: 'Food Ready', icon: 'restaurant-outline', timeKey: 'foodReadyAt' },
   { label: 'Picked Up', icon: 'bag-handle-outline', timeKey: 'pickedUpAt' },
   { label: 'In Transit', icon: 'bicycle-outline', timeKey: 'pickedUpAt' },
-  { label: 'Delivered', icon: 'checkmark-circle-outline', timeKey: 'deliveredAt' },
+  { label: 'Delivered', icon: 'cube-outline', timeKey: 'deliveredAt' },
 ];
 
 function getHomeProgressIndex(status: DeliveryStatus): number {
@@ -151,54 +155,34 @@ function getActiveStepTime(order: DeliveryOrder | null): string | null {
   return formatProgressTime(raw);
 }
 
-function HorizontalLiveProgress({ order }: { order: DeliveryOrder }) {
-  const activeIndex = getHomeProgressIndex(order.status);
-  const isDelivered = order.status === 'delivered';
+function HorizontalLiveProgress({ order }: { order: DeliveryOrder | null }) {
+  const activeIndex = order && order.status !== 'pickup_closed' ? getHomeProgressIndex(order.status) : -1;
+  const isDelivered = order?.status === 'delivered';
+  const lastIndex = HOME_PROGRESS_STEPS.length - 1;
 
   return (
     <View style={styles.liveProgressList}>
       {HOME_PROGRESS_STEPS.map((step, index) => {
-        const done = index < activeIndex || isDelivered;
-        const active = index === activeIndex && !isDelivered;
-        const pending = !done && !active;
-        const lineDone = index > 0 && (index <= activeIndex || isDelivered);
+        const reached = activeIndex >= 0 && (index <= activeIndex || isDelivered);
+        const leftDone = index > 0 && reached;
+        const rightDone = index < lastIndex && (index < activeIndex || isDelivered);
 
         return (
           <View key={step.label} style={styles.liveProgressItem}>
-            {index > 0 ? (
-              <View style={[styles.liveProgressLine, lineDone && styles.liveProgressLineDone]} />
-            ) : null}
-            <View style={styles.liveProgressStep}>
-              <View
-                style={[
-                  styles.liveProgressIcon,
-                  done && styles.liveProgressIconDone,
-                  active && styles.liveProgressIconActive,
-                  pending && styles.liveProgressIconPending,
-                ]}
-              >
-                {done ? (
-                  <Ionicons name="checkmark" size={11} color={colors.onPrimary} />
-                ) : (
-                  <Ionicons
-                    name={step.icon}
-                    size={11}
-                    color={pending ? 'rgba(255,255,255,0.65)' : colors.onPrimary}
-                  />
-                )}
+            <View style={styles.liveProgressIconRow}>
+              <View style={[styles.liveProgressLine, index === 0 && styles.liveProgressLineHidden, leftDone && styles.liveProgressLineDone]} />
+              <View style={[styles.liveProgressIcon, reached ? styles.liveProgressIconDone : styles.liveProgressIconPending]}>
+                <Ionicons
+                  name={reached ? 'checkmark' : step.icon}
+                  size={14}
+                  color={reached ? colors.onPrimary : colors.muted}
+                />
               </View>
-              <Text
-                style={[
-                  styles.liveProgressLabel,
-                  done && styles.liveProgressLabelDone,
-                  active && styles.liveProgressLabelActive,
-                  pending && styles.liveProgressLabelPending,
-                ]}
-                numberOfLines={2}
-              >
-                {step.label}
-              </Text>
+              <View style={[styles.liveProgressLine, index === lastIndex && styles.liveProgressLineHidden, rightDone && styles.liveProgressLineDone]} />
             </View>
+            <Text style={[styles.liveProgressLabel, !reached && styles.liveProgressLabelPending]} numberOfLines={2}>
+              {step.label}
+            </Text>
           </View>
         );
       })}
@@ -220,46 +204,16 @@ function shortenWords(text: string, maxWords = 3): string {
 
 function parseDestination(order: DeliveryOrder | null) {
   if (!order) {
-    return { name: 'Add destination' };
+    return { name: 'Destination', kind: 'Office' };
   }
 
   const drop = getDropAddress(order);
   const firstStop = order.studentEntries?.[0]?.dropLocation?.trim();
   const raw = firstStop || order.school || drop.split(',')[0]?.trim() || 'Destination';
+  const type = normalizeDeliveryType(order.deliveryType);
+  const kind = type === 'office' ? 'Office' : type === 'college' ? 'College' : 'School';
 
-  return { name: shortenWords(raw, 3) };
-}
-
-function getEtaDisplay(order: DeliveryOrder | null, liveEtaMinutes: number | null) {
-  if (order?.estimatedArrival?.trim()) {
-    return { time: order.estimatedArrival.trim(), label: 'On Time' };
-  }
-
-  if (order?.estimatedArrivalAtIso) {
-    const arrivalMs = Date.parse(order.estimatedArrivalAtIso);
-    if (!Number.isNaN(arrivalMs)) {
-      return {
-        time: new Date(arrivalMs).toLocaleTimeString('en-IN', {
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
-        }),
-        label: 'On Time',
-      };
-    }
-  }
-
-  if (liveEtaMinutes != null) {
-    // Round to whole minutes so ETA text does not flicker between close renders.
-    const minutes = Math.max(0, Math.round(liveEtaMinutes));
-    const arrival = new Date(Date.now() + minutes * 60_000);
-    return {
-      time: arrival.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }),
-      label: 'On Time',
-    };
-  }
-
-  return { time: '1:30 PM', label: 'On Time' };
+  return { name: shortenWords(raw, 3), kind };
 }
 
 function getGaugeMeta(order: DeliveryOrder | null) {
@@ -287,7 +241,7 @@ function getGaugeMeta(order: DeliveryOrder | null) {
     return { percent: 75, status: 'FOOD READY', hint: 'Waiting for a rider to accept.' };
   }
   if (order.status === 'food_ready') {
-    return { percent: 75, status: 'FOOD READY', hint: 'Tap when lunchbox is packed & ready.' };
+    return { percent: 75, status: 'FOOD READY', hint: 'Waiting for a rider to accept.' };
   }
   return { percent: 25, status: 'READY TO BOOK', hint: 'Tap when lunchbox is packed & ready.' };
 }
@@ -297,7 +251,7 @@ function CircularGauge({ percent, cancelled }: { percent: number; cancelled?: bo
   const circumference = 2 * Math.PI * radius;
   const clamped = Math.max(0, Math.min(100, percent));
   const offset = circumference - (clamped / 100) * circumference;
-  const progressStroke = cancelled ? '#FFCDD2' : '#FFFFFF';
+  const progressStroke = cancelled ? colors.red : colors.green;
 
   return (
     <Svg width={GAUGE_SIZE} height={GAUGE_SIZE}>
@@ -305,7 +259,7 @@ function CircularGauge({ percent, cancelled }: { percent: number; cancelled?: bo
         cx={GAUGE_SIZE / 2}
         cy={GAUGE_SIZE / 2}
         r={radius}
-        stroke={cancelled ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.35)'}
+        stroke="#E6E1D8"
         strokeWidth={GAUGE_STROKE}
         fill="none"
       />
@@ -329,7 +283,7 @@ type LunchBoxCardState = {
   title: string;
   buttonLabel: string;
   buttonIcon: keyof typeof Ionicons.glyphMap;
-  action: 'food_ready' | 'tracking' | 'details';
+  action: 'food_ready' | 'already_sent' | 'tracking' | 'details';
 };
 
 function getLunchBoxCardState(order: DeliveryOrder | null): LunchBoxCardState {
@@ -397,7 +351,7 @@ function getLunchBoxCardState(order: DeliveryOrder | null): LunchBoxCardState {
       title: order.status === 'awaiting_driver' ? 'Waiting For Rider' : 'Food Is Ready',
       buttonLabel: 'FOOD READY',
       buttonIcon: 'restaurant-outline',
-      action: 'food_ready',
+      action: 'already_sent',
     };
   }
 
@@ -447,17 +401,17 @@ function HomeHeader({
     <View style={styles.header}>
       <View style={styles.headerLeft}>
         <Text style={styles.headerName} numberOfLines={1}>
-          {name.toLowerCase()}
+          Hi, {name} 👋
         </Text>
       </View>
 
       <View style={styles.headerRight}>
         <Pressable style={styles.headerIconBtn} onPress={onNotifications}>
-          <Ionicons name="notifications-outline" size={20} color={colors.muted} />
+          <Ionicons name="notifications-outline" size={20} color={colors.text} />
           {hasUnread ? <View style={styles.notifDot} /> : null}
         </Pressable>
         <Pressable onPress={onProfile}>
-          <Avatar initials={initials} />
+          <Avatar initials={initials} size={42} />
         </Pressable>
       </View>
     </View>
@@ -466,16 +420,16 @@ function HomeHeader({
 
 function TodaysDeliveryCard({
   order,
-  liveEtaMinutes,
   onViewDetails,
 }: {
   order: DeliveryOrder | null;
-  liveEtaMinutes: number | null;
   onViewDetails: () => void;
 }) {
   const destination = parseDestination(order);
-  const eta = getEtaDisplay(order, liveEtaMinutes);
   const driverName = order?.driver?.name?.split(' ')[0];
+  const pickupFrom = order?.pickupAddress?.trim()
+    ? shortenWords(order.pickupAddress, 3)
+    : 'Home';
   const staffName = driverName || 'Not Assigned';
   const staffSub = driverName ? 'On the way' : 'Yet';
 
@@ -483,35 +437,47 @@ function TodaysDeliveryCard({
     <View style={styles.deliveryCard}>
       <View style={styles.deliveryCardHeader}>
         <View style={styles.deliveryCardHeaderLeft}>
-          <Ionicons name="calendar-outline" size={16} color={colors.orange} />
-          <Text style={styles.deliveryCardEyebrow}>TODAY&apos;S DELIVERY</Text>
+          <Ionicons name="bag-handle-outline" size={14} color={colors.green} />
+          <Text style={styles.deliveryCardEyebrow}>TODAY&apos;S LUNCH DELIVERY</Text>
         </View>
         <Pressable style={styles.viewDetailsBtn} onPress={onViewDetails}>
           <Text style={styles.viewDetailsText}>View Details</Text>
-          <Ionicons name="chevron-forward" size={14} color={colors.onPrimary} />
+          <Ionicons name="chevron-forward" size={13} color={colors.orange} />
         </Pressable>
       </View>
 
       <View style={styles.deliveryInfoRow}>
         <View style={styles.deliveryInfoCol}>
-          <Text style={styles.deliveryInfoLabel}>Destination</Text>
+          <View style={[styles.deliveryStatIcon, { backgroundColor: colors.orangeLight }]}>
+            <Ionicons name="bicycle-outline" size={14} color={colors.orange} />
+          </View>
+          <Text style={styles.deliveryInfoLabel}>Pickup From</Text>
+          <Text style={styles.deliveryInfoValue} numberOfLines={1}>
+            {pickupFrom}
+          </Text>
+          {pickupFrom !== 'Home' ? <Text style={styles.deliveryInfoSub}>Home</Text> : null}
+        </View>
+
+        <View style={styles.deliveryInfoDivider} />
+
+        <View style={styles.deliveryInfoCol}>
+          <View style={[styles.deliveryStatIcon, { backgroundColor: colors.greenLight }]}>
+            <Ionicons name="location" size={14} color={colors.green} />
+          </View>
+          <Text style={styles.deliveryInfoLabel}>Deliver To</Text>
           <Text style={styles.deliveryInfoValue} numberOfLines={1}>
             {destination.name}
           </Text>
+          <Text style={styles.deliveryInfoSub}>{destination.kind}</Text>
         </View>
 
         <View style={styles.deliveryInfoDivider} />
 
         <View style={styles.deliveryInfoCol}>
-          <Text style={styles.deliveryInfoLabel}>ETA</Text>
-          <Text style={styles.deliveryEtaValue}>{eta.time}</Text>
-          <Text style={styles.deliveryInfoSub}>{eta.label}</Text>
-        </View>
-
-        <View style={styles.deliveryInfoDivider} />
-
-        <View style={styles.deliveryInfoCol}>
-          <Text style={styles.deliveryInfoLabel}>Delivery Staff</Text>
+          <View style={[styles.deliveryStatIcon, { backgroundColor: colors.greenLight }]}>
+            <Ionicons name="person-outline" size={14} color={colors.green} />
+          </View>
+          <Text style={styles.deliveryInfoLabel}>Driver Status</Text>
           <Text style={styles.deliveryInfoValue} numberOfLines={1}>
             {staffName}
           </Text>
@@ -547,22 +513,20 @@ function LiveTrackingCard({
   const displayOrder = order ?? stableOrderRef.current;
   const gauge = getGaugeMeta(displayOrder);
   const isCancelled = displayOrder?.status === 'pickup_closed';
-  const showTimeline = Boolean(displayOrder && displayOrder.status !== 'pickup_closed');
   const activeStepTime = getActiveStepTime(displayOrder);
   const lastStepTimeRef = useRef<string | null>(null);
   if (activeStepTime) lastStepTimeRef.current = activeStepTime;
-  const stepTimeLabel = activeStepTime ?? (showTimeline ? lastStepTimeRef.current : null);
+  const stepTimeLabel = activeStepTime ?? lastStepTimeRef.current ?? new Date().toLocaleTimeString('en-IN', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
 
   return (
-    <LinearGradient
-      colors={isCancelled ? ['#E53935', '#C62828'] : ['#E91E63', '#AD1457']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.liveTrackingCard}
-    >
-      <Text style={[styles.liveTrackingTimeBadge, !stepTimeLabel && styles.liveTrackingTimeBadgeHidden]}>
-        {stepTimeLabel || ' '}
-      </Text>
+    <View style={[styles.liveTrackingCard, isCancelled && styles.liveTrackingCardCancelled]}>
+      <View style={styles.liveTrackingTimeBadge}>
+        <Text style={styles.liveTrackingTimeText}>{stepTimeLabel}</Text>
+      </View>
 
       <Pressable
         style={({ pressed }) => [styles.historyShortcut, pressed && styles.historyShortcutPressed]}
@@ -571,7 +535,7 @@ function LiveTrackingCard({
         accessibilityLabel="History"
         hitSlop={8}
       >
-        <HistoryClockListIcon size={34} color="#FFFFFF" />
+        <HistoryClockListIcon size={34} color={colors.green} />
       </Pressable>
 
       <View style={styles.liveTrackingContent}>
@@ -588,7 +552,12 @@ function LiveTrackingCard({
         >
           <View style={styles.gaugeRingWrap}>
             <CircularGauge percent={gauge.percent} cancelled={isCancelled} />
-            <View style={styles.gaugeInner}>
+            <LinearGradient
+              colors={isCancelled ? ['#E57373', '#C62828'] : ['#F6C15B', '#E45E1A']}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={styles.gaugeInner}
+            >
               <View style={styles.gaugeCenterStack}>
                 <View style={[styles.gaugeIconBadge, isCancelled && styles.gaugeIconBadgeCancelled]}>
                   <Ionicons
@@ -606,15 +575,15 @@ function LiveTrackingCard({
                   {gauge.hint}
                 </Text>
               </View>
-            </View>
+            </LinearGradient>
           </View>
         </Pressable>
 
-        <View style={[styles.timelineBelow, !showTimeline && styles.timelineBelowHidden]}>
-          {showTimeline && displayOrder ? <HorizontalLiveProgress order={displayOrder} /> : null}
+        <View style={styles.timelineBelow}>
+          <HorizontalLiveProgress order={displayOrder} />
         </View>
       </View>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -630,9 +599,27 @@ function QuickActionsAndReferRow({
   onReferEarn: () => void;
 }) {
   const actions = [
-    { icon: 'location-outline' as const, label: 'Address', onPress: onChangeAddress },
-    { icon: 'document-text-outline' as const, label: 'Pickup Request', onPress: onDeliveryInstructions },
-    { icon: 'headset-outline' as const, label: 'Support', onPress: onContactSupport },
+    {
+      icon: 'location' as const,
+      label: 'Address',
+      onPress: onChangeAddress,
+      iconBg: colors.greenLight,
+      iconColor: colors.green,
+    },
+    {
+      icon: 'bag-handle' as const,
+      label: 'Pickup',
+      onPress: onDeliveryInstructions,
+      iconBg: colors.orangeLight,
+      iconColor: colors.orange,
+    },
+    {
+      icon: 'headset' as const,
+      label: 'Support',
+      onPress: onContactSupport,
+      iconBg: '#EDE8F6',
+      iconColor: '#6A5B9A',
+    },
   ];
 
   return (
@@ -644,108 +631,125 @@ function QuickActionsAndReferRow({
             style={({ pressed }) => [styles.quickActionBtn, pressed && styles.quickActionBtnPressed]}
             onPress={action.onPress}
           >
-            <View style={styles.quickActionIcon}>
-              <Ionicons name={action.icon} size={17} color={colors.orange} />
+            <View style={[styles.quickActionIcon, { backgroundColor: action.iconBg }]}>
+              <Ionicons name={action.icon} size={18} color={action.iconColor} />
             </View>
-            <Text style={styles.quickActionLabel} numberOfLines={1}>
-              {action.label}
-            </Text>
+            <Text style={styles.quickActionLabel}>{action.label}</Text>
           </Pressable>
         ))}
       </View>
-
-      <View style={styles.quickReferDivider} />
 
       <Pressable
         style={({ pressed }) => [styles.referSection, pressed && styles.referCardPressed]}
         onPress={onReferEarn}
       >
         <View style={styles.referIcon}>
-          <Ionicons name="gift-outline" size={17} color={colors.orange} />
+          <Ionicons name="gift" size={18} color={colors.orange} />
         </View>
         <View style={styles.referCopy}>
           <Text style={styles.referTitle} numberOfLines={1}>
             Refer & Earn
           </Text>
-          <Text style={styles.referSub} numberOfLines={1}>
-            Invite & earn rewards
+          <Text style={styles.referSub} numberOfLines={2}>
+            Invite & earn rewards!
           </Text>
         </View>
-        <Ionicons name="chevron-forward" size={16} color={colors.orange} />
+        <Ionicons name="chevron-forward" size={16} color={colors.text} />
       </Pressable>
     </View>
   );
 }
 
-type LunchboxAd = {
-  id: string;
-  title: string;
-  subtitle: string;
-  colors: [string, string];
-  imageOffset: number;
+type LunchboxAd =
+  | {
+      id: string;
+      kind: 'banner';
+      bannerImageUrl: string;
+    }
+  | {
+      id: string;
+      kind: 'composed';
+      title: string;
+      subtitle: string;
+      colors: [string, string];
+      image: ImageSourcePropType;
+    };
+
+const PROMO_TIFFIN_STICKER = require('../../assets/promo-tiffin-sticker.png');
+const PROMO_MEAL_PLATE = require('../../assets/driver-promo-meal.png');
+
+const PROMO_ASSET_MAP: Record<PromoAdAssetKey, number> = {
+  'tiffin-sticker': PROMO_TIFFIN_STICKER,
+  'meal-plate': PROMO_MEAL_PLATE,
 };
 
-const PROMO_LUNCH_ART = require('../../assets/promo-lunch-hero.png');
+function promoAdToSlide(ad: PromoAd): LunchboxAd {
+  if ((ad.displayType === 'banner' || ad.bannerImageUrl) && ad.bannerImageUrl) {
+    return {
+      id: ad.id,
+      kind: 'banner',
+      bannerImageUrl: ad.bannerImageUrl,
+    };
+  }
 
-const LUNCHBOX_ADS: LunchboxAd[] = [
-  {
-    id: 'fresh-daily',
-    title: 'Fresh Lunchbox, Every Day',
-    subtitle: 'Home pickup to school, college, or office — delivered on time.',
-    colors: ['#E91E63', '#C2185B'],
-    imageOffset: -72,
-  },
-  {
-    id: 'monthly-save',
-    title: 'Monthly Plan · Save More',
-    subtitle: 'Subscribe once for hassle-free lunch deliveries all month.',
-    colors: ['#D81B60', '#AD1457'],
-    imageOffset: -28,
-  },
-  {
-    id: 'single-order',
-    title: 'Lunch Just for Today?',
-    subtitle: 'Single-order from ₹29 — one delivery, no long commitment.',
-    colors: ['#C2185B', '#880E4F'],
-    imageOffset: -116,
-  },
-];
+  const assetImage = ad.imageAssetKey ? PROMO_ASSET_MAP[ad.imageAssetKey] : undefined;
+
+  return {
+    id: ad.id,
+    kind: 'composed',
+    title: ad.title,
+    subtitle: ad.subtitle,
+    colors: [ad.gradientStart, ad.gradientEnd],
+    image: ad.imageUrl ? { uri: ad.imageUrl } : assetImage ?? PROMO_MEAL_PLATE,
+  };
+}
 
 const LUNCHBOX_AD_AUTO_SCROLL_MS = 4000;
+const MAX_HOME_PROMO_ADS = 3;
 
 function ExploreMenuBanner() {
   const scrollRef = useRef<ScrollView>(null);
   const activeIndexRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [slideWidth, setSlideWidth] = useState(Dimensions.get('window').width - spacing.md * 2);
+  const [remoteAds, setRemoteAds] = useState<LunchboxAd[]>([]);
+  const slides = useMemo(() => remoteAds.slice(0, MAX_HOME_PROMO_ADS), [remoteAds]);
+
+  useEffect(() => subscribeToActivePromoAds('customer', (ads) => setRemoteAds(ads.map(promoAdToSlide))), []);
 
   const goToSlide = useCallback(
     (index: number, animated = true) => {
-      if (!slideWidth) return;
-      const nextIndex = ((index % LUNCHBOX_ADS.length) + LUNCHBOX_ADS.length) % LUNCHBOX_ADS.length;
+      if (!slideWidth || slides.length === 0) return;
+      const nextIndex = ((index % slides.length) + slides.length) % slides.length;
       activeIndexRef.current = nextIndex;
       setActiveIndex(nextIndex);
       scrollRef.current?.scrollTo({ x: slideWidth * nextIndex, animated });
     },
-    [slideWidth],
+    [slideWidth, slides.length],
   );
+
+  useEffect(() => {
+    if (activeIndexRef.current >= slides.length) {
+      goToSlide(0, false);
+    }
+  }, [slides.length, goToSlide]);
 
   useFocusEffect(
     useCallback(() => {
-      if (!slideWidth) return undefined;
+      if (!slideWidth || slides.length === 0) return undefined;
 
       const interval = setInterval(() => {
         goToSlide(activeIndexRef.current + 1);
       }, LUNCHBOX_AD_AUTO_SCROLL_MS);
 
       return () => clearInterval(interval);
-    }, [slideWidth, goToSlide]),
+    }, [slideWidth, slides.length, goToSlide]),
   );
 
   const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (!slideWidth) return;
+    if (!slideWidth || slides.length === 0) return;
     const nextIndex = Math.round(event.nativeEvent.contentOffset.x / slideWidth);
-    activeIndexRef.current = Math.max(0, Math.min(LUNCHBOX_ADS.length - 1, nextIndex));
+    activeIndexRef.current = Math.max(0, Math.min(slides.length - 1, nextIndex));
     setActiveIndex(activeIndexRef.current);
   };
 
@@ -764,34 +768,51 @@ function ExploreMenuBanner() {
         nestedScrollEnabled
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={handleScrollEnd}
+        onScroll={Platform.OS === 'web' ? handleScrollEnd : undefined}
+        scrollEventThrottle={16}
         style={styles.exploreCarouselScroll}
       >
-        {LUNCHBOX_ADS.map((ad) => (
+        {slides.map((ad) => (
           <View key={ad.id} style={[styles.exploreSlide, { width: slideWidth }]}>
-            <LinearGradient
-              colors={ad.colors}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.exploreBanner}
-            >
-              <View style={styles.exploreCopy}>
-                <Text style={styles.exploreTitle}>{ad.title}</Text>
-                <Text style={styles.exploreSub}>{ad.subtitle}</Text>
-              </View>
-              <View style={styles.exploreLunchImageWrap}>
-                <Image
-                  source={PROMO_LUNCH_ART}
-                  style={[styles.exploreLunchImage, { marginLeft: ad.imageOffset }]}
-                  resizeMode="cover"
-                  accessibilityLabel="Lunchbox"
+            {ad.kind === 'banner' ? (
+              <View style={styles.exploreBannerSlot}>
+                <PromoBannerImage
+                  uri={ad.bannerImageUrl}
+                  width={slideWidth}
+                  height={PROMO_CAROUSEL_HEIGHT}
+                  accessibilityLabel="Promotional banner"
                 />
               </View>
-            </LinearGradient>
+            ) : (
+              <LinearGradient
+                colors={ad.colors}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.exploreBanner}
+              >
+                <View style={styles.exploreCopy}>
+                  <Text style={styles.exploreTitle} numberOfLines={2}>
+                    {ad.title}
+                  </Text>
+                  <Text style={styles.exploreSub} numberOfLines={3}>
+                    {ad.subtitle}
+                  </Text>
+                </View>
+                <View style={styles.exploreImageFrame}>
+                  <Image
+                    source={ad.image}
+                    style={styles.exploreHeroImage}
+                    resizeMode="cover"
+                    accessibilityLabel="Chef Queen lunch packing"
+                  />
+                </View>
+              </LinearGradient>
+            )}
           </View>
         ))}
       </ScrollView>
       <View style={styles.exploreDots}>
-        {LUNCHBOX_ADS.map((ad, index) => (
+        {slides.map((ad, index) => (
           <View key={ad.id} style={[styles.exploreDot, index === activeIndex && styles.exploreDotActive]} />
         ))}
       </View>
@@ -843,7 +864,6 @@ export function HomeScreen({ navigation }: Props) {
     stableHomeOrderRef.current = order;
   }
   const displayOrder = order ?? stableHomeOrderRef.current;
-  const liveEtaMinutes = useLiveEta(displayOrder);
   const [errorMessage, setErrorMessage] = useState('');
   const [recentDeliveries, setRecentDeliveries] = useState<DeliveryHistoryEntry[]>([]);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
@@ -932,7 +952,13 @@ export function HomeScreen({ navigation }: Props) {
   );
 
   const handleFoodReady = useCallback(async () => {
-    const showForm = !order || order.status === 'pickup_closed' || FOOD_READY_FORM_STATUSES.has(order.status);
+    const current = order ?? stableHomeOrderRef.current;
+    if (hasSentPickupRequest(current)) {
+      Alert.alert('Pickup request already sent', 'You already sent a pickup request. Please wait for a rider to accept.');
+      return;
+    }
+
+    const showForm = !current || current.status === 'pickup_closed' || FOOD_READY_FORM_STATUSES.has(current.status);
     if (!showForm) {
       goToFoodReady();
       return;
@@ -992,7 +1018,12 @@ export function HomeScreen({ navigation }: Props) {
   }, [navigation]);
 
   const handleLunchBoxPress = useCallback(() => {
-    const action = getLunchBoxCardState(order).action;
+    const current = order ?? stableHomeOrderRef.current;
+    const action = getLunchBoxCardState(current).action;
+    if (action === 'already_sent' || hasSentPickupRequest(current)) {
+      Alert.alert('Pickup request already sent', 'You already sent a pickup request. Please wait for a rider to accept.');
+      return;
+    }
     if (action === 'food_ready') {
       void handleFoodReady();
       return;
@@ -1015,7 +1046,9 @@ export function HomeScreen({ navigation }: Props) {
 
   const goToProfileScreen = useCallback(
     (screen: keyof ProfileStackParamList) => {
-      navigation.getParent()?.navigate('Profile', { screen });
+      const parent = navigation.getParent();
+      if (!parent) return;
+      parent.navigate('Profile', { screen, initial: false });
     },
     [navigation],
   );
@@ -1027,10 +1060,6 @@ export function HomeScreen({ navigation }: Props) {
       return {
         title: getDeliveredAtTitle(order),
         whenLabel: formatDeliveredWhenLabel(dateKey, time),
-        studentName: order.studentName,
-        deliveredTime: time,
-        destinationLabel: order.school?.split(',')[0]?.trim() || order.school,
-        proofImageUrl: order.deliveryProof?.proofImageUrl,
       };
     }
 
@@ -1041,10 +1070,6 @@ export function HomeScreen({ navigation }: Props) {
     return {
       title: getDeliveredAtTitleFromHistory(entry),
       whenLabel: formatDeliveredWhenLabel(dateKey, entry.time),
-      studentName: undefined,
-      deliveredTime: entry.time !== '—' ? entry.time : undefined,
-      destinationLabel: entry.destinationName,
-      proofImageUrl: undefined,
     };
   }, [order, recentDeliveries]);
 
@@ -1058,19 +1083,24 @@ export function HomeScreen({ navigation }: Props) {
           onNotifications={() => navigation.navigate('Notifications')}
           onProfile={() => navigation.getParent()?.navigate('Profile')}
         />
+        <Text style={styles.pickupSlotLabel}>{CUSTOMER_PICKUP_SLOT_LABEL}</Text>
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
       >
-        <TodaysDeliveryCard order={displayOrder} liveEtaMinutes={liveEtaMinutes} onViewDetails={handleViewDetails} />
+        <TodaysDeliveryCard order={displayOrder} onViewDetails={handleViewDetails} />
         <LiveTrackingCard
           order={displayOrder}
           disabled={submitting}
           onPress={handleLunchBoxPress}
           onHistoryPress={() => navigation.navigate('History')}
         />
+
+        {deliveredProof ? (
+          <HomeDeliveredProofCard title={deliveredProof.title} whenLabel={deliveredProof.whenLabel} />
+        ) : null}
 
         {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
 
@@ -1083,25 +1113,15 @@ export function HomeScreen({ navigation }: Props) {
 
         <ExploreMenuBanner />
 
-        {deliveredProof ? (
-          <HomeDeliveredProofCard
-            title={deliveredProof.title}
-            whenLabel={deliveredProof.whenLabel}
-            studentName={deliveredProof.studentName}
-            deliveredTime={deliveredProof.deliveredTime}
-            destinationLabel={deliveredProof.destinationLabel}
-            proofImageUrl={deliveredProof.proofImageUrl}
-          />
-        ) : null}
-
         <View style={styles.recentSection}>
           <View style={styles.recentHeader}>
             <View style={styles.sectionHeader}>
-              <Ionicons name="pulse-outline" size={18} color={colors.orange} />
+              <Ionicons name="cube-outline" size={18} color={colors.orange} />
               <Text style={styles.sectionTitle}>Recent Deliveries</Text>
             </View>
-            <Pressable onPress={() => navigation.navigate('History')}>
+            <Pressable onPress={() => navigation.navigate('History')} style={styles.viewAllBtn}>
               <Text style={styles.viewAllLink}>View All</Text>
+              <Ionicons name="chevron-forward" size={13} color={colors.orange} />
             </Pressable>
           </View>
 
@@ -1109,7 +1129,8 @@ export function HomeScreen({ navigation }: Props) {
             recentDeliveries.map((entry) => <RecentDeliveryCard key={entry.id} entry={entry} />)
           ) : (
             <View style={styles.emptyRecent}>
-              <Text style={styles.emptyRecentText}>No delivery yet</Text>
+              <Ionicons name="cube-outline" size={36} color={colors.muted} />
+              <Text style={styles.emptyRecentText}>No delivery yet. Your recent deliveries will appear here.</Text>
             </View>
           )}
         </View>
@@ -1121,6 +1142,13 @@ export function HomeScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   headerWrap: { paddingTop: spacing.xs, paddingBottom: spacing.sm },
+  pickupSlotLabel: {
+    marginTop: 6,
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.red,
+    lineHeight: 20,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1132,10 +1160,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerName: {
-    fontSize: 22,
+    fontSize: 26,
     fontWeight: '800',
-    color: colors.orange,
-    textTransform: 'lowercase',
+    color: colors.text,
+    letterSpacing: -0.5,
   },
   headerRight: {
     flexDirection: 'row',
@@ -1143,14 +1171,13 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   headerIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    ...shadow.subtle,
   },
   notifDot: {
     position: 'absolute',
@@ -1159,25 +1186,25 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.red,
-    borderWidth: 1.5,
+    backgroundColor: colors.orange,
+    borderWidth: 2,
     borderColor: colors.white,
   },
   scroll: { paddingBottom: 32, gap: 14 },
   deliveryCard: {
     backgroundColor: colors.white,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    ...shadow.subtle,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 10,
+    borderWidth: 0,
+    ...shadow.card,
   },
   deliveryCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.md,
+    marginBottom: 8,
     gap: 8,
   },
   deliveryCardHeaderLeft: {
@@ -1190,22 +1217,20 @@ const styles = StyleSheet.create({
   deliveryCardEyebrow: {
     fontSize: 11,
     fontWeight: '800',
-    color: colors.orange,
-    letterSpacing: 0.5,
+    color: colors.green,
   },
   viewDetailsBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    backgroundColor: colors.orange,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
   },
   viewDetailsText: {
     fontSize: 11,
     fontWeight: '700',
-    color: colors.onPrimary,
+    color: colors.orange,
   },
   deliveryInfoRow: {
     flexDirection: 'row',
@@ -1215,21 +1240,27 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     minWidth: 0,
-    paddingHorizontal: 2,
+    paddingHorizontal: 3,
+  },
+  deliveryStatIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
   },
   deliveryInfoDivider: {
     width: 1,
     alignSelf: 'stretch',
     backgroundColor: colors.borderSubtle,
-    marginHorizontal: 4,
   },
   deliveryInfoLabel: {
     fontSize: 9,
-    fontWeight: '700',
+    fontWeight: '600',
     color: colors.muted,
-    marginBottom: 4,
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
+    textAlign: 'center',
+    marginBottom: 1,
   },
   deliveryInfoValue: {
     fontSize: 11,
@@ -1241,37 +1272,37 @@ const styles = StyleSheet.create({
   deliveryInfoSub: {
     fontSize: 9,
     color: colors.muted,
-    marginTop: 3,
     textAlign: 'center',
-    lineHeight: 12,
-  },
-  deliveryEtaValue: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: colors.orange,
-    textAlign: 'center',
+    lineHeight: 11,
+    marginTop: 1,
   },
   liveTrackingCard: {
-    borderRadius: 22,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.md,
+    borderRadius: 26,
+    paddingHorizontal: spacing.sm,
     paddingTop: 36,
+    paddingBottom: 16,
     marginBottom: 2,
     overflow: 'hidden',
     position: 'relative',
+    backgroundColor: colors.white,
     ...shadow.card,
+  },
+  liveTrackingCardCancelled: {
+    backgroundColor: colors.white,
   },
   liveTrackingTimeBadge: {
     position: 'absolute',
-    top: 10,
-    left: 12,
+    top: 12,
+    left: 14,
     zIndex: 2,
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.onPrimary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
-  liveTrackingTimeBadgeHidden: {
-    opacity: 0,
+  liveTrackingTimeText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.green,
   },
   historyShortcut: {
     position: 'absolute',
@@ -1285,23 +1316,80 @@ const styles = StyleSheet.create({
   historyShortcutPressed: {
     opacity: 0.85,
   },
+  readyCopyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: 40,
+    marginBottom: 8,
+    gap: 8,
+  },
+  readyCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  readyTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.onPrimary,
+    lineHeight: 22,
+  },
+  readySub: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.88)',
+    marginTop: 4,
+    lineHeight: 15,
+    fontWeight: '500',
+  },
+  readyArt: {
+    width: 56,
+    height: 56,
+    flexShrink: 0,
+  },
+  readyTracker: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    width: '100%',
+    backgroundColor: 'rgba(0,0,0,0.14)',
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+  },
+  readyStepIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  readyStepCheck: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.white,
+  },
   liveTrackingContent: {
     width: '100%',
+    flexDirection: 'column',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'flex-start',
   },
   gaugeCol: {
     alignItems: 'center',
     justifyContent: 'center',
+    alignSelf: 'center',
   },
   timelineBelow: {
     width: '100%',
     alignSelf: 'stretch',
-    paddingTop: 4,
-    minHeight: 52,
-  },
-  timelineBelowHidden: {
-    opacity: 0,
+    marginTop: 12,
   },
   liveProgressList: {
     flexDirection: 'row',
@@ -1310,77 +1398,63 @@ const styles = StyleSheet.create({
   },
   liveProgressItem: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     minWidth: 0,
   },
-  liveProgressStep: {
-    flex: 1,
+  liveProgressIconRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    minWidth: 0,
-    paddingHorizontal: 1,
+    width: '100%',
+    marginBottom: 6,
   },
   liveProgressIcon: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
   liveProgressIconDone: {
-    backgroundColor: colors.green,
-  },
-  liveProgressIconActive: {
-    backgroundColor: colors.green,
+    backgroundColor: colors.orange,
   },
   liveProgressIconPending: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: '#E6E1D8',
   },
   liveProgressLine: {
     height: 2,
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    marginTop: 9,
-    minWidth: 2,
-    maxWidth: 18,
+    backgroundColor: '#D8D2C6',
   },
   liveProgressLineDone: {
-    backgroundColor: 'rgba(255,255,255,0.55)',
+    backgroundColor: colors.orange,
+  },
+  liveProgressLineHidden: {
+    opacity: 0,
   },
   liveProgressLabel: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '800',
-    color: colors.onPrimary,
+    color: colors.text,
     textAlign: 'center',
-    lineHeight: 10,
+    lineHeight: 12,
     width: '100%',
-  },
-  liveProgressLabelDone: {
-    color: colors.onPrimary,
-  },
-  liveProgressLabelActive: {
-    color: colors.onPrimary,
+    paddingHorizontal: 1,
   },
   liveProgressLabelPending: {
-    color: 'rgba(255,255,255,0.55)',
-    fontWeight: '700',
+    color: colors.muted,
+    fontWeight: '600',
   },
   quickReferCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.white,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    gap: 10,
     marginBottom: 2,
-    minHeight: 72,
-    ...shadow.subtle,
+    backgroundColor: colors.white,
+    borderRadius: 24,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    ...shadow.card,
   },
   quickActionsSection: {
     flex: 1,
@@ -1388,116 +1462,134 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     minWidth: 0,
-    paddingRight: 4,
-  },
-  quickReferDivider: {
-    width: 1,
-    height: 48,
-    backgroundColor: colors.borderSubtle,
+    gap: 4,
   },
   quickActionBtn: {
     flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     minWidth: 0,
-    paddingHorizontal: 1,
+    paddingVertical: 2,
+    paddingHorizontal: 2,
   },
   quickActionBtnPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.98 }],
+    opacity: 0.85,
   },
   quickActionIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.orangeLight,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   quickActionLabel: {
-    fontSize: 8,
-    fontWeight: '700',
-    color: colors.orange,
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.text,
     textAlign: 'center',
-    lineHeight: 10,
+    lineHeight: 14,
   },
   referSection: {
-    flex: 1.05,
+    flex: 1.2,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
     minWidth: 0,
-    paddingLeft: 6,
+    backgroundColor: colors.bg,
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
   },
   referCardPressed: {
     opacity: 0.94,
   },
   referIcon: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     borderRadius: 8,
-    backgroundColor: colors.orangeLight,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
   referCopy: { flex: 1, minWidth: 0 },
   referTitle: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '800',
     color: colors.text,
-    lineHeight: 14,
+    lineHeight: 17,
   },
   referSub: {
-    fontSize: 9,
+    fontSize: 10,
     color: colors.muted,
-    marginTop: 1,
-    fontWeight: '600',
-    lineHeight: 11,
+    marginTop: 2,
+    fontWeight: '500',
+    lineHeight: 13,
   },
   exploreCarousel: {
     marginBottom: 2,
   },
   exploreCarouselScroll: {
-    borderRadius: 18,
+    borderRadius: 20,
     overflow: 'hidden',
   },
   exploreSlide: {
+    height: PROMO_CAROUSEL_HEIGHT,
     ...shadow.card,
   },
+  exploreBannerSlot: {
+    flex: 1,
+    height: PROMO_CAROUSEL_HEIGHT,
+    borderRadius: 22,
+    overflow: 'hidden',
+    backgroundColor: colors.bg,
+  },
+  exploreBannerImage: {
+    width: '100%',
+    height: '100%',
+  },
   exploreBanner: {
-    borderRadius: 18,
-    padding: spacing.md,
+    borderRadius: 22,
+    paddingLeft: 16,
+    paddingRight: 12,
+    paddingVertical: 14,
+    height: PROMO_CAROUSEL_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
+    overflow: 'hidden',
   },
-  exploreCopy: { flex: 1, minWidth: 0 },
+  exploreCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
   exploreTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '800',
     color: colors.onPrimary,
+    lineHeight: 21,
   },
   exploreSub: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.85)',
-    marginTop: 3,
-    fontWeight: '600',
-    lineHeight: 15,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.9)',
+    marginTop: 6,
+    fontWeight: '500',
+    lineHeight: 17,
   },
-  exploreLunchImageWrap: {
-    width: 72,
-    height: 72,
+  exploreImageFrame: {
+    width: 92,
+    height: 92,
     borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.95)',
+    backgroundColor: colors.white,
+    padding: 5,
     flexShrink: 0,
+    overflow: 'hidden',
   },
-  exploreLunchImage: {
-    width: 180,
-    height: 72,
+  exploreHeroImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
   },
   exploreDots: {
     flexDirection: 'row',
@@ -1510,7 +1602,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: 'rgba(233, 30, 99, 0.25)',
+    backgroundColor: 'rgba(228, 94, 26, 0.25)',
   },
   exploreDotActive: {
     width: 16,
@@ -1544,7 +1636,6 @@ const styles = StyleSheet.create({
     width: GAUGE_SIZE - GAUGE_STROKE * 2 - 10,
     height: GAUGE_SIZE - GAUGE_STROKE * 2 - 10,
     borderRadius: (GAUGE_SIZE - GAUGE_STROKE * 2 - 10) / 2,
-    backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
@@ -1560,7 +1651,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: colors.orangeLight,
+    backgroundColor: '#FFF6E8',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
@@ -1585,23 +1676,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.red,
   },
   gaugePercent: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: '800',
-    color: colors.orange,
-    lineHeight: 28,
+    color: colors.onPrimary,
+    lineHeight: 32,
   },
   gaugePercentCancelled: {
-    color: colors.red,
+    color: colors.onPrimary,
   },
   gaugeStatus: {
     fontSize: 12,
     fontWeight: '800',
-    color: colors.text,
+    color: colors.green,
     letterSpacing: 0.4,
     marginTop: 2,
   },
   gaugeStatusCancelled: {
-    color: colors.red,
+    color: colors.onPrimary,
   },
   gaugeHint: {
     fontSize: 9,
@@ -1613,14 +1704,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   gaugeHintOnGradient: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '600',
-    color: colors.muted,
+    color: 'rgba(255,255,255,0.92)',
     textAlign: 'center',
-    lineHeight: 11,
+    lineHeight: 12,
     marginTop: 6,
     paddingHorizontal: 4,
-    maxWidth: 112,
+    maxWidth: 120,
   },
   error: {
     color: colors.red,
@@ -1730,6 +1821,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: spacing.sm,
   },
+  viewAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 1,
+  },
   viewAllLink: {
     fontSize: 12,
     fontWeight: '700',
@@ -1740,9 +1836,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     backgroundColor: colors.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
+    borderRadius: 22,
+    borderWidth: 0,
     padding: spacing.md,
     marginBottom: 10,
     ...shadow.subtle,
@@ -1784,16 +1879,21 @@ const styles = StyleSheet.create({
   },
   emptyRecent: {
     backgroundColor: colors.white,
-    borderRadius: 16,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: colors.borderSubtle,
-    padding: spacing.lg,
+    paddingVertical: 28,
+    paddingHorizontal: spacing.lg,
     alignItems: 'center',
+    gap: 10,
+    ...shadow.subtle,
   },
   emptyRecentText: {
     fontSize: 13,
     color: colors.muted,
     textAlign: 'center',
     fontWeight: '600',
+    lineHeight: 18,
+    maxWidth: 260,
   },
 });

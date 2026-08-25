@@ -9,6 +9,7 @@ import { Card } from '../components/Card';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { colors, gradients, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { goBackInProfileStack } from '../navigation/customerRoutes';
 import { downloadReceipt, loadWallet, WalletState } from '../services/paymentService';
 
 export function WalletScreen() {
@@ -47,7 +48,7 @@ export function WalletScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScreenHeader
         title="Wallet & Payments"
-        onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined}
+        onBack={() => goBackInProfileStack(navigation)}
       />
       <ScrollView contentContainerStyle={styles.scroll}>
         <LinearGradient colors={[...gradients.primary]} style={styles.balance}>

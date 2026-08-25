@@ -9,7 +9,7 @@ import { Avatar } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { LiveDeliveryMap } from '../components/LiveDeliveryMap';
 import { PickupVerificationModal } from '../components/PickupVerificationModal';
-import { colors, shadow, spacing } from '../constants/theme';
+import { colors, gradients, shadow, spacing } from '../constants/theme';
 import { useDelivery } from '../context/DeliveryContext';
 import { useLiveEta } from '../hooks/useLiveEta';
 import { useResponsive } from '../hooks/useResponsive';
@@ -132,12 +132,14 @@ function TrackingHeader({
   onBack,
   onRefresh,
   live,
+  delivered,
 }: {
   horizontalPadding: number;
   refreshing: boolean;
   onBack: () => void;
   onRefresh: () => void;
   live?: boolean;
+  delivered?: boolean;
 }) {
   return (
     <View style={[styles.header, { paddingHorizontal: horizontalPadding }]}>
@@ -146,8 +148,13 @@ function TrackingHeader({
       </Pressable>
 
       <View style={styles.headerCenter}>
-        <Text style={styles.headerTitle}>Live Tracking</Text>
-        {live ? (
+        <Text style={styles.headerTitle}>{delivered ? 'Tracking' : 'Live Tracking'}</Text>
+        {delivered ? (
+          <View style={styles.liveBadge}>
+            <Ionicons name="checkmark" size={10} color={colors.green} />
+            <Text style={styles.liveText}>DONE</Text>
+          </View>
+        ) : live ? (
           <View style={styles.liveBadge}>
             <View style={styles.liveDot} />
             <Text style={styles.liveText}>LIVE</Text>
@@ -194,7 +201,7 @@ function FindingDriverState({
         onRefresh={onRefresh}
       />
       <View style={styles.findingWrap}>
-        <LinearGradient colors={['#2D2D44', '#3D3D5C']} style={styles.findingCard}>
+        <LinearGradient colors={[...gradients.premium]} style={styles.findingCard}>
           <View style={styles.radarRing}>
             <View style={styles.radarRingMid}>
               <View style={styles.radarCore}>
@@ -238,7 +245,7 @@ export function TrackingScreen({ navigation }: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      if (!order?.id || !order.driver) return undefined;
+      if (!order?.id || !order.driver || order.status === 'delivered') return undefined;
 
       const syncLiveTracking = () => {
         void syncDriverLocationForOrder(order.id).then(() => refreshDelivery());
@@ -247,7 +254,7 @@ export function TrackingScreen({ navigation }: Props) {
       syncLiveTracking();
       const interval = setInterval(syncLiveTracking, 10000);
       return () => clearInterval(interval);
-    }, [order?.id, order?.driver, refreshDelivery]),
+    }, [order?.id, order?.driver, order?.status, refreshDelivery]),
   );
 
   const handleBack = () => {
@@ -261,7 +268,7 @@ export function TrackingScreen({ navigation }: Props) {
   if (!order || order.status === 'booked') {
     return (
       <SafeAreaView style={styles.emptyScreen} edges={['top']}>
-        <LinearGradient colors={['#2D2D44', '#1F1F33']} style={styles.emptyHero}>
+        <LinearGradient colors={[...gradients.premium]} style={styles.emptyHero}>
           <Ionicons name="navigate-circle-outline" size={56} color="rgba(255,255,255,0.35)" />
           <Text style={styles.emptyTitle}>Tracking not started</Text>
           <Text style={styles.emptySub}>Mark food ready from Home to unlock live rider tracking.</Text>
@@ -285,8 +292,9 @@ export function TrackingScreen({ navigation }: Props) {
     );
   }
 
+  const isDelivered = order.status === 'delivered';
   const isInTransit = ['in_transit', 'at_drop', 'picked_up'].includes(order.status);
-  const etaMinutes = liveEtaMinutes ?? (isInTransit ? 14 : 8);
+  const etaMinutes = isDelivered ? null : liveEtaMinutes ?? (isInTransit ? 14 : 8);
   const statusMessage = getTrackingStatusMessage(order.status);
 
   return (
@@ -296,26 +304,45 @@ export function TrackingScreen({ navigation }: Props) {
         refreshing={refreshing}
         onBack={handleBack}
         onRefresh={() => void handleRefresh()}
-        live
+        live={!isDelivered}
+        delivered={isDelivered}
       />
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} bounces>
         <View style={styles.mapBlock}>
           <LiveDeliveryMap key={mapKey} order={order} height={300} />
           <LinearGradient
-            colors={['rgba(45,45,68,0.55)', 'rgba(45,45,68,0.05)', 'transparent']}
+            colors={['rgba(81,91,47,0.45)', 'rgba(81,91,47,0.06)', 'transparent']}
             style={styles.mapOverlay}
             pointerEvents="none"
           />
 
-          <View style={styles.etaOrb}>
-            <Text style={styles.etaOrbLabel}>ARRIVING IN</Text>
-            <Text style={styles.etaOrbValue}>{etaMinutes}</Text>
-            <Text style={styles.etaOrbUnit}>min</Text>
+          <View style={[styles.etaOrb, isDelivered && styles.etaOrbDone]}>
+            {isDelivered ? (
+              <>
+                <Ionicons name="checkmark-circle" size={28} color={colors.green} />
+                <Text style={styles.etaOrbLabelDone}>DELIVERED</Text>
+                {order.deliveredAt ? (
+                  <Text style={styles.etaOrbUnit}>{order.deliveredAt}</Text>
+                ) : (
+                  <Text style={styles.etaOrbUnit}>Enjoy your meal</Text>
+                )}
+              </>
+            ) : (
+              <>
+                <Text style={styles.etaOrbLabel}>ARRIVING IN</Text>
+                <Text style={styles.etaOrbValue}>{etaMinutes}</Text>
+                <Text style={styles.etaOrbUnit}>min</Text>
+              </>
+            )}
           </View>
 
           <View style={styles.mapStatusPill}>
-            <Ionicons name="pulse" size={14} color={colors.orange} />
+            <Ionicons
+              name={isDelivered ? 'checkmark-circle' : 'pulse'}
+              size={14}
+              color={isDelivered ? colors.green : colors.orange}
+            />
             <Text style={styles.mapStatusText} numberOfLines={1}>
               {statusMessage}
             </Text>
@@ -330,7 +357,7 @@ export function TrackingScreen({ navigation }: Props) {
           <RouteStrip order={order} />
 
           <View style={styles.driverCard}>
-            <Avatar initials={order.driver.initials} />
+            <Avatar initials={order.driver.initials} onDark />
             <View style={styles.driverCopy}>
               <Text style={styles.driverEyebrow}>YOUR RIDER</Text>
               <Text style={styles.driverName} numberOfLines={1}>
@@ -348,10 +375,12 @@ export function TrackingScreen({ navigation }: Props) {
               <Ionicons name="list-outline" size={16} color={colors.text} />
               <Text style={styles.actionPillText}>Full Status</Text>
             </Pressable>
-            <Pressable style={styles.actionPill} onPress={() => setQrModalVisible(true)}>
-              <Ionicons name="qr-code-outline" size={16} color={colors.text} />
-              <Text style={styles.actionPillText}>QR & OTP</Text>
-            </Pressable>
+            {isDelivered ? null : (
+              <Pressable style={styles.actionPill} onPress={() => setQrModalVisible(true)}>
+                <Ionicons name="qr-code-outline" size={16} color={colors.text} />
+                <Text style={styles.actionPillText}>QR & OTP</Text>
+              </Pressable>
+            )}
             <Pressable style={styles.actionPill} onPress={() => void handleRefresh()} disabled={refreshing}>
               <Ionicons name="locate-outline" size={16} color={colors.text} />
               <Text style={styles.actionPillText}>{refreshing ? 'Updating…' : 'Refresh'}</Text>
@@ -370,13 +399,13 @@ export function TrackingScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#2D2D44' },
+  container: { flex: 1, backgroundColor: colors.green },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: spacing.sm,
-    backgroundColor: '#2D2D44',
+    backgroundColor: colors.green,
   },
   headerBtn: {
     width: 40,
@@ -397,7 +426,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(67,160,71,0.18)',
+    backgroundColor: colors.bg,
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -436,11 +465,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...shadow.elevated,
   },
+  etaOrbDone: {
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    paddingHorizontal: 8,
+  },
   etaOrbLabel: {
     fontSize: 8,
     fontWeight: '700',
     color: colors.muted,
     letterSpacing: 0.6,
+  },
+  etaOrbLabelDone: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.green,
+    letterSpacing: 0.5,
+    marginTop: 2,
   },
   etaOrbValue: {
     fontSize: 30,
@@ -581,25 +623,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: colors.white,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
+    backgroundColor: colors.green,
+    borderRadius: 22,
     padding: spacing.md,
     marginBottom: spacing.md,
-    ...shadow.subtle,
+    ...shadow.card,
   },
   driverCopy: { flex: 1, minWidth: 0 },
   driverEyebrow: {
     fontSize: 9,
     fontWeight: '700',
-    color: colors.muted,
+    color: 'rgba(255,255,255,0.7)',
     letterSpacing: 0.6,
   },
   driverName: {
     fontSize: 16,
     fontWeight: '800',
-    color: colors.text,
+    color: colors.onPrimary,
     marginTop: 2,
   },
   driverStatus: {
@@ -683,7 +723,7 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 60,
     borderWidth: 2,
-    borderColor: 'rgba(233,30,99,0.25)',
+    borderColor: 'rgba(228,94,26,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.lg,
@@ -693,7 +733,7 @@ const styles = StyleSheet.create({
     height: 92,
     borderRadius: 46,
     borderWidth: 2,
-    borderColor: 'rgba(233,30,99,0.4)',
+    borderColor: 'rgba(228,94,26,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
   },

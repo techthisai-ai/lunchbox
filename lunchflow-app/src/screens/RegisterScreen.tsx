@@ -12,6 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/types';
 import { navigateAfterCustomerLogin, navigateAfterCustomerRegistration } from '../navigation/customerRoutes';
 import { navigateAfterDriverLogin } from '../navigation/driverRoutes';
+import { prefetchOnboardingPageAds } from '../services/promoAdService';
 import { isCustomerRegistered } from '../services/userRegistryService';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Register'>;
@@ -51,6 +52,12 @@ export function RegisterScreen({ navigation, route }: Props) {
       setSelectedRole(route.params.role);
     }
   }, [route.params?.phone, route.params?.referralCode, route.params?.role]);
+
+  useEffect(() => {
+    if (selectedRole === 'customer') {
+      void prefetchOnboardingPageAds();
+    }
+  }, [selectedRole]);
 
   // If this number is already registered as a customer, skip the form and go to home.
   useEffect(() => {

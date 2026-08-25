@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image, StyleSheet, Text, View } from 'react-native';
+import { brandHeadingStyle } from '../constants/fonts';
 import { colors, radius, shadow } from '../constants/theme';
 import { DeliveryOrder } from '../types/delivery';
 
@@ -37,10 +38,6 @@ function DeliveryProofPreview({
     return (
       <View style={styles.proofWrap}>
         <Image source={{ uri: proofImageUrl }} style={styles.proofImage} resizeMode="cover" />
-        <View style={styles.proofCaption}>
-          <Ionicons name="camera" size={12} color={colors.onPrimary} />
-          <Text style={styles.proofCaptionText}>Delivery proof</Text>
-        </View>
       </View>
     );
   }
@@ -59,7 +56,7 @@ function DeliveryProofPreview({
             <Text style={styles.proofPersonRole}>Delivery Executive</Text>
           </View>
           <View style={styles.proofHandoff}>
-            <Ionicons name="fast-food" size={22} color="#E91E63" />
+            <Ionicons name="fast-food-outline" size={22} color={colors.orange} />
           </View>
           <View style={styles.proofPerson}>
             <View style={styles.proofAvatarStudent}>
@@ -71,10 +68,6 @@ function DeliveryProofPreview({
             <Text style={styles.proofPersonRole}>Student</Text>
           </View>
         </View>
-      </View>
-      <View style={styles.proofCaption}>
-        <Ionicons name="camera" size={12} color={colors.onPrimary} />
-        <Text style={styles.proofCaptionText}>Delivery proof attached</Text>
       </View>
     </View>
   );
@@ -94,7 +87,7 @@ export function WhatsAppDeliveryConfirmationCard({ order }: Props) {
         </View>
         <View style={styles.brandCopy}>
           <View style={styles.brandNameRow}>
-            <Text style={styles.brandName}>LunchFlow</Text>
+            <Text style={styles.brandName}>Chef Queen</Text>
             <View style={styles.verifiedBadge}>
               <Ionicons name="checkmark-circle" size={14} color="#25D366" />
             </View>
@@ -146,7 +139,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#E91E63',
+    backgroundColor: colors.orange,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -161,7 +154,7 @@ const styles = StyleSheet.create({
   },
   brandName: {
     fontSize: 16,
-    fontWeight: '800',
+    ...brandHeadingStyle(),
     color: colors.onPrimary,
   },
   verifiedBadge: {
@@ -241,7 +234,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#E91E63',
+    backgroundColor: colors.orange,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 6,
@@ -268,19 +261,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#C8E6C9',
-  },
-  proofCaption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  proofCaptionText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.onPrimary,
   },
   messageMeta: {
     flexDirection: 'row',

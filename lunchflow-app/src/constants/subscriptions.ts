@@ -20,6 +20,10 @@ export type SubscriptionPlan = {
   detailSubtitle?: string;
   detailLineLabel?: string;
   detailIcon?: string;
+  /** e.g. "1 day only", "per month" — shown after the price on detail cards */
+  detailPriceSuffix?: string;
+  /** Original price shown with strikethrough before the current price */
+  detailCompareAtAmount?: number;
 };
 
 export const SUBSCRIPTION_DETAIL_PLANS: SubscriptionPlan[] = [
@@ -29,6 +33,7 @@ export const SUBSCRIPTION_DETAIL_PLANS: SubscriptionPlan[] = [
     detailTitle: 'For single order for single person',
     detailSubtitle: 'Perfect for occasional orders.',
     detailLineLabel: 'Single order (single person) - 29',
+    detailPriceSuffix: '1 day only',
     detailIcon: 'person-outline',
     price: '₹29',
     period: 'Per delivery',
@@ -47,6 +52,7 @@ export const SUBSCRIPTION_DETAIL_PLANS: SubscriptionPlan[] = [
     detailTitle: 'Monthly subscription',
     detailSubtitle: 'Best for regular, hassle-free meals every day.',
     detailLineLabel: 'Monthly subscription - 499',
+    detailPriceSuffix: 'per month',
     detailIcon: 'calendar-outline',
     price: '₹499',
     period: 'Monthly',
@@ -64,6 +70,7 @@ export const SUBSCRIPTION_DETAIL_PLANS: SubscriptionPlan[] = [
     detailTitle: 'Adding a student or other (same drop location)',
     detailSubtitle: 'Add one extra person for today at the same drop location.',
     detailLineLabel: 'Add student/other (same drop) - 99',
+    detailCompareAtAmount: 149,
     detailIcon: 'people-outline',
     price: '₹99',
     period: '1 day',
@@ -83,6 +90,7 @@ export const SUBSCRIPTION_DETAIL_PLANS: SubscriptionPlan[] = [
     detailTitle: 'Adding a student or other (in different drop location)',
     detailSubtitle: 'Add one extra person for today at a different drop location.',
     detailLineLabel: 'Add student/other (different drop) - 199',
+    detailCompareAtAmount: 499,
     detailIcon: 'location-outline',
     price: '₹199',
     period: '1 day',

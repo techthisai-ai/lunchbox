@@ -146,5 +146,10 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow update, delete: if isAdmin();
     }
+
+    match /promo_ads/{adId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }

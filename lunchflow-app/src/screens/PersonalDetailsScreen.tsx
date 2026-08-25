@@ -8,6 +8,7 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { colors, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { ProfileStackParamList } from '../navigation/types';
+import { goBackInProfileStack } from '../navigation/customerRoutes';
 import { loadCustomerRegistration } from '../services/userRegistryService';
 import { DeliveryType, REGISTRATION_TYPE_OPTIONS, normalizeDeliveryType } from '../types/delivery';
 
@@ -33,7 +34,7 @@ export function PersonalDetailsScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScreenHeader title="Personal Details" subtitle="Your account information" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Personal Details" subtitle="Your account information" onBack={() => goBackInProfileStack(navigation)} />
       <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
         <Input label="Full Name" value={name} onChangeText={setName} placeholder="Enter your full name" />
         <Input

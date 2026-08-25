@@ -151,6 +151,32 @@ export async function buildEnfieldRoute(
 
   const optimized = optimizeStopOrder(origin, pending);
   const path = [origin, ...optimized.map((stop) => stop.point)];
+  const implausible = path.some((point, index) => {
+    if (index === 0) return false;
+    return haversineDistanceKm(path[index - 1], point) > 80;
+  });
+  if (implausible) {
+    const nearest = optimized[0];
+    const localPath = nearest ? [origin, nearest.point] : [origin];
+    const localTooFar = nearest ? haversineDistanceKm(origin, nearest.point) > 80 : true;
+    if (localTooFar) {
+      return {
+        stops: optimized,
+        polyline: [origin],
+        totalDistanceKm: 0,
+        totalDurationMinutes: 0,
+        legs: [],
+      };
+    }
+    const routed = await fetchOsrmRoute(localPath);
+    return {
+      stops: optimized.slice(0, 1),
+      polyline: routed.polyline,
+      totalDistanceKm: routed.distanceKm,
+      totalDurationMinutes: routed.durationMinutes,
+      legs: routed.legs,
+    };
+  }
   const routed = await fetchOsrmRoute(path);
 
   return {

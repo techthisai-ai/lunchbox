@@ -1,7 +1,7 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AdminTableScroll } from '../../components/admin/AdminTableScroll';
 import { AdminKpiCard } from '../../components/admin/AdminKpiCard';
 import { AdminKpiRow } from '../../components/admin/AdminKpiRow';
@@ -10,7 +10,7 @@ import { AdminLogoutButton } from '../../components/admin/AdminLogoutButton';
 import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { AdminPanel } from '../../components/admin/AdminPanel';
 import { Badge } from '../../components/Badge';
-import { formatOrderDisplayId } from '../../utils/adminOrderHelpers';
+import { formatOrderDisplayId, resolveAssignedDriver } from '../../utils/adminOrderHelpers';
 import { LiveDeliveryMap, type FleetDriverMarker } from '../../components/LiveDeliveryMap';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
@@ -30,6 +30,7 @@ import {
 } from '../../services/driverLocationService';
 import { loadRegisteredDrivers } from '../../services/userRegistryService';
 import { DeliveryOrder, DeliveryStatus } from '../../types/delivery';
+import { useAdminPortalNav } from '../../context/AdminPortalContext';
 
 function formatTodayDate(): string {
   return new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -52,6 +53,7 @@ function pickMapOrder(orders: DeliveryOrder[]): DeliveryOrder | null {
 }
 
 export function AdminDashboardScreen() {
+  const portal = useAdminPortalNav();
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
   const [drivers, setDrivers] = useState<Awaited<ReturnType<typeof loadRegisteredDrivers>>>([]);
   const [liveLocations, setLiveLocations] = useState<DriverLiveLocation[]>([]);
@@ -66,7 +68,7 @@ export function AdminDashboardScreen() {
     driver: col(0.9, 115),
     status: col(0.85, 105, { alignItems: 'flex-start' }),
   };
-  const mapHeight = isCompact ? 200 : isSidebarCollapsed ? 220 : 280;
+  const mapHeight = isCompact ? 280 : isSidebarCollapsed ? 340 : 420;
 
   const refresh = useCallback(async () => {
     await processExpiredPickupOrders();
@@ -119,9 +121,11 @@ export function AdminDashboardScreen() {
     ]);
     return ids.size;
   }, [fleetDrivers, liveLocations]);
-  const hasMapData = Boolean(mapOrder || fleetOrders.length > 0 || fleetDrivers.length > 0 || liveLocations.length > 0);
 
-  const recentOrders = orders.slice(0, 5);
+  const recentOrders = useMemo(
+    () => orders.map((order) => ({ ...order, driver: resolveAssignedDriver(order, drivers) })).slice(0, 5),
+    [orders, drivers],
+  );
 
   return (
     <AdminPageLayout wide>
@@ -132,6 +136,10 @@ export function AdminDashboardScreen() {
           </View>
         ) : null}
         <View style={[styles.headerActions, isSidebarCollapsed && styles.headerActionsMobile]}>
+          <Pressable style={styles.adPostBtn} onPress={() => portal?.openPromoPosts()} accessibilityLabel="Manage ad posts">
+            <Ionicons name="megaphone-outline" size={16} color={colors.orange} />
+            <Text style={styles.adPostBtnText}>Ad Posts</Text>
+          </Pressable>
           <View style={styles.datePill}>
             <Ionicons name="calendar-outline" size={16} color={colors.muted} />
             <Text style={styles.dateText}>{formatTodayDate()}</Text>
@@ -153,22 +161,13 @@ export function AdminDashboardScreen() {
 
       <View style={styles.midRow}>
         <AdminPanel title="Live Delivery Map" style={styles.mapPanel}>
-          {hasMapData ? (
-            <LiveDeliveryMap
-              order={mapOrder}
-              fleetOrders={fleetOrders}
-              fleetDrivers={fleetDrivers}
-              liveLocations={liveLocations}
-              height={mapHeight}
-            />
-          ) : (
-            <View style={[styles.mapPlaceholder, { height: mapHeight }]}>
-              <Ionicons name="map-outline" size={32} color={colors.muted} />
-              <Text style={styles.placeholderText}>
-                Drivers appear here live after they open the app and accept a pickup.
-              </Text>
-            </View>
-          )}
+          <LiveDeliveryMap
+            order={mapOrder}
+            fleetOrders={fleetOrders}
+            fleetDrivers={fleetDrivers}
+            liveLocations={liveLocations}
+            height={mapHeight}
+          />
         </AdminPanel>
       </View>
 
@@ -235,6 +234,18 @@ const styles = StyleSheet.create({
   headerActionsMobile: { width: '100%', justifyContent: 'space-between' },
   pageTitle: { fontSize: 28, fontWeight: '800', color: colors.text },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  adPostBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    height: 40,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.orange,
+    backgroundColor: colors.orangeLight,
+  },
+  adPostBtnText: { fontSize: 13, fontWeight: '800', color: colors.orange },
   datePill: {
     flexDirection: 'row',
     alignItems: 'center',

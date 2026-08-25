@@ -10,6 +10,7 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { colors, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { ProfileStackParamList } from '../navigation/types';
+import { goBackInProfileStack } from '../navigation/customerRoutes';
 import {
   REFERRAL_REWARD_AMOUNT,
   ReferralEvent,
@@ -70,7 +71,7 @@ export function ReferralScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScreenHeader title="Referral & Rewards" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Referral & Rewards" onBack={() => goBackInProfileStack(navigation)} />
       <ScrollView contentContainerStyle={styles.scroll}>
         <LinearGradient colors={[colors.green, colors.greenDark]} style={styles.banner}>
           <Text style={styles.bannerSub}>Invite Friends & Earn</Text>

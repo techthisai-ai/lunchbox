@@ -8,6 +8,7 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { colors, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { ProfileStackParamList } from '../navigation/types';
+import { goBackInProfileStack } from '../navigation/customerRoutes';
 import {
   getLanguageLabel,
   loadLanguagePreference,
@@ -70,7 +71,7 @@ export function SettingsScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScreenHeader title="Settings" subtitle="Manage your preferences" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Settings" subtitle="Manage your preferences" onBack={() => goBackInProfileStack(navigation)} />
       <ScrollView contentContainerStyle={styles.scroll}>
         {settings.map((item) => (
           <Pressable

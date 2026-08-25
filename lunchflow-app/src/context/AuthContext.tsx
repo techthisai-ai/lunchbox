@@ -19,7 +19,10 @@ import {
   DriverRegistration,
   RegistrationRequiredError,
 } from '../services/authService';
-import { registerForPushNotifications } from '../services/pushNotificationService';
+import {
+  registerForPushNotifications,
+  rememberIncomingDeliveredPush,
+} from '../services/pushNotificationService';
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -121,6 +124,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user?.phone || (user.role !== 'customer' && user.role !== 'driver')) return;
     registerForPushNotifications(user.phone, user.name).catch(() => {});
   }, [user?.id, user?.phone, user?.role, user?.name]);
+
+  useEffect(() => {
+    if (user?.role !== 'customer') return undefined;
+    return rememberIncomingDeliveredPush();
+  }, [user?.role]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

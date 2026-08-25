@@ -139,6 +139,19 @@ export type DeliveryStatus =
   | 'delivered'
   | 'pickup_closed';
 
+/** True while a pickup request is live and waiting for a rider (not yet assigned). */
+export function hasSentPickupRequest(
+  order?: {
+    status: DeliveryStatus;
+    driver?: unknown;
+    pickupReadyAtIso?: string | null;
+    foodReadyAt?: string | null;
+  } | null,
+): boolean {
+  if (!order || order.driver) return false;
+  return order.status === 'awaiting_driver' || order.status === 'food_ready';
+}
+
 export type DeliveryProofMeta = {
   otpVerified?: boolean;
   qrVerified?: boolean;
@@ -215,6 +228,10 @@ export type DeliveryOrder = {
   pickupClosedAt?: string | null;
   deliveryProof?: DeliveryProofMeta | null;
   assignedDriverPhone?: string;
+  /** Amount the customer paid for the plan covering this order. */
+  amountPaid?: number;
+  /** Cash / UPI / GPay / PhonePe / etc. */
+  paymentMethod?: string;
   deliverySlotId?: string;
   deliverySlotLabel?: string;
   studentEntries?: FoodReadyStudentEntry[];
