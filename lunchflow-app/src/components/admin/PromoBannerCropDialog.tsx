@@ -270,10 +270,21 @@ export function PromoBannerCropDialog({
 
             <Button
               title={exporting ? 'Cropping...' : 'Use cropped image'}
-              onPress={() => void handleConfirm()}
+              onPress={() => {
+                if (exporting || loading || !naturalSize) return;
+                void handleConfirm();
+              }}
               style={{ marginTop: spacing.md }}
             />
-            <Button title="Cancel" variant="outline" onPress={onCancel} style={{ marginTop: 10 }} />
+            <Button
+              title="Cancel"
+              variant="outline"
+              onPress={() => {
+                if (exporting) return;
+                onCancel();
+              }}
+              style={{ marginTop: 10 }}
+            />
           </View>
         </ScrollView>
       </View>

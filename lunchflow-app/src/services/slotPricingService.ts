@@ -90,9 +90,27 @@ export async function savePricingPlans(plans: PricingPlan[]): Promise<void> {
   await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(plans));
 }
 
-export async function resolvePlanAmount(planId: string): Promise<number> {
+export async function resolvePlanAmount(
+  planId: string,
+  options?: { peopleCount?: number; phone?: string },
+): Promise<number> {
   const plans = await loadPricingPlans();
-  return plans.find((p) => p.id === planId)?.amount ?? SUBSCRIPTION_PLANS.find((p) => p.id === planId)?.baseAmount ?? 0;
+  const base =
+    plans.find((p) => p.id === planId)?.amount ?? SUBSCRIPTION_PLANS.find((p) => p.id === planId)?.baseAmount ?? 0;
+
+  if (planId !== 'single-order') return base;
+
+  if (options?.phone && options.peopleCount) {
+    const { calculateSingleOrderPayment } = await import('./subscriptionService');
+    const quote = await calculateSingleOrderPayment(options.phone, options.peopleCount);
+    return quote.amountDue;
+  }
+
+  if (options?.peopleCount && options.peopleCount > 0) {
+    return base * options.peopleCount;
+  }
+
+  return base;
 }
 
 export function buildSubscriptionDetailLineLabel(plan: SubscriptionPlan, amount: number): string {

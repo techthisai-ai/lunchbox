@@ -4,6 +4,7 @@ import { ActivityIndicator, LayoutAnimation, Platform, Pressable, StyleSheet, Te
 import { colors, radius, shadow, spacing } from '../../constants/theme';
 import { DeliveryOrder } from '../../types/delivery';
 import { DriverLocationGroup, getOrderStudentName } from '../../utils/driverLocationGroups';
+import { DriverCustomerMeta } from './DriverCustomerMeta';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -92,6 +93,7 @@ export function DriverBulkDeliveryCard({
   const showPartialActions = !readOnly && !hidePerGroupDeliver && group.pendingCount > 0 && group.deliveredCount > 0;
 
   const isSingleLunchbox = group.totalCount === 1;
+  const customerOrder = group.orders[0];
 
   const toggleExpanded = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -130,6 +132,11 @@ export function DriverBulkDeliveryCard({
           <Text style={styles.address} numberOfLines={2}>
             {group.address}
           </Text>
+          <DriverCustomerMeta
+            name={customerOrder?.customerName}
+            phone={customerOrder?.customerPhone}
+            compact
+          />
           <Text style={styles.countText}>
             {group.totalCount} Lunchbox{group.totalCount === 1 ? '' : 'es'}
           </Text>

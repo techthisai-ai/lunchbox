@@ -10,6 +10,7 @@ import { Card } from '../../components/Card';
 import { PickupVerifyDialog } from '../../components/PickupVerifyDialog';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { DriverBulkDeliveryCard } from '../../components/driver/DriverBulkDeliveryCard';
+import { DriverCustomerMeta } from '../../components/driver/DriverCustomerMeta';
 import { DriverTripCompletedDialog } from '../../components/driver/DriverTripCompletedDialog';
 import { DriverKpiRow } from '../../components/driver/DriverKpiRow';
 import { DriverScreenHeader } from '../../components/driver/DriverScreenHeader';
@@ -38,7 +39,7 @@ import { DeliveryBatch } from '../../types/batch';
 import { DeliveryOrder, getDropAddress } from '../../types/delivery';
 import { buildDriverDeliveryStops, DriverDeliveryStop } from '../../utils/driverDeliveryStops';
 import { buildDriverLocationGroups, buildCompletedLocationGroups, DriverLocationGroup, flattenLocationGroupsToOrders, getLocationGroupKey } from '../../utils/driverLocationGroups';
-import { getAssignedDriverOrders } from '../../utils/driverTripNavigation';
+import { getAssignedDriverOrders, getPickupPendingOrders } from '../../utils/driverTripNavigation';
 import { DRIVER_EARNING_PER_ORDER } from '../../utils/adminDriverHelpers';
 
 type Nav = CompositeNavigationProp<
@@ -123,6 +124,8 @@ export function DriverDeliveriesScreen() {
   const [successGroups, setSuccessGroups] = useState<Record<string, string>>({});
   const [justDeliveredGroup, setJustDeliveredGroup] = useState<DriverLocationGroup | null>(null);
   const deliveringRef = useRef(false);
+  const suppressAutoVerifyUntilRef = useRef(0);
+  const promptedPickupStopRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!user?.id) return;
@@ -179,7 +182,11 @@ export function DriverDeliveriesScreen() {
 
   useEffect(() => {
     if (!tripActive || !driverLocation) return;
+    if (Date.now() < suppressAutoVerifyUntilRef.current) return;
+
     if (trip.phase === 'pickup' && currentPickupStop && isNearStop(driverLocation, currentPickupStop.point)) {
+      if (promptedPickupStopRef.current === currentPickupStop.id) return;
+      promptedPickupStopRef.current = currentPickupStop.id;
       markPickupStopReached(currentPickupStop.id);
       setTripPickupVerify(true);
     }
@@ -202,9 +209,7 @@ export function DriverDeliveriesScreen() {
     }
   }, [trip.phase, showTripCompleted]);
 
-  const pickupPendingCount = activeOrders.filter((o) =>
-    ['driver_assigned', 'at_pickup', 'pickup_verified'].includes(o.status),
-  ).length;
+  const pickupPendingCount = getPickupPendingOrders(activeOrders).length;
   const activeCount = activeOrders.filter((o) =>
     ['in_transit', 'at_drop', 'picked_up'].includes(o.status),
   ).length;
@@ -214,10 +219,10 @@ export function DriverDeliveriesScreen() {
     [pending, activeOrders],
   );
 
-  const locationGroups = useMemo(
-    () => flattenLocationGroupsToOrders(buildDriverLocationGroups(activeOrders, batches)),
-    [activeOrders, batches],
-  );
+  const locationGroups = useMemo(() => {
+    if (getPickupPendingOrders(activeOrders).length > 0) return [];
+    return flattenLocationGroupsToOrders(buildDriverLocationGroups(activeOrders, batches));
+  }, [activeOrders, batches]);
 
   const displayLocationGroups = useMemo(() => {
     if (!justDeliveredGroup) return locationGroups;
@@ -246,7 +251,7 @@ export function DriverDeliveriesScreen() {
   const selectedLunchboxCount = selectedPendingGroups.reduce((total, group) => total + group.pendingCount, 0);
 
   const completedLocationGroups = useMemo(
-    () => flattenLocationGroupsToOrders(buildCompletedLocationGroups(completed)),
+    () => buildCompletedLocationGroups(completed),
     [completed],
   );
 
@@ -263,21 +268,22 @@ export function DriverDeliveriesScreen() {
 
   const handleVerify = async (code: string) => {
     if (tripPickupVerify && currentPickupStop) {
-      const error = await completePickupStop(currentPickupStop.id, code, assignedOrders);
-      if (error) return error;
-      setTripPickupVerify(false);
-      const nextPickup = trip.pickupGroups.find(
-        (group) => group.status === 'pending' && group.id !== currentPickupStop.id,
-      );
-      if (nextPickup) {
-        void handleNavigateToRoute();
-      } else {
-        const nextDrop = trip.deliveryGroups.find((group) => group.status === 'pending');
-        if (nextDrop) void handleNavigateToRoute();
+      try {
+        const stopId = currentPickupStop.id;
+        const error = await completePickupStop(stopId, code, assignedOrders);
+        if (error) return error;
+        suppressAutoVerifyUntilRef.current = Date.now() + 20000;
+        promptedPickupStopRef.current = stopId;
+        setTripPickupVerify(false);
+        await refresh();
+        if (user?.id) {
+          const activeList = await listDriverActiveOrders(user.id);
+          await refreshTripRoutes(getAssignedDriverOrders(activeList));
+        }
+        return null;
+      } catch (error) {
+        return error instanceof Error ? error.message : 'Verification failed';
       }
-      await refresh();
-      await refreshTripRoutes(assignedOrders);
-      return null;
     }
 
     if (!verifyOrder) return 'No order selected';
@@ -432,7 +438,7 @@ export function DriverDeliveriesScreen() {
         visible={Boolean(verifyOrder) || tripPickupVerify}
         orderLabel={
           tripPickupVerify && currentPickupStop
-            ? `${currentPickupStop.orders.length} lunchbox${currentPickupStop.orders.length === 1 ? '' : 'es'} at ${currentPickupStop.locationName}`
+            ? `${lunchboxCountLabel(currentPickupStop.orders)} · ${currentPickupStop.locationName}`
             : verifyOrder?.customerName ?? ''
         }
         onVerify={handleVerify}
@@ -555,6 +561,7 @@ export function DriverDeliveriesScreen() {
                     <Badge label={phaseLabel(stop.phase)} tone={phaseTone(stop.phase)} />
                   </View>
                   <Text style={styles.stopTitle}>{stop.title}</Text>
+                  <DriverCustomerMeta name={stop.order.customerName} phone={stop.order.customerPhone} />
                   <Text style={styles.stopAddress} numberOfLines={3}>
                     Pickup: {stop.address || '—'}
                   </Text>

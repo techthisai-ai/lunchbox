@@ -17,6 +17,8 @@ import { HomeStackParamList } from '../navigation/types';
 import { loadFoodReadyDefaults } from '../services/foodReadyDefaultsService';
 import { loadCustomerProfile } from '../services/orderHubService';
 import { hasActiveSubscription } from '../services/subscriptionService';
+import { clearPendingFoodReady, loadPendingFoodReady } from '../services/pendingFoodReadyService';
+import { blockPickupOutsideAreaSlot } from '../utils/pickupSlotGuard';
 import {
   buildFoodReadyStudents,
   DeliveryOrder,
@@ -204,9 +206,10 @@ function DriverStatusCard({
 export function FoodReadyScreen({ navigation }: Props) {
   const route = useRoute<FoodReadyRoute>();
   const choosePlanStep = route.params?.step === 'choosePlan';
+  const peopleCount = Math.max(1, route.params?.peopleCount ?? 1);
   const { user } = useAuth();
   const { order, submitting, markFoodReady, refreshDelivery } = useDelivery();
-  const { openFoodReadyDialog } = useFoodReadyOverlay();
+  const { openFoodReadyDialog, closeFoodReadyDialog } = useFoodReadyOverlay();
   const { horizontalPadding, contentMaxWidth } = useResponsive();
   const [planReady, setPlanReady] = useState(!choosePlanStep);
   const displayOrder = order;
@@ -216,6 +219,11 @@ export function FoodReadyScreen({ navigation }: Props) {
 
   const openPickupDialog = useCallback(async () => {
     if (!user?.phone) return;
+
+    const profile = await loadCustomerProfile(user.phone);
+    const pickupAddress = order?.pickupAddress || profile.address || '';
+    if (await blockPickupOutsideAreaSlot(pickupAddress)) return;
+
     if (hasSentPickupRequest(order)) {
       Alert.alert(
         'Pickup request already sent',
@@ -224,9 +232,8 @@ export function FoodReadyScreen({ navigation }: Props) {
       return;
     }
 
-    const [savedDefaults, profile] = await Promise.all([
+    const [savedDefaults] = await Promise.all([
       loadFoodReadyDefaults(user.phone),
-      loadCustomerProfile(user.phone),
     ]);
 
     const openDialog = (initialValues: Parameters<typeof openFoodReadyDialog>[0]['initialValues']) => {
@@ -260,13 +267,25 @@ export function FoodReadyScreen({ navigation }: Props) {
   }, [user, order, submitting, openFoodReadyDialog, markFoodReady, refreshDelivery]);
 
   const handlePlanReady = useCallback(async () => {
-    const hasPlan = user?.phone ? await hasActiveSubscription(user.phone) : false;
-    if (!hasPlan) return;
-    setPlanReady(true);
-    if (choosePlanStep) {
-      await openPickupDialog();
+    if (!user?.phone) return;
+
+    const pending = await loadPendingFoodReady(user.phone);
+    if (pending) {
+      const result = await markFoodReady(pending);
+      await clearPendingFoodReady(user.phone);
+      await refreshDelivery();
+      if (result.error) {
+        Alert.alert('Pickup request failed', result.error);
+        return;
+      }
+    } else {
+      await refreshDelivery();
     }
-  }, [user?.phone, choosePlanStep, openPickupDialog]);
+
+    closeFoodReadyDialog();
+    setPlanReady(true);
+    navigation.setParams({ step: undefined, peopleCount: undefined });
+  }, [user?.phone, markFoodReady, refreshDelivery, closeFoodReadyDialog, navigation]);
 
   useEffect(() => {
     if (!choosePlanStep) return;
@@ -281,11 +300,11 @@ export function FoodReadyScreen({ navigation }: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      if (!user?.phone) return;
+      if (!user?.phone || choosePlanStep) return;
       void hasActiveSubscription(user.phone).then((has) => {
         if (has) setPlanReady(true);
       });
-    }, [user?.phone]),
+    }, [user?.phone, choosePlanStep]),
   );
 
   const goToTracking = () => {
@@ -332,7 +351,7 @@ export function FoodReadyScreen({ navigation }: Props) {
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={[styles.topBar, { paddingHorizontal: horizontalPadding }]}>
           <ScreenBackButton onPress={() => navigation.goBack()} />
-          <Text style={styles.pageTitle}>Choose Plan</Text>
+          <Text style={styles.pageTitle}>Upgrade Plan</Text>
           <View style={styles.topBarSpacer} />
         </View>
         <ScrollView
@@ -340,9 +359,28 @@ export function FoodReadyScreen({ navigation }: Props) {
           showsVerticalScrollIndicator={false}
         >
           <View style={[styles.body, { maxWidth: contentMaxWidth }]}>
-            <PickupPlanSection mode="picker" onPlanReady={() => void handlePlanReady()} />
+            <Text style={styles.choosePlanHint}>
+              You added {peopleCount} {peopleCount === 1 ? 'person' : 'people'}. Pay for extra seats to continue.
+            </Text>
+            <PickupPlanSection mode="picker" peopleCount={peopleCount} onPlanReady={() => void handlePlanReady()} />
           </View>
         </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  if (choosePlanStep && planReady && (!displayOrder || displayOrder.status === 'booked')) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={[styles.topBar, { paddingHorizontal: horizontalPadding }]}>
+          <ScreenBackButton onPress={() => navigation.goBack()} />
+          <Text style={styles.pageTitle}>Pickup Request</Text>
+          <View style={styles.topBarSpacer} />
+        </View>
+        <View style={[styles.emptyState, { paddingHorizontal: horizontalPadding }]}>
+          <ActivityIndicator size="large" color={colors.orange} />
+          <Text style={styles.emptySub}>Creating your pickup request…</Text>
+        </View>
       </SafeAreaView>
     );
   }
@@ -360,7 +398,7 @@ export function FoodReadyScreen({ navigation }: Props) {
           showsVerticalScrollIndicator={false}
         >
           <View style={[styles.body, { maxWidth: contentMaxWidth }]}>
-            <PickupPlanSection mode="picker" onPlanReady={() => setPlanReady(true)} />
+            <PickupPlanSection mode="picker" peopleCount={peopleCount} onPlanReady={() => setPlanReady(true)} />
             {planReady ? (
               <>
                 <LinearGradient colors={['#FFF5F9', '#FFFFFF']} style={styles.emptyCard}>
@@ -514,6 +552,13 @@ const styles = StyleSheet.create({
   body: {
     width: '100%',
     alignSelf: 'center',
+  },
+  choosePlanHint: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.muted,
+    lineHeight: 18,
+    marginBottom: spacing.sm,
   },
   emptyState: {
     flex: 1,

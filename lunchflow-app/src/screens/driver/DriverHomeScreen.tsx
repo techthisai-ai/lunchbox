@@ -9,6 +9,7 @@ import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
 import { DriverKpiRow } from '../../components/driver/DriverKpiRow';
+import { DriverCustomerMeta } from '../../components/driver/DriverCustomerMeta';
 import { DriverPromoBanner } from '../../components/driver/DriverPromoBanner';
 import { DriverScreenHeader } from '../../components/driver/DriverScreenHeader';
 import { DriverOrderAddressDialog } from '../../components/DriverOrderAddressDialog';
@@ -215,6 +216,11 @@ export function DriverHomeScreen() {
               </View>
               <View style={styles.nextMeta}>
                 <Text style={styles.nextTime}>{nextPickup.foodReadyAt ?? nextPickup.bookedAt ?? 'Ready now'}</Text>
+                <DriverCustomerMeta
+                  name={nextPickup.customerName}
+                  phone={nextPickup.customerPhone}
+                  compact
+                />
                 <Text style={styles.nextAddress} numberOfLines={2}>
                   {nextPickup.pickupAddress}
                 </Text>
@@ -271,6 +277,7 @@ export function DriverHomeScreen() {
                   <Text style={styles.orderId}>{order.id}</Text>
                   <Badge label="Food Ready" tone="green" />
                 </View>
+                <DriverCustomerMeta name={order.customerName} phone={order.customerPhone} compact />
                 <Text style={styles.routePreview} numberOfLines={2}>
                   {order.pickupAddress} → {getDropAddress(order)}
                 </Text>

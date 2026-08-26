@@ -49,7 +49,7 @@ export type AdminProfileStackParamList = {
 
 export type HomeStackParamList = {
   HomeMain: undefined;
-  FoodReady: { step?: 'choosePlan' } | undefined;
+  FoodReady: { step?: 'choosePlan'; peopleCount?: number } | undefined;
   Notifications: undefined;
   History: undefined;
 };

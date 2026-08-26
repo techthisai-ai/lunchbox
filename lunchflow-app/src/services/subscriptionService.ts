@@ -57,6 +57,7 @@ function buildSubscriptionRecord(
   couponCode?: string,
   discountAmount?: number,
   paymentMethod?: string,
+  paidPeopleCount?: number,
 ): CustomerSubscription {
   const now = new Date();
 
@@ -77,6 +78,7 @@ function buildSubscriptionRecord(
       couponCode,
       discountAmount,
       expiresOnDelivery: true,
+      paidPeopleCount: Math.max(1, paidPeopleCount ?? 1),
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     };
@@ -229,6 +231,44 @@ export async function hasActiveMonthlySubscription(phone: string): Promise<boole
   const record = await loadActiveSubscriptionRecord(phone);
   if (!record) return false;
   return isMonthlySubscriptionPlan(getSubscriptionPlan(record.planId));
+}
+
+export type SingleOrderPaymentQuote = {
+  baseRate: number;
+  requestedPeople: number;
+  alreadyPaidPeople: number;
+  additionalPeople: number;
+  amountDue: number;
+  totalAmount: number;
+};
+
+export async function getPaidPeopleCount(phone: string): Promise<number> {
+  const record = await loadActiveSubscriptionRecord(phone);
+  if (!record || !isSubscriptionCurrentlyActive(record)) return 0;
+  const plan = getSubscriptionPlan(record.planId);
+  if (!isSingleOrderPlan(plan)) return 0;
+  return record.paidPeopleCount ?? 1;
+}
+
+export async function calculateSingleOrderPayment(
+  phone: string,
+  requestedPeopleCount: number,
+): Promise<SingleOrderPaymentQuote> {
+  const baseRate = getPlanBaseAmount(getSubscriptionPlan('single-order'));
+  const requestedPeople = Math.max(1, requestedPeopleCount);
+  const alreadyPaidPeople = await getPaidPeopleCount(phone);
+  const additionalPeople = Math.max(0, requestedPeople - alreadyPaidPeople);
+  const amountDue = baseRate * (alreadyPaidPeople > 0 ? additionalPeople : requestedPeople);
+  const totalAmount = baseRate * requestedPeople;
+
+  return {
+    baseRate,
+    requestedPeople,
+    alreadyPaidPeople,
+    additionalPeople,
+    amountDue,
+    totalAmount,
+  };
 }
 
 export async function resolveCustomerSubscriptionAmount(phone: string): Promise<number> {
@@ -411,6 +451,7 @@ export async function saveActiveSubscription(
   couponCode?: string,
   discountAmount?: number,
   paymentMethod?: string,
+  paidPeopleCount?: number,
 ): Promise<SubscriptionPlan> {
   const normalized = normalizePhone(phone);
   const plan = getSubscriptionPlan(planId);
@@ -434,7 +475,38 @@ export async function saveActiveSubscription(
     throw new Error('You already have an active monthly subscription. Use it for daily deliveries.');
   }
 
-  const record = buildSubscriptionRecord(normalized, plan, paid, couponCode, discountAmount, paymentMethod);
+  if (
+    existing &&
+    isSubscriptionCurrentlyActive(existing) &&
+    isSingleOrderPlan(plan) &&
+    isSingleOrderPlan(getSubscriptionPlan(existing.planId))
+  ) {
+    const nextPaidPeople = Math.max(existing.paidPeopleCount ?? 1, paidPeopleCount ?? 1);
+    const baseRate = getPlanBaseAmount(plan);
+    const upgraded: CustomerSubscription = {
+      ...existing,
+      amountPaid: baseRate * nextPaidPeople,
+      paidPeopleCount: nextPaidPeople,
+      paymentMethod: paymentMethod ?? existing.paymentMethod,
+      updatedAt: new Date().toISOString(),
+    };
+    await AsyncStorage.setItem(activeKey(normalized), JSON.stringify(upgraded));
+    await appendHistory(normalized, upgraded);
+    await syncDocument('subscriptions', upgraded.id, upgraded);
+    return plan;
+  }
+
+  const record = buildSubscriptionRecord(
+    normalized,
+    plan,
+    isSingleOrderPlan(plan)
+      ? getPlanBaseAmount(plan) * Math.max(1, paidPeopleCount ?? 1)
+      : paid,
+    couponCode,
+    discountAmount,
+    paymentMethod,
+    paidPeopleCount,
+  );
 
   await AsyncStorage.setItem(activeKey(normalized), JSON.stringify(record));
   await appendHistory(normalized, record);
@@ -541,8 +613,9 @@ export async function getFoodReadyDeliveryQuota(phone: string): Promise<FoodRead
 
   const plan = getSubscriptionPlan(record.planId);
   if (isSingleOrderPlan(plan) || record.expiresOnDelivery) {
+    const paidPeople = record.paidPeopleCount ?? 1;
     return {
-      maxPeople: 1,
+      maxPeople: paidPeople,
       allowAddPeople: false,
       isSingleOrder: true,
       planLabel: plan.detailTitle ?? plan.name,
@@ -572,7 +645,7 @@ export function validateFoodReadyPeopleCount(
   if (peopleCount < 1) return 'Add at least one student or employee';
   if (peopleCount > quota.maxPeople) {
     if (quota.isSingleOrder) {
-      return 'Single delivery (₹29): only 1 person at 1 location. Buy Monthly + location add-ons for more.';
+      return `Single delivery (₹29 per person): you can include ${quota.maxPeople} ${quota.maxPeople === 1 ? 'person' : 'people'}. Pay for more people to add them.`;
     }
     return `Today you can include ${quota.maxPeople} ${quota.maxPeople === 1 ? 'person' : 'people'} (monthly + today’s add-ons). Same drop ₹99 · Different drop ₹199.`;
   }
@@ -590,8 +663,8 @@ export async function validateFoodReadyDropLocations(
   quota: FoodReadyDeliveryQuota,
 ): Promise<string | null> {
   if (quota.isSingleOrder) {
-    if (students.length > 1) {
-      return 'Single delivery (₹29): only 1 person at 1 location.';
+    if (students.length > quota.maxPeople) {
+      return `Single delivery (₹29 per person): pay for ${students.length - quota.maxPeople} more ${students.length - quota.maxPeople === 1 ? 'person' : 'people'} to continue.`;
     }
     return null;
   }

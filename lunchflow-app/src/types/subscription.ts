@@ -17,6 +17,8 @@ export type CustomerSubscription = {
   couponCode?: string;
   discountAmount?: number;
   expiresOnDelivery?: boolean;
+  /** Single-order plans: how many people were paid for (₹29 × count). */
+  paidPeopleCount?: number;
   createdAt: string;
   updatedAt: string;
 };

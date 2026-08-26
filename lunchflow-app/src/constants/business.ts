@@ -31,9 +31,6 @@ export const DEFAULT_OFFERS: CouponOffer[] = [
 
 export const PICKUP_READY_TIMEOUT_MINUTES = 45;
 
-/** Shown on customer home below the greeting header. */
-export const CUSTOMER_PICKUP_SLOT_LABEL = 'Pickup Slot: 10:00 AM – 11:45 AM';
-
 export const DEFAULT_DELIVERY_FEE = 45;
 
 export const CUSTOM_BILLING_MONTHS_MIN = 1;

@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, where } from 'firebase/firestore';
 import { TimelineStep } from '../components/Timeline';
 import { db } from '../lib/firebase';
+import { decodeRestDocument, isMobileWebBrowser, runFirestoreQuery } from '../lib/firestoreRest';
 import { getInitials, normalizePhone } from '../constants/auth';
 import { DEMO_DROP, DEMO_PICKUP } from '../constants/maps';
 import {
@@ -189,11 +190,19 @@ function asRemoteOrder(data: Record<string, unknown>, docId: string): DeliveryOr
 async function persistOrder(order: DeliveryOrder): Promise<void> {
   const payload = stripUndefinedDeep({ ...order, updatedAt: new Date().toISOString() });
   await saveOrderLocal(payload);
-  try {
-    await setDoc(doc(db, 'orders', order.id), payload);
-  } catch {
-    // Local cache is the fallback data source.
+
+  let remoteSaved = false;
+  for (let attempt = 0; attempt < 2 && !remoteSaved; attempt += 1) {
+    try {
+      await setDoc(doc(db, 'orders', order.id), payload, { merge: true });
+      remoteSaved = true;
+    } catch {
+      if (attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+    }
   }
+
   emitOrderChange();
 }
 
@@ -472,19 +481,44 @@ async function publishTodayOrders(onOrders: (orders: DeliveryOrder[]) => void): 
 }
 
 export function subscribeToAllOrdersToday(onOrders: (orders: DeliveryOrder[]) => void): () => void {
+  let cancelled = false;
+  let retryTimer: ReturnType<typeof setInterval> | null = null;
+
+  const publish = async () => {
+    if (cancelled) return;
+    await publishTodayOrders(onOrders);
+  };
+
+  void syncFromFirestore().then(publish);
+
+  retryTimer = setInterval(() => {
+    void syncFromFirestore().then(publish);
+  }, 5000);
+
   const q = query(collection(db, 'orders'), where('date', '==', todayKey()));
-  return onSnapshot(
+  const unsub = onSnapshot(
     q,
     async (snap) => {
       for (const docSnap of snap.docs) {
         await stashOrderFromRemote(asRemoteOrder(docSnap.data() as Record<string, unknown>, docSnap.id));
       }
-      await publishTodayOrders(onOrders);
+      await publish();
+      if (retryTimer) {
+        clearInterval(retryTimer);
+        retryTimer = null;
+      }
     },
     async () => {
-      await publishTodayOrders(onOrders);
+      await syncFromFirestore();
+      await publish();
     },
   );
+
+  return () => {
+    cancelled = true;
+    if (retryTimer) clearInterval(retryTimer);
+    unsub();
+  };
 }
 
 async function loadAllOrdersLocal(): Promise<DeliveryOrder[]> {
@@ -493,15 +527,43 @@ async function loadAllOrdersLocal(): Promise<DeliveryOrder[]> {
   return orders.filter((o): o is DeliveryOrder => Boolean(o && o.date === todayKey()));
 }
 
+async function fetchTodayOrdersViaRest(): Promise<DeliveryOrder[]> {
+  const documents = await runFirestoreQuery('orders', 'date', todayKey());
+  return documents.map((document) => {
+    const id = document.name.split('/').pop() ?? '';
+    const decoded = decodeRestDocument<Record<string, unknown>>(document);
+    return asRemoteOrder(decoded, id);
+  });
+}
+
+async function pullTodayOrdersFromRemote(): Promise<void> {
+  if (isMobileWebBrowser()) {
+    const orders = await fetchTodayOrdersViaRest();
+    for (const order of orders) {
+      await stashOrderFromRemote(order);
+    }
+    return;
+  }
+
+  const q = query(collection(db, 'orders'), where('date', '==', todayKey()));
+  const snap = await getDocs(q);
+  for (const docSnap of snap.docs) {
+    await stashOrderFromRemote(asRemoteOrder(docSnap.data() as Record<string, unknown>, docSnap.id));
+  }
+}
+
 async function syncFromFirestore(): Promise<void> {
   try {
-    const q = query(collection(db, 'orders'), where('date', '==', todayKey()));
-    const snap = await getDocs(q);
-    for (const docSnap of snap.docs) {
-      await stashOrderFromRemote(asRemoteOrder(docSnap.data() as Record<string, unknown>, docSnap.id));
-    }
+    await pullTodayOrdersFromRemote();
   } catch {
-    // Ignore remote sync failures.
+    try {
+      const orders = await fetchTodayOrdersViaRest();
+      for (const order of orders) {
+        await stashOrderFromRemote(order);
+      }
+    } catch {
+      // Local cache remains the fallback.
+    }
   }
 }
 
@@ -1126,8 +1188,8 @@ export async function verifyPickup(orderId: string, code: string): Promise<Deliv
   }
 
   const upper = normalized.toUpperCase();
-  const otpMatch = normalized === order.pickupOtp;
-  const qrMatch = upper === order.qrCode.toUpperCase();
+  const otpMatch = Boolean(order.pickupOtp) && normalized === order.pickupOtp;
+  const qrMatch = Boolean(order.qrCode) && upper === order.qrCode.toUpperCase();
 
   if (!otpMatch && !qrMatch) {
     throw new Error('Invalid OTP or QR code');

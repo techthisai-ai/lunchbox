@@ -9,6 +9,10 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         request.auth.token.role == 'admin'
+        || (
+          exists(/databases/$(database)/documents/profiles/$(request.auth.uid))
+          && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'admin'
+        )
         // Demo / portal admin uses email+password without custom claims.
         || (request.auth.token.email is string
             && request.auth.token.email.lower() == 'admin@lunchflow.com')
@@ -85,7 +89,17 @@ service cloud.firestore {
     match /orders/{orderId} {
       allow read: if true;
       allow create: if isSignedIn() || request.resource.data.customerPhone is string;
-      allow update: if isSignedIn() || isAdmin();
+      // Phone-login customers/drivers sync orders before Firebase Auth sign-in.
+      allow update: if isAdmin()
+        || isSignedIn()
+        || (
+          resource.data.customerPhone is string
+          && request.resource.data.customerPhone == resource.data.customerPhone
+        )
+        || (
+          request.resource.data.driver is map
+          && request.resource.data.driver.phone is string
+        );
       allow delete: if isAdmin();
     }
 
@@ -148,6 +162,11 @@ service cloud.firestore {
     }
 
     match /promo_ads/{adId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /pickupAreaSlots/{areaId} {
       allow read: if true;
       allow write: if isAdmin();
     }

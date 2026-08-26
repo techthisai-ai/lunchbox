@@ -15,6 +15,7 @@ import {
   saveActiveSubscription,
 } from '../services/subscriptionService';
 import { resolvePlanAmount } from '../services/slotPricingService';
+import { buildSubscriptionPaymentDescription } from '../utils/paymentDescription';
 
 type PaymentDraft = {
   amountPaid: number;
@@ -24,11 +25,12 @@ type PaymentDraft = {
 
 type Options = {
   bookPickupAfterPurchase?: boolean;
+  peopleCount?: number;
   onSuccess?: (plan: SubscriptionPlan, methodLabel: string, amountPaid: number) => void;
 };
 
 export function useSubscriptionPayment(options: Options = {}) {
-  const { bookPickupAfterPurchase = true, onSuccess } = options;
+  const { bookPickupAfterPurchase = true, peopleCount = 1, onSuccess } = options;
   const { user } = useAuth();
   const { bookPickup } = useDelivery();
   const [paymentVisible, setPaymentVisible] = useState(false);
@@ -49,15 +51,18 @@ export function useSubscriptionPayment(options: Options = {}) {
       }
 
       setMessage('');
-      const amountPaid = await resolvePlanAmount(plan.id);
+      let amountPaid = await resolvePlanAmount(plan.id);
+      if (isSingleOrderPlan(plan)) {
+        amountPaid = await resolvePlanAmount(plan.id, { peopleCount, phone: user.phone });
+      }
       setPaymentDraft({
         plan,
         amountPaid,
-        description: `${plan.detailTitle ?? plan.name} subscription`,
+        description: buildSubscriptionPaymentDescription(plan, peopleCount, amountPaid),
       });
       setPaymentVisible(true);
     },
-    [user?.phone],
+    [user?.phone, peopleCount],
   );
 
   const closePayment = useCallback(() => {
@@ -82,7 +87,15 @@ export function useSubscriptionPayment(options: Options = {}) {
         }
 
         await processOnlinePayment(user.phone, amountPaid, description, methodLabel, plan.id);
-        await saveActiveSubscription(user.phone, plan.id, amountPaid, undefined, undefined, methodLabel);
+        await saveActiveSubscription(
+          user.phone,
+          plan.id,
+          amountPaid,
+          undefined,
+          undefined,
+          methodLabel,
+          isSingleOrderPlan(plan) ? peopleCount : undefined,
+        );
 
         let pickupError: string | null = null;
         if (bookPickupAfterPurchase && !isAddonSubscriptionPlan(plan)) {
@@ -120,7 +133,7 @@ export function useSubscriptionPayment(options: Options = {}) {
         setPaying(false);
       }
     },
-    [paymentDraft, user?.phone, bookPickup, bookPickupAfterPurchase, onSuccess],
+    [paymentDraft, user?.phone, bookPickup, bookPickupAfterPurchase, onSuccess, peopleCount],
   );
 
   return {

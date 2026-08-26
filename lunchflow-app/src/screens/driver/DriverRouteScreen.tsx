@@ -30,7 +30,7 @@ import {
   listPendingPickups,
 } from '../../services/orderHubService';
 import { subscribeToOrderChanges } from '../../services/orderSync';
-import { DeliveryOrder, getDeliveryTypeLabel } from '../../types/delivery';
+import { DeliveryOrder } from '../../types/delivery';
 import { getAssignedDriverOrders, getLunchboxCount, TripStopGroup } from '../../utils/driverTripNavigation';
 
 const ROUTE_LOGO = require('../../../assets/route-logo.png');
@@ -67,9 +67,6 @@ function lunchboxCountLabel(orders: DeliveryOrder[]): string {
 
 function UpcomingStopRow({ group, isNext }: { group: TripStopGroup; isNext: boolean }) {
   const boxes = lunchboxCountLabel(group.orders);
-  const dropType = group.orders[0]?.deliveryType
-    ? getDeliveryTypeLabel(group.orders[0].deliveryType).toLowerCase()
-    : 'drop';
   return (
     <View style={[styles.upcomingRow, isNext && styles.upcomingRowNext]}>
       <View style={[styles.upcomingBadge, isNext && styles.upcomingBadgeNext]}>
@@ -81,10 +78,10 @@ function UpcomingStopRow({ group, isNext }: { group: TripStopGroup; isNext: bool
         <Text style={styles.upcomingTitle} numberOfLines={1}>
           {group.locationName}
         </Text>
-        <Text style={styles.upcomingSub} numberOfLines={1}>
+        <Text style={styles.upcomingSub} numberOfLines={2}>
           {group.type === 'drop'
-            ? `${boxes}${group.orders.length > 1 ? ` at this ${dropType}` : ''}`
-            : `${boxes}${group.orders.length > 1 ? ' at this pickup' : ''}`}
+            ? `${boxes} · ${group.address.split(',')[0]?.trim() || group.address}`
+            : `${boxes} · ${group.address.split(',')[0]?.trim() || group.address}`}
         </Text>
       </View>
       {isNext ? <Badge label="Next" tone="orange" /> : null}
@@ -213,14 +210,22 @@ export function DriverRouteScreen() {
 
   const handleVerify = async (code: string) => {
     if (!tripPickupVerify || !currentPickupStop) return 'No pickup selected';
-    const stopId = currentPickupStop.id;
-    const error = await completePickupStop(stopId, code, assignedOrders);
-    if (error) return error;
-    promptedStopRef.current = stopId;
-    suppressAutoVerifyUntilRef.current = Date.now() + 20000;
-    setTripPickupVerify(false);
-    await refresh();
-    return null;
+    try {
+      const stopId = currentPickupStop.id;
+      const error = await completePickupStop(stopId, code, assignedOrders);
+      if (error) return error;
+      promptedStopRef.current = stopId;
+      suppressAutoVerifyUntilRef.current = Date.now() + 20000;
+      setTripPickupVerify(false);
+      await refresh();
+      if (user?.id) {
+        const activeList = await listDriverActiveOrders(user.id);
+        await refreshTripRoutes(getAssignedDriverOrders(activeList));
+      }
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Verification failed';
+    }
   };
 
   return (
@@ -343,8 +348,8 @@ export function DriverRouteScreen() {
                 ) : null}
                 <Text style={styles.currentStopOrders}>
                   {trip.phase === 'delivery'
-                    ? `${lunchboxCountLabel(currentStop.orders)}${currentStop.orders.length > 1 ? ` at this ${getDeliveryTypeLabel(currentStop.orders[0]?.deliveryType || 'school').toLowerCase()}` : ''}`
-                    : `${lunchboxCountLabel(currentStop.orders)}${currentStop.orders.length > 1 ? ' at this pickup' : ''}`}
+                    ? `${lunchboxCountLabel(currentStop.orders)} · ${currentStop.address.split(',')[0]?.trim() || currentStop.address}`
+                    : `${lunchboxCountLabel(currentStop.orders)} · ${currentStop.address.split(',')[0]?.trim() || currentStop.address}`}
                 </Text>
                 {trip.phase === 'pickup' ? (
                   <Pressable style={styles.verifyBtn} onPress={() => setTripPickupVerify(true)}>

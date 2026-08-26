@@ -6,7 +6,6 @@ import {
   buildFoodReadyStudents,
   foodReadyStudentsToLegacy,
   normalizeDeliveryType,
-  normalizeDeliveryTypes,
 } from '../types/delivery';
 import { loadDocument, syncDocument } from './firestoreSync';
 
@@ -34,18 +33,12 @@ export function normalizeFoodReadyDetails(
   const pickupAddress = partial.pickupAddress?.trim() ?? '';
   if (!name || !pickupAddress) return null;
 
-  const selectedWhere = normalizeDeliveryTypes(
-    partial.deliveryTypes ?? partial.students?.map((entry) => entry.deliveryType),
-    normalizeDeliveryType(partial.deliveryType),
-  );
-  if (!selectedWhere.length) return null;
-
   const students = filledStudents(buildFoodReadyStudents(partial));
   if (!students.length) return null;
 
-  for (const entry of students) {
-    if (!selectedWhere.includes(entry.deliveryType)) return null;
-  }
+  const deliveryTypes = [
+    ...new Set(students.map((entry) => normalizeDeliveryType(entry.deliveryType))),
+  ];
 
   const legacy = foodReadyStudentsToLegacy(students);
   return {
@@ -55,8 +48,8 @@ export function normalizeFoodReadyDetails(
     person: legacy.person,
     persons: legacy.persons,
     students,
-    deliveryType: students[0]?.deliveryType ?? selectedWhere[0],
-    deliveryTypes: selectedWhere,
+    deliveryType: students[0]?.deliveryType ?? deliveryTypes[0],
+    deliveryTypes,
   };
 }
 

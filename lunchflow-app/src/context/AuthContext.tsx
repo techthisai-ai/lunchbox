@@ -15,6 +15,7 @@ import {
   verifyDriverOtp,
   persistAuthSession,
   restoreAuthSession,
+  ensureAdminFirestoreAccess,
   CustomerRegistration,
   DriverRegistration,
   RegistrationRequiredError,
@@ -79,6 +80,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // otherwise a null Firebase user would wipe the registered session.
       if (restoredSession) {
         setUser(restoredSession);
+        if (restoredSession.id === DEMO_ADMIN.id) {
+          void ensureAdminFirestoreAccess().catch(() => {});
+        }
       }
 
       unsubscribe = subscribeToAuthState((profile) => {
@@ -141,6 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const profile = await loginAdminService(email, password);
           setUser(profile);
           await persistAuthSession(profile);
+          void ensureAdminFirestoreAccess(email, password).catch(() => {});
           return null;
         } catch (error) {
           return error instanceof Error ? error.message : 'Login failed';

@@ -188,33 +188,23 @@ export function buildDriverLocationGroups(
 }
 
 export function buildCompletedLocationGroups(completedOrders: DeliveryOrder[]): DriverLocationGroup[] {
-  const groups = new Map<string, DeliveryOrder[]>();
+  return completedOrders.map((order) => {
+    const address = getDropAddress(order);
+    const place = getDropInstitutionName(order) || order.school?.trim() || address;
 
-  for (const order of completedOrders) {
-    const key = getLocationGroupKey(order);
-    const list = groups.get(key) ?? [];
-    list.push(order);
-    groups.set(key, list);
-  }
-
-  return [...groups.entries()]
-    .map(([key, orders]) => {
-      const sample = orders[0];
-      const address = getDropAddress(sample);
-
-      return {
-        id: `completed-${key}`,
-        locationName: getDropInstitutionName(sample) || sample.school?.trim() || address,
-        address,
-        deliveryType: sample.deliveryType,
-        orders,
-        pendingOrders: [],
-        deliveredOrders: orders,
-        pendingCount: 0,
-        deliveredCount: orders.length,
-        totalCount: orders.length,
-        isFullyDelivered: true,
-      };
-    })
-    .sort((a, b) => b.totalCount - a.totalCount || a.locationName.localeCompare(b.locationName));
+    return {
+      id: `completed-${order.id}`,
+      batchId: order.batchId,
+      locationName: getOrderStudentName(order),
+      address: place,
+      deliveryType: order.deliveryType,
+      orders: [order],
+      pendingOrders: [],
+      deliveredOrders: [order],
+      pendingCount: 0,
+      deliveredCount: 1,
+      totalCount: 1,
+      isFullyDelivered: true,
+    };
+  });
 }

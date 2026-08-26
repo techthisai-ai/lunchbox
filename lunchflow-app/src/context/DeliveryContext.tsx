@@ -26,6 +26,11 @@ import { DeliveryOrder, FoodReadyDetails } from '../types/delivery';
 import { presentLunchboxDeliveredBanner } from '../services/pushNotificationService';
 import { useAuth } from './AuthContext';
 import { useRatingOverlay } from './RatingOverlayContext';
+import {
+  formatPickupAreaSlotLabel,
+  getPickupAreaForAddress,
+  isWithinPickupBookingWindow,
+} from '../services/pickupAreaSlotService';
 
 type MarkFoodReadyResult = {
   error: string | null;
@@ -242,6 +247,10 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
     if (!phone || !customerId) return 'Please log in to book pickup';
     try {
       const profile = await loadCustomerProfile(phone);
+      const pickupAddress = profile.address ?? '';
+      const area = await getPickupAreaForAddress(pickupAddress, { fresh: true });
+      if (!area) return 'No pickup booking slot is configured for this area.';
+      if (!isWithinPickupBookingWindow(area)) return formatPickupAreaSlotLabel(area);
       const booked = await createBooking(customerId, phone, { ...profile, name: user?.name ?? profile.name });
       syncOrder(booked);
       return null;
@@ -253,6 +262,14 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
   const markFoodReady = useCallback(async (details: FoodReadyDetails): Promise<MarkFoodReadyResult> => {
     if (!phone || !customerId) {
       return { error: 'Please log in to request pickup', order: null };
+    }
+    const pickupAddress = details.pickupAddress?.trim() ?? '';
+    const area = await getPickupAreaForAddress(pickupAddress, { fresh: true });
+    if (!area) {
+      return { error: 'No pickup booking slot is configured for this area.', order: null };
+    }
+    if (!isWithinPickupBookingWindow(area)) {
+      return { error: formatPickupAreaSlotLabel(area), order: null };
     }
     if (markReadyLockRef.current) {
       return { error: 'You already sent a pickup request', order: order ?? localOrderRef.current };

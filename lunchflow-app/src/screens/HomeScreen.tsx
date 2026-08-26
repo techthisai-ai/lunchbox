@@ -11,8 +11,13 @@ import { HomeDeliveredProofCard } from '../components/HomeDeliveredProofCard';
 import { PromoBannerImage } from '../components/PromoBannerImage';
 import { Avatar } from '../components/Avatar';
 import { getInitials } from '../constants/auth';
-import { CUSTOMER_PICKUP_SLOT_LABEL } from '../constants/business';
 import { colors, gradients, shadow, spacing } from '../constants/theme';
+import { getPickupSlotBlockInfo } from '../utils/pickupSlotGuard';
+import {
+  activatePickupSlotBanner,
+  clearPickupSlotBannerSession,
+  getPickupSlotBannerExpiry,
+} from '../utils/pickupSlotBanner';
 import { useAuth } from '../context/AuthContext';
 import { useDelivery } from '../context/DeliveryContext';
 import { useFoodReadyOverlay } from '../context/FoodReadyOverlayContext';
@@ -21,7 +26,9 @@ import { HomeStackParamList, ProfileStackParamList } from '../navigation/types';
 import { DeliveryHistoryEntry, syncDeliveryHistory } from '../services/deliveryHistoryService';
 import { loadFoodReadyDefaults } from '../services/foodReadyDefaultsService';
 import { listCustomerOrders, loadCustomerProfile } from '../services/orderHubService';
-import { checkSubscriptionRenewalReminders, hasActiveSubscription } from '../services/subscriptionService';
+import { checkSubscriptionRenewalReminders, hasActiveSubscription, getFoodReadyDeliveryQuota, loadActiveSubscriptionRecord } from '../services/subscriptionService';
+import { countFoodReadyPeople, savePendingFoodReady } from '../services/pendingFoodReadyService';
+import { getSubscriptionPlan, isMonthlySubscriptionPlan, isSingleOrderPlan } from '../constants/subscriptions';
 import { countUnread, loadNotifications } from '../services/notificationService';
 import { subscribeToActivePromoAds, PROMO_CAROUSEL_HEIGHT } from '../services/promoAdService';
 import {
@@ -382,6 +389,25 @@ function getRecentDeliveryTitle(entry: DeliveryHistoryEntry): string {
 
 function getRecentRoute(entry: DeliveryHistoryEntry): string {
   return `${entry.pickupLabel || 'Home'} → ${entry.destinationName}`;
+}
+
+function PickupSlotHomeBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  return (
+    <View style={styles.pickupSlotBanner}>
+      <Ionicons name="time-outline" size={18} color={colors.orange} />
+      <ScrollView
+        style={styles.pickupSlotBannerScroll}
+        contentContainerStyle={styles.pickupSlotBannerScrollContent}
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+      >
+        <Text style={styles.pickupSlotBannerText}>{message}</Text>
+      </ScrollView>
+      <Pressable onPress={onDismiss} hitSlop={8} accessibilityLabel="Dismiss pickup slot alert">
+        <Ionicons name="close" size={16} color={colors.muted} />
+      </Pressable>
+    </View>
+  );
 }
 
 function HomeHeader({
@@ -855,7 +881,7 @@ function RecentDeliveryCard({ entry }: { entry: DeliveryHistoryEntry }) {
 export function HomeScreen({ navigation }: Props) {
   const { user } = useAuth();
   const { order, submitting, markFoodReady, refreshDelivery } = useDelivery();
-  const { openFoodReadyDialog } = useFoodReadyOverlay();
+  const { openFoodReadyDialog, closeFoodReadyDialog } = useFoodReadyOverlay();
   const { horizontalPadding } = useResponsive();
   // Keep last known active order so Today's Delivery + Live Tracking never
   // flash empty BOOKED / hide the timeline during refresh gaps.
@@ -865,11 +891,94 @@ export function HomeScreen({ navigation }: Props) {
   }
   const displayOrder = order ?? stableHomeOrderRef.current;
   const [errorMessage, setErrorMessage] = useState('');
+  const [pickupSlotBanner, setPickupSlotBanner] = useState<string | null>(null);
+  const pickupSlotBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pickupBannerDismissedRef = useRef(false);
   const [recentDeliveries, setRecentDeliveries] = useState<DeliveryHistoryEntry[]>([]);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
 
   const displayName = user?.name || 'Guest';
   const initials = getInitials(displayName);
+
+  const hidePickupSlotBanner = useCallback(() => {
+    setPickupSlotBanner(null);
+    if (pickupSlotBannerTimerRef.current) {
+      clearTimeout(pickupSlotBannerTimerRef.current);
+      pickupSlotBannerTimerRef.current = null;
+    }
+  }, []);
+
+  const showPickupSlotBanner = useCallback(
+    (message: string, expiresAt: number) => {
+      setPickupSlotBanner(message);
+      if (pickupSlotBannerTimerRef.current) {
+        clearTimeout(pickupSlotBannerTimerRef.current);
+      }
+      const remaining = Math.max(0, expiresAt - Date.now());
+      pickupSlotBannerTimerRef.current = setTimeout(hidePickupSlotBanner, remaining);
+    },
+    [hidePickupSlotBanner],
+  );
+
+  const dismissPickupSlotBanner = useCallback(async () => {
+    pickupBannerDismissedRef.current = true;
+    hidePickupSlotBanner();
+    if (user?.phone) {
+      await clearPickupSlotBannerSession(user.phone);
+    }
+  }, [hidePickupSlotBanner, user?.phone]);
+
+  const refreshPickupSlotBanner = useCallback(async () => {
+    if (!user?.phone) {
+      hidePickupSlotBanner();
+      return;
+    }
+
+    if (pickupBannerDismissedRef.current) return;
+
+    const current = displayOrder ?? stableHomeOrderRef.current;
+    const hasLivePickup =
+      current &&
+      current.status !== 'booked' &&
+      current.status !== 'pickup_closed' &&
+      current.status !== 'delivered';
+
+    if (hasLivePickup) {
+      hidePickupSlotBanner();
+      await clearPickupSlotBannerSession(user.phone);
+      return;
+    }
+
+    const profile = await loadCustomerProfile(user.phone);
+    const pickupAddress = displayOrder?.pickupAddress || profile.address || '';
+    const slotInfo = await getPickupSlotBlockInfo(pickupAddress);
+
+    if (!slotInfo.blocked) {
+      hidePickupSlotBanner();
+      await clearPickupSlotBannerSession(user.phone);
+      return;
+    }
+
+    const expiresAt = await getPickupSlotBannerExpiry(user.phone);
+    if (expiresAt <= Date.now()) {
+      hidePickupSlotBanner();
+      return;
+    }
+
+    if (slotInfo.message) {
+      showPickupSlotBanner(slotInfo.message, expiresAt);
+    } else {
+      hidePickupSlotBanner();
+    }
+  }, [user?.phone, displayOrder, hidePickupSlotBanner, showPickupSlotBanner]);
+
+  useEffect(() => {
+    return () => {
+      if (pickupSlotBannerTimerRef.current) {
+        clearTimeout(pickupSlotBannerTimerRef.current);
+      }
+    };
+  }, []);
 
   const loadHomeData = useCallback(async () => {
     if (!user?.phone) {
@@ -901,11 +1010,12 @@ export function HomeScreen({ navigation }: Props) {
     useCallback(() => {
       refreshDelivery();
       void loadHomeData();
+      void refreshPickupSlotBanner();
       const interval = setInterval(() => {
         void refreshUnreadBadge();
       }, 4000);
       return () => clearInterval(interval);
-    }, [refreshDelivery, loadHomeData, refreshUnreadBadge]),
+    }, [refreshDelivery, loadHomeData, refreshPickupSlotBanner, refreshUnreadBadge]),
   );
 
   const goToFoodReady = useCallback(() => {
@@ -939,19 +1049,74 @@ export function HomeScreen({ navigation }: Props) {
 
   const handleConfirmFoodReady = useCallback(
     async (details: FoodReadyDetails) => {
+      if (!user?.phone) return;
+
+      const peopleCount = countFoodReadyPeople(details);
+      const hasPlan = await hasActiveSubscription(user.phone);
+
+      if (!hasPlan) {
+        await savePendingFoodReady(user.phone, details);
+        closeFoodReadyDialog();
+        navigation.navigate('FoodReady', { step: 'choosePlan', peopleCount: Math.max(1, peopleCount) });
+        return;
+      }
+
+      const record = await loadActiveSubscriptionRecord(user.phone);
+      const plan = record ? getSubscriptionPlan(record.planId) : null;
+
+      if (plan && isSingleOrderPlan(plan)) {
+        const paidPeople = record?.paidPeopleCount ?? 1;
+        if (peopleCount > paidPeople) {
+          await savePendingFoodReady(user.phone, details);
+          closeFoodReadyDialog();
+          navigation.navigate('FoodReady', { step: 'choosePlan', peopleCount: Math.max(1, peopleCount) });
+          return;
+        }
+      } else if (plan && isMonthlySubscriptionPlan(plan)) {
+        const quota = await getFoodReadyDeliveryQuota(user.phone);
+        if (peopleCount > quota.maxPeople) {
+          await savePendingFoodReady(user.phone, details);
+          closeFoodReadyDialog();
+          navigation.navigate('FoodReady', { step: 'choosePlan', peopleCount: Math.max(1, peopleCount) });
+          return;
+        }
+      }
+
       const result = await markFoodReady(details);
       if (result.error) {
+        if (result.error.startsWith('Pickup Slot')) {
+          if (user?.phone) {
+            pickupBannerDismissedRef.current = false;
+            const expiresAt = await activatePickupSlotBanner(user.phone);
+            showPickupSlotBanner(result.error, expiresAt);
+          }
+        }
         setErrorMessage(result.error);
         return;
       }
       if (result.order) {
+        closeFoodReadyDialog();
+        hidePickupSlotBanner();
+        void clearPickupSlotBannerSession(user.phone);
         goToFoodReady();
       }
     },
-    [markFoodReady, goToFoodReady],
+    [markFoodReady, goToFoodReady, user?.phone, showPickupSlotBanner, navigation, closeFoodReadyDialog, hidePickupSlotBanner],
   );
 
   const handleFoodReady = useCallback(async () => {
+    if (!user?.phone) return;
+
+    const profile = await loadCustomerProfile(user.phone);
+    const pickupAddress = order?.pickupAddress || profile.address || '';
+    const slotInfo = await getPickupSlotBlockInfo(pickupAddress);
+    if (slotInfo.blocked && slotInfo.message) {
+      pickupBannerDismissedRef.current = false;
+      const expiresAt = await activatePickupSlotBanner(user.phone);
+      showPickupSlotBanner(slotInfo.message, expiresAt);
+      return;
+    }
+
     const current = order ?? stableHomeOrderRef.current;
     if (hasSentPickupRequest(current)) {
       Alert.alert('Pickup request already sent', 'You already sent a pickup request. Please wait for a rider to accept.');
@@ -968,13 +1133,7 @@ export function HomeScreen({ navigation }: Props) {
 
     setErrorMessage('');
 
-    const hasPlan = await hasActiveSubscription(user.phone);
-    if (!hasPlan) {
-      navigation.navigate('FoodReady', { step: 'choosePlan' });
-      return;
-    }
-
-    const [savedDefaults, profile] = await Promise.all([
+    const [savedDefaults, profileForDefaults] = await Promise.all([
       loadFoodReadyDefaults(user.phone),
       loadCustomerProfile(user.phone),
     ]);
@@ -990,7 +1149,7 @@ export function HomeScreen({ navigation }: Props) {
     }
 
     openFoodReadyDialog({
-      initialValues: buildFoodReadyDefaults(profile),
+      initialValues: buildFoodReadyDefaults(profileForDefaults),
       startInReviewMode: false,
       submitting,
       onConfirm: handleConfirmFoodReady,
@@ -1003,6 +1162,7 @@ export function HomeScreen({ navigation }: Props) {
     submitting,
     handleConfirmFoodReady,
     buildFoodReadyDefaults,
+    showPickupSlotBanner,
   ]);
 
   const goToTracking = useCallback(() => {
@@ -1083,13 +1243,15 @@ export function HomeScreen({ navigation }: Props) {
           onNotifications={() => navigation.navigate('Notifications')}
           onProfile={() => navigation.getParent()?.navigate('Profile')}
         />
-        <Text style={styles.pickupSlotLabel}>{CUSTOMER_PICKUP_SLOT_LABEL}</Text>
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
       >
+        {pickupSlotBanner ? (
+          <PickupSlotHomeBanner message={pickupSlotBanner} onDismiss={() => void dismissPickupSlotBanner()} />
+        ) : null}
         <TodaysDeliveryCard order={displayOrder} onViewDetails={handleViewDetails} />
         <LiveTrackingCard
           order={displayOrder}
@@ -1142,12 +1304,31 @@ export function HomeScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   headerWrap: { paddingTop: spacing.xs, paddingBottom: spacing.sm },
-  pickupSlotLabel: {
-    marginTop: 6,
-    fontSize: 14,
+  pickupSlotBanner: {
+    marginBottom: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: colors.orangeLight,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.orange,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 10,
+    maxHeight: 72,
+  },
+  pickupSlotBannerScroll: {
+    flex: 1,
+    maxHeight: 52,
+  },
+  pickupSlotBannerScrollContent: {
+    flexGrow: 1,
+  },
+  pickupSlotBannerText: {
+    fontSize: 13,
     fontWeight: '700',
-    color: colors.red,
-    lineHeight: 20,
+    color: colors.text,
+    lineHeight: 18,
   },
   header: {
     flexDirection: 'row',

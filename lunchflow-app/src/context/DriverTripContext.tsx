@@ -21,14 +21,13 @@ import { geocodeTripStopAddress, isTamilNaduPoint, isTrustedMapPoint, geocodeAdd
 import { DEMO_DROP, DEMO_PICKUP, resolveKnownLocalityPoint } from '../constants/maps';
 import { DeliveryOrder, GeoPoint } from '../types/delivery';
 import { DRIVER_EARNING_PER_ORDER } from '../utils/adminDriverHelpers';
-import { getLocationGroupKey } from '../utils/driverLocationGroups';
 import {
   applySequences,
-  clusterNearbyDropGroups,
-  clusterNearbyPickupGroups,
   createIdleTripSnapshot,
   getDeliveryPendingOrders,
   getPickupPendingOrders,
+  findPickupStopGroup,
+  hasPendingPickups,
   groupOrdersByDropLocation,
   groupOrdersByPickupLocation,
   toEnfieldStops,
@@ -146,18 +145,18 @@ function mergeTripGroupStatus(
 
 async function hydrateTripGroups(
   orders: DeliveryOrder[],
-  phase: DriverTripPhase = 'pickup',
 ): Promise<{
   pickupGroups: TripStopGroup[];
   deliveryGroups: TripStopGroup[];
 }> {
-  const pickupGroups = clusterNearbyPickupGroups(
-    await hydrateTripStopPoints(groupOrdersByPickupLocation(getPickupPendingOrders(orders))),
+  const pendingPickupOrders = getPickupPendingOrders(orders);
+  const pickupGroups = await hydrateTripStopPoints(
+    groupOrdersByPickupLocation(pendingPickupOrders),
   );
 
-  const deliveryGroups = clusterNearbyDropGroups(
-    await hydrateTripStopPoints(groupOrdersByDropLocation(getDeliveryPendingOrders(orders))),
-  );
+  const deliveryOrders =
+    pendingPickupOrders.length === 0 ? getDeliveryPendingOrders(orders) : [];
+  const deliveryGroups = await hydrateTripStopPoints(groupOrdersByDropLocation(deliveryOrders));
 
   return { pickupGroups, deliveryGroups };
 }
@@ -280,7 +279,7 @@ export function DriverTripProvider({ children }: { children: ReactNode }) {
 
       const driverPoint = await refreshDriverLocation();
       const currentTrip = tripRef.current;
-      const hydrated = await hydrateTripGroups(orders, currentTrip.phase === 'idle' ? 'pickup' : currentTrip.phase);
+      const hydrated = await hydrateTripGroups(orders);
       const pickupGroups =
         currentTrip.phase === 'idle'
           ? hydrated.pickupGroups
@@ -353,58 +352,65 @@ export function DriverTripProvider({ children }: { children: ReactNode }) {
   );
 
   const completePickupStop = useCallback(async (stopId: string, otp: string, orders: DeliveryOrder[]) => {
-    const group =
-      tripRef.current.pickupGroups.find((entry) => entry.id === stopId) ??
-      groupOrdersByPickupLocation(orders).find((entry) => entry.id === stopId);
-    if (!group) return 'Pickup stop not found';
+    const trimmedOtp = otp.trim();
+    if (!trimmedOtp) return 'Enter customer OTP or scan QR code';
 
-    const pendingOrders = group.orders.filter((order) =>
-      ['driver_assigned', 'at_pickup', 'pickup_verified', 'awaiting_driver', 'food_ready'].includes(order.status),
-    );
-    if (pendingOrders.length === 0) return null;
+    try {
+      const group = findPickupStopGroup(stopId, tripRef.current.pickupGroups, orders);
+      if (!group) return 'Pickup stop not found';
 
-    let matched = false;
-    for (const order of pendingOrders) {
+      const orderId = group.orders[0]?.id;
+      if (!orderId) return 'Pickup stop not found';
+
+      let order = orders.find((entry) => entry.id === orderId) ?? group.orders[0];
+      const pendingStatuses: DeliveryOrder['status'][] = [
+        'driver_assigned',
+        'at_pickup',
+        'pickup_verified',
+        'awaiting_driver',
+        'food_ready',
+      ];
+      if (!pendingStatuses.includes(order.status)) {
+        return null;
+      }
+
       if (order.status !== 'at_pickup' && order.status !== 'pickup_verified') {
-        await markAtPickup(order.id);
+        order = await markAtPickup(order.id);
       }
-    }
 
-    for (const order of pendingOrders) {
       try {
-        await verifyPickup(order.id, otp);
-        matched = true;
-      } catch {
-        // Try next order at same kitchen.
+        order = await verifyPickup(order.id, trimmedOtp);
+      } catch (error) {
+        return error instanceof Error ? error.message : 'Invalid OTP or QR code';
       }
-    }
 
-    if (!matched) return 'Invalid kitchen OTP';
-
-    for (const order of pendingOrders) {
       await markPickedUp(order.id);
+
+      setTrip((current) => {
+        const pickupGroups = current.pickupGroups.map((entry) =>
+          entry.id === group.id || entry.orders.some((item) => item.id === orderId)
+            ? { ...entry, status: 'completed' as const }
+            : entry,
+        );
+        const origin = driverLocationRef.current ?? group.point;
+        const nextPickupId = nearestPendingStopIds(origin, pickupGroups)[0] ?? null;
+        const allPickupsDone = !pickupGroups.some((entry) => entry.status === 'pending');
+
+        return {
+          ...current,
+          pickupGroups,
+          phase: allPickupsDone ? 'delivery' : 'pickup',
+          currentStopId: allPickupsDone
+            ? current.deliveryGroups.find((entry) => entry.status === 'pending')?.id ?? null
+            : nextPickupId,
+          pickupRoute: allPickupsDone ? null : current.pickupRoute,
+        };
+      });
+
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Could not verify pickup';
     }
-
-    setTrip((current) => {
-      const pickupGroups = current.pickupGroups.map((entry) =>
-        entry.id === stopId ? { ...entry, status: 'completed' as const } : entry,
-      );
-      const origin = driverLocationRef.current ?? group.point;
-      const nextPickupId = nearestPendingStopIds(origin, pickupGroups)[0] ?? null;
-      const allPickupsDone = !pickupGroups.some((entry) => entry.status === 'pending');
-
-      return {
-        ...current,
-        pickupGroups,
-        phase: allPickupsDone ? 'delivery' : 'pickup',
-        currentStopId: allPickupsDone
-          ? current.deliveryGroups.find((entry) => entry.status === 'pending')?.id ?? null
-          : nextPickupId,
-        pickupRoute: allPickupsDone ? null : current.pickupRoute,
-      };
-    });
-
-    return null;
   }, []);
 
   const markPickupStopReached = useCallback((stopId: string) => {
@@ -426,7 +432,9 @@ export function DriverTripProvider({ children }: { children: ReactNode }) {
       const deliveryGroups = current.deliveryGroups.map((entry) => {
         const matches =
           entry.id === stopId ||
-          entry.orders.some((order) => `drop-${getLocationGroupKey(order)}` === stopId);
+          entry.orders.some(
+            (order) => order.id === stopId.replace(/^drop-/, '') || `drop-${order.id}` === stopId,
+          );
         return matches ? { ...entry, status: 'completed' as const } : entry;
       });
       const origin = driverLocationRef.current ?? current.deliveryGroups.find((entry) => entry.id === stopId)?.point;

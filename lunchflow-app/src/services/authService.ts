@@ -174,6 +174,53 @@ function driverAuthUser(driver: {
   };
 }
 
+export async function ensureAdminFirestoreAccess(
+  email = DEMO_ADMIN.email,
+  password = DEMO_ADMIN.password,
+): Promise<void> {
+  if (auth.currentUser) return;
+
+  const trimmedEmail = email.trim().toLowerCase();
+
+  try {
+    await signInWithEmailAndPassword(auth, trimmedEmail, password);
+    return;
+  } catch (error) {
+    const code = (error as { code?: string })?.code ?? '';
+    if (
+      code === 'auth/user-not-found' ||
+      code === 'auth/invalid-credential' ||
+      code === 'auth/wrong-password' ||
+      code === 'auth/invalid-login-credentials'
+    ) {
+      try {
+        const credential = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
+        await setDoc(
+          doc(db, 'profiles', credential.user.uid),
+          {
+            role: 'admin',
+            name: DEMO_ADMIN.name,
+            email: trimmedEmail,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true },
+        );
+        return;
+      } catch (createError) {
+        const createCode = (createError as { code?: string })?.code ?? '';
+        if (createCode === 'auth/email-already-in-use') {
+          throw new Error('Admin sign-in failed. Please log out and sign in again.');
+        }
+        throw createError;
+      }
+    }
+    if (code === 'auth/operation-not-allowed') {
+      throw new Error('Firebase Email/Password sign-in is disabled. Enable it in Firebase Console.');
+    }
+    throw error;
+  }
+}
+
 export async function loginAdmin(email: string, password: string): Promise<AuthUser> {
   const trimmedEmail = email.trim();
   const isDemo = isDemoAdminLogin(trimmedEmail, password);

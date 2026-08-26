@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Platform, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { Badge } from '../../components/Badge';
@@ -159,6 +159,13 @@ export function AdminPromoPostsScreen({ onClose }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<PromoAd | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [cropSourceUri, setCropSourceUri] = useState<string | null>(null);
+  const uploadSessionRef = useRef(0);
+
+  const revokeBlobUri = (uri?: string | null) => {
+    if (uri?.startsWith('blob:')) {
+      URL.revokeObjectURL(uri);
+    }
+  };
 
   const refresh = useCallback(async () => {
     setAds(await listAllPromoAds());
@@ -218,34 +225,46 @@ export function AdminPromoPostsScreen({ onClose }: Props) {
   };
 
   const handleCropCancel = () => {
-    if (cropSourceUri?.startsWith('blob:')) {
-      URL.revokeObjectURL(cropSourceUri);
-    }
+    uploadSessionRef.current += 1;
+    setUploading(false);
+    revokeBlobUri(cropSourceUri);
     setCropSourceUri(null);
+    setError('');
   };
 
   const handleCropConfirm = async (croppedUri: string) => {
+    const uploadSession = uploadSessionRef.current + 1;
+    uploadSessionRef.current = uploadSession;
+    const adId = draft.id ?? createPromoAdId();
+
     setError('');
+    revokeBlobUri(cropSourceUri);
+    setCropSourceUri(null);
+    setDraft((current) => ({
+      ...current,
+      id: adId,
+      bannerImageUrl: croppedUri,
+    }));
     setUploading(true);
+
     try {
-      const adId = draft.id ?? createPromoAdId();
       const uploadedUrl = await uploadPromoBannerImage(adId, croppedUri);
-      setDraft((current) => ({
-        ...current,
-        id: adId,
-        bannerImageUrl: uploadedUrl,
-      }));
-      if (cropSourceUri?.startsWith('blob:')) {
-        URL.revokeObjectURL(cropSourceUri);
+      if (uploadSessionRef.current !== uploadSession) return;
+
+      if (uploadedUrl !== croppedUri) {
+        setDraft((current) => ({
+          ...current,
+          bannerImageUrl: uploadedUrl,
+        }));
+        revokeBlobUri(croppedUri);
       }
-      if (croppedUri.startsWith('blob:')) {
-        URL.revokeObjectURL(croppedUri);
-      }
-      setCropSourceUri(null);
     } catch (pickError) {
+      if (uploadSessionRef.current !== uploadSession) return;
       setError(pickError instanceof Error ? pickError.message : 'Could not upload banner image');
     } finally {
-      setUploading(false);
+      if (uploadSessionRef.current === uploadSession) {
+        setUploading(false);
+      }
     }
   };
 
@@ -402,7 +421,7 @@ export function AdminPromoPostsScreen({ onClose }: Props) {
                 <Text style={styles.uploadSub}>{activeMeta.uploadSub}</Text>
               </View>
             )}
-            {uploading ? (
+            {uploading && !draft.bannerImageUrl ? (
               <View style={styles.uploadOverlay}>
                 <ActivityIndicator color={colors.white} />
               </View>

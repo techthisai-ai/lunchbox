@@ -1,8 +1,8 @@
-import { DEMO_DROP, DEMO_PICKUP, resolveKnownLocalityPoint } from '../constants/maps';
+import { DEMO_DROP, DEMO_PICKUP, resolveKnownLocalityMatch, resolveKnownLocalityPoint } from '../constants/maps';
 import { EnfieldMapStop, EnfieldRouteResult } from '../services/enfieldMapsService';
 import { haversineDistanceKm, isTrustedMapPoint, resolveMapPoint } from '../services/mapGeocoding';
 import { DeliveryOrder, GeoPoint, getDropAddress } from '../types/delivery';
-import { getDropInstitutionName, getLocationGroupKey, dropsShareSamePlace } from './driverLocationGroups';
+import { dropsShareSamePlace, getDropInstitutionName, getOrderStudentName } from './driverLocationGroups';
 
 export type TripStopGroup = {
   id: string;
@@ -136,32 +136,41 @@ export function clusterNearbyDropGroups(groups: TripStopGroup[], radiusKm = 8): 
   });
 }
 
+export function findPickupStopGroup(
+  stopId: string,
+  tripGroups: TripStopGroup[],
+  orders: DeliveryOrder[],
+): TripStopGroup | undefined {
+  const fromTrip = tripGroups.find((entry) => entry.id === stopId);
+  if (fromTrip) return fromTrip;
+
+  const rebuilt = groupOrdersByPickupLocation(getPickupPendingOrders(orders));
+  const fromRebuild = rebuilt.find((entry) => entry.id === stopId);
+  if (fromRebuild) return fromRebuild;
+
+  const orderId = stopId.startsWith('pickup-') ? stopId.slice('pickup-'.length) : null;
+  if (!orderId) return undefined;
+
+  return (
+    tripGroups.find((group) => group.orders.some((order) => order.id === orderId)) ??
+    rebuilt.find((group) => group.orders.some((order) => order.id === orderId))
+  );
+}
+
 export function groupOrdersByPickupLocation(orders: DeliveryOrder[]): TripStopGroup[] {
-  const groups = new Map<string, DeliveryOrder[]>();
-
-  for (const order of orders) {
-    const key = pickupGroupKey(order.pickupAddress);
-    const list = groups.get(key) ?? [];
-    list.push(order);
-    groups.set(key, list);
-  }
-
-  return [...groups.entries()].map(([key, groupOrders]) => {
-    const sample =
-      groupOrders.find(
-        (order) => order.pickupLocation && isTrustedMapPoint(order.pickupLocation, order.pickupAddress),
-      ) ?? groupOrders[0];
+  return orders.map((order) => {
+    const customerLabel = order.customerName?.trim() || 'Customer';
     return {
-      id: `pickup-${key}`,
+      id: `pickup-${order.id}`,
       type: 'pickup' as const,
-      address: sample.pickupAddress,
-      locationName: sample.pickupAddress,
+      address: order.pickupAddress,
+      locationName: customerLabel,
       point:
-        resolveKnownLocalityPoint(sample.pickupAddress) ??
-        resolveMapPoint(sample.pickupLocation, sample.pickupAddress, DEMO_PICKUP),
-      orders: groupOrders,
+        resolveKnownLocalityPoint(order.pickupAddress) ??
+        resolveMapPoint(order.pickupLocation, order.pickupAddress, DEMO_PICKUP),
+      orders: [order],
       sequence: 0,
-      status: groupOrders.every((order) => ['picked_up', 'in_transit', 'at_drop', 'delivered'].includes(order.status))
+      status: ['picked_up', 'in_transit', 'at_drop', 'delivered'].includes(order.status)
         ? 'completed'
         : 'pending',
     };
@@ -169,36 +178,22 @@ export function groupOrdersByPickupLocation(orders: DeliveryOrder[]): TripStopGr
 }
 
 export function groupOrdersByDropLocation(orders: DeliveryOrder[]): TripStopGroup[] {
-  const groups = new Map<string, DeliveryOrder[]>();
-
-  for (const order of orders) {
-    const key = getLocationGroupKey(order);
-    const list = groups.get(key) ?? [];
-    list.push(order);
-    groups.set(key, list);
-  }
-
-  return [...groups.entries()].map(([key, groupOrders]) => {
-    const sample =
-      groupOrders.find((order) => {
-        const dropAddress = getDropAddress(order);
-        return order.dropLocation && isTrustedMapPoint(order.dropLocation, dropAddress);
-      }) ?? groupOrders[0];
-    const address = getDropAddress(sample);
-    const locationName = getDropInstitutionName(sample) || sample.school?.trim() || address;
+  return orders.map((order) => {
+    const address = getDropAddress(order);
+    const institution = getDropInstitutionName(order) || order.school?.trim() || address;
     return {
-      id: `drop-${key}`,
+      id: `drop-${order.id}`,
       type: 'drop' as const,
       address,
-      locationName,
+      locationName: getOrderStudentName(order),
       point:
-        resolveKnownLocalityPoint(locationName) ??
+        resolveKnownLocalityPoint(institution) ??
         resolveKnownLocalityPoint(address) ??
-        resolveMapPoint(sample.dropLocation, address, DEMO_DROP),
-      orders: groupOrders,
+        resolveMapPoint(order.dropLocation, address, DEMO_DROP),
+      orders: [order],
       sequence: 0,
-      status: groupOrders.every((order) => order.status === 'delivered') ? 'completed' : 'pending',
-      batchId: sample.batchId,
+      status: order.status === 'delivered' ? 'completed' : 'pending',
+      batchId: order.batchId,
     };
   });
 }
@@ -234,24 +229,15 @@ export function getPickupPendingOrders(orders: DeliveryOrder[]): DeliveryOrder[]
   );
 }
 
-const DELIVERY_TRIP_STATUSES = [
-  'driver_assigned',
-  'at_pickup',
-  'pickup_verified',
-  'awaiting_driver',
-  'food_ready',
-  'picked_up',
-  'in_transit',
-  'at_drop',
-];
+const POST_PICKUP_DELIVERY_STATUSES: DeliveryOrder['status'][] = ['picked_up', 'in_transit', 'at_drop'];
 
-/**
- * Drop destinations for every accepted order still on the trip (not delivered/cancelled),
- * so all delivery locations are known up front and shown the moment pickups finish.
- * Orders sharing the same drop location are merged into one stop by groupOrdersByDropLocation.
- */
+/** Deliveries enter the route only after the lunchbox has been picked up from the customer. */
 export function getDeliveryPendingOrders(orders: DeliveryOrder[]): DeliveryOrder[] {
-  return orders.filter((order) => DELIVERY_TRIP_STATUSES.includes(order.status));
+  return orders.filter((order) => POST_PICKUP_DELIVERY_STATUSES.includes(order.status));
+}
+
+export function hasPendingPickups(orders: DeliveryOrder[]): boolean {
+  return getPickupPendingOrders(orders).length > 0;
 }
 
 export function getLunchboxCount(orders: DeliveryOrder[]): number {

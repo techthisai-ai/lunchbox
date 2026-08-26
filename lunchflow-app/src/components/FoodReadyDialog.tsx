@@ -16,14 +16,11 @@ import {
   getPersonLabel,
   hasSentPickupRequest,
   normalizeDeliveryType,
-  normalizeDeliveryTypes,
 } from '../types/delivery';
 import { normalizeFoodReadyDetails } from '../services/foodReadyDefaultsService';
 import {
   FoodReadyDeliveryQuota,
   getFoodReadyDeliveryQuota,
-  validateFoodReadyDropLocations,
-  validateFoodReadyPeopleCount,
 } from '../services/subscriptionService';
 import { Button } from './Button';
 
@@ -33,7 +30,7 @@ type Props = {
   startInReviewMode?: boolean;
   submitting?: boolean;
   allowUpdate?: boolean;
-  onConfirm: (details: FoodReadyDetails) => void;
+  onConfirm: (details: FoodReadyDetails) => void | Promise<void>;
   onCancel: () => void;
 };
 
@@ -43,29 +40,33 @@ const WHERE_OPTIONS: { id: DeliveryType; label: string }[] = [
   { id: 'office', label: 'Office' },
 ];
 
-function personSectionLabel(types: DeliveryType[]): string {
-  if (types.length > 1) return 'Students & Employees';
-  if (types[0] === 'office') return 'Employees';
+function personSectionLabel(students: FoodReadyStudentEntry[]): string {
+  const types = new Set(students.map((entry) => entry.deliveryType));
+  if (types.size > 1) return 'Students & Employees';
+  if (types.has('office')) return 'Employees';
   return 'Students';
 }
 
-function personAddLabel(types: DeliveryType[]): string {
-  if (types.length > 1) return 'Add Person';
-  if (types[0] === 'office') return 'Add Employee';
-  return 'Add Student';
+function uniqueDeliveryTypes(students: FoodReadyStudentEntry[]): DeliveryType[] {
+  return [...new Set(students.map((entry) => normalizeDeliveryType(entry.deliveryType)))];
 }
 
-function entryCardTitle(entry: FoodReadyStudentEntry, index: number, total: number): string {
-  const typeLabel = getDeliveryTypeLabel(entry.deliveryType);
-  const suffix = total > 1 ? ` ${index + 1}` : '';
-  if (entry.deliveryType === 'office') return `Employee${suffix} · ${typeLabel}`;
-  return `Student${suffix} · ${typeLabel}`;
+function countByType(students: FoodReadyStudentEntry[], type: DeliveryType): number {
+  return students.filter((entry) => entry.deliveryType === type).length;
 }
 
-function reviewStudentTitle(entry: FoodReadyStudentEntry, index: number): string {
+function entryCardTitle(entry: FoodReadyStudentEntry, index: number, allStudents: FoodReadyStudentEntry[]): string {
   const typeLabel = getDeliveryTypeLabel(entry.deliveryType);
   const role = entry.deliveryType === 'office' ? 'Employee' : 'Student';
-  return `${role} ${index + 1} - ${typeLabel}`;
+  const sameTypeCount = allStudents.filter((row) => row.deliveryType === entry.deliveryType).length;
+  const sameTypeIndex =
+    allStudents.slice(0, index + 1).filter((row) => row.deliveryType === entry.deliveryType).length;
+  const suffix = sameTypeCount > 1 ? ` ${sameTypeIndex}` : '';
+  return `${role}${suffix} · ${typeLabel}`;
+}
+
+function reviewStudentTitle(entry: FoodReadyStudentEntry, index: number, allStudents: FoodReadyStudentEntry[]): string {
+  return entryCardTitle(entry, index, allStudents).replace(' · ', ' - ');
 }
 
 function ReviewInfoCard({
@@ -106,13 +107,15 @@ function ReviewInfoCard({
 function ReviewStudentCard({
   student,
   index,
+  allStudents,
 }: {
   student: FoodReadyStudentEntry;
   index: number;
+  allStudents: FoodReadyStudentEntry[];
 }) {
   return (
     <View style={styles.reviewStudentCard}>
-      <Text style={styles.reviewStudentTitle}>{reviewStudentTitle(student, index)}</Text>
+      <Text style={styles.reviewStudentTitle}>{reviewStudentTitle(student, index, allStudents)}</Text>
       <Text style={styles.reviewMeta} numberOfLines={1}>
         {getPersonLabel(student.deliveryType)}: {student.name.trim()}
       </Text>
@@ -186,8 +189,7 @@ function DialogBody({
   const [mode, setMode] = useState<'review' | 'edit'>(startInReviewMode ? 'review' : 'edit');
   const [name, setName] = useState('');
   const [pickupAddress, setPickupAddress] = useState('');
-  const [students, setStudents] = useState<FoodReadyStudentEntry[]>([emptyFoodReadyStudent()]);
-  const [selectedWhere, setSelectedWhere] = useState<DeliveryType[]>(['school']);
+  const [students, setStudents] = useState<FoodReadyStudentEntry[]>([]);
   const [error, setError] = useState('');
   const [quota, setQuota] = useState<FoodReadyDeliveryQuota>({
     maxPeople: 1,
@@ -222,18 +224,13 @@ function DialogBody({
   }, [user?.phone]);
 
   useEffect(() => {
-    const where = normalizeDeliveryTypes(
-      initialValues?.deliveryTypes ?? initialValues?.students?.map((entry) => entry.deliveryType),
-      normalizeDeliveryType(initialValues?.deliveryType),
-    );
     setName(initialValues?.name ?? '');
     setPickupAddress(initialValues?.pickupAddress ?? '');
-    setSelectedWhere(where);
     const nextStudents = buildFoodReadyStudents(initialValues);
-    setStudents(nextStudents.slice(0, Math.max(1, quota.maxPeople)));
+    setStudents(nextStudents);
     setMode(startInReviewMode ? 'review' : 'edit');
     setError('');
-  }, [initialValues, startInReviewMode, quota.maxPeople]);
+  }, [initialValues, startInReviewMode]);
 
   const buildConfirmedDetails = async (): Promise<FoodReadyDetails | null> => {
     const trimmedName = name.trim();
@@ -243,10 +240,7 @@ function DialogBody({
         name: entry.name.trim(),
         dropLocation: entry.dropLocation.trim(),
         classSection: entry.classSection.trim(),
-        deliveryType:
-          selectedWhere.length === 1
-            ? selectedWhere[0]
-            : normalizeDeliveryType(entry.deliveryType),
+        deliveryType: normalizeDeliveryType(entry.deliveryType),
       }))
       .filter((entry) => entry.name || entry.dropLocation || entry.classSection);
 
@@ -258,36 +252,16 @@ function DialogBody({
       setError('Enter pickup address');
       return null;
     }
-    if (selectedWhere.length === 0) {
-      setError('Select at least one option under Where');
-      return null;
-    }
     if (filledStudents.length === 0) {
       setError('Add at least one student or employee');
       return null;
     }
 
-    const peopleError = validateFoodReadyPeopleCount(filledStudents.length, quota);
-    if (peopleError) {
-      setError(peopleError);
-      return null;
-    }
-
-    if (user?.phone) {
-      const dropError = await validateFoodReadyDropLocations(user.phone, filledStudents, quota);
-      if (dropError) {
-        setError(dropError);
-        return null;
-      }
-    }
+    const deliveryTypes = uniqueDeliveryTypes(filledStudents);
 
     for (let index = 0; index < filledStudents.length; index += 1) {
       const entry = filledStudents[index];
-      const label = students.length > 1 ? ` ${index + 1}` : '';
-      if (!selectedWhere.includes(entry.deliveryType)) {
-        setError(`Choose a valid Where type for person${label}`);
-        return null;
-      }
+      const label = filledStudents.length > 1 ? ` ${index + 1}` : '';
       if (!entry.name) {
         setError(`Enter ${getPersonLabel(entry.deliveryType).toLowerCase()}${label}`);
         return null;
@@ -310,8 +284,8 @@ function DialogBody({
       person: legacy.person,
       persons: legacy.persons,
       students: filledStudents,
-      deliveryType: filledStudents[0]?.deliveryType ?? selectedWhere[0],
-      deliveryTypes: selectedWhere,
+      deliveryType: filledStudents[0]?.deliveryType ?? deliveryTypes[0] ?? 'school',
+      deliveryTypes,
     };
   };
 
@@ -320,48 +294,39 @@ function DialogBody({
     const details = await buildConfirmedDetails();
     if (!details) return;
     setError('');
-    onConfirm(details);
+    await onConfirm(details);
   };
 
   const handleReviewConfirm = async () => {
     if (blockIfAlreadySent() || submitting) return;
+    const reviewDeliveryTypes = uniqueDeliveryTypes(students);
     const details = normalizeFoodReadyDetails({
       name,
       pickupAddress,
-      deliveryType: selectedWhere[0],
-      deliveryTypes: selectedWhere,
-      students: students.slice(0, Math.max(1, quota.maxPeople)),
+      deliveryType: reviewDeliveryTypes[0] ?? students[0]?.deliveryType ?? 'school',
+      deliveryTypes: reviewDeliveryTypes,
+      students: students,
     });
     if (!details) {
       setMode('edit');
       setError('Saved details are incomplete. Please update them.');
       return;
     }
-    const peopleError = validateFoodReadyPeopleCount(details.students?.length ?? 0, quota);
-    if (peopleError) {
-      setMode('edit');
-      setError(peopleError);
-      return;
-    }
-    if (user?.phone && details.students?.length) {
-      const dropError = await validateFoodReadyDropLocations(user.phone, details.students, quota);
-      if (dropError) {
-        setMode('edit');
-        setError(dropError);
-        return;
-      }
-    }
     setError('');
-    onConfirm(details);
+    await onConfirm(details);
   };
 
   const reviewStudents = buildFoodReadyStudents({
     name,
     pickupAddress,
-    deliveryType: selectedWhere[0],
-    deliveryTypes: selectedWhere,
+    deliveryType: students[0]?.deliveryType ?? 'school',
+    deliveryTypes: uniqueDeliveryTypes(students),
     students,
   }).filter((entry) => entry.name.trim() || entry.dropLocation.trim() || entry.classSection.trim());
+
+  const reviewWhereLabel = uniqueDeliveryTypes(reviewStudents)
+    .map((type) => getDeliveryTypeLabel(type))
+    .join(' · ');
 
   if (mode === 'review') {
     return (
@@ -377,11 +342,16 @@ function DialogBody({
             <ReviewInfoCard
               name={name.trim()}
               pickupAddress={pickupAddress.trim()}
-              whereLabel={selectedWhere.map((type) => getDeliveryTypeLabel(type)).join(' · ')}
+              whereLabel={reviewWhereLabel || '—'}
             />
 
             {reviewStudents.map((student, index) => (
-              <ReviewStudentCard key={`review-${index}`} student={student} index={index} />
+              <ReviewStudentCard
+                key={`review-${index}`}
+                student={student}
+                index={index}
+                allStudents={reviewStudents}
+              />
             ))}
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -412,38 +382,20 @@ function DialogBody({
     );
   }
 
-  const handleToggleWhere = (type: DeliveryType) => {
-    setSelectedWhere((current) => {
-      if (current.includes(type)) {
-        if (current.length === 1) return current;
-        const next = current.filter((entry) => entry !== type);
-        setStudents((rows) =>
-          rows.map((row) =>
-            row.deliveryType === type ? { ...row, deliveryType: next[0] } : row,
-          ),
-        );
-        return next;
-      }
-      return [...current, type];
-    });
-  };
-
-  const handleAddStudent = () => {
-    if (!quota.allowAddPeople || students.length >= quota.maxPeople) {
-      setError(
-        quota.isSingleOrder
-          ? 'Single delivery (₹29): only 1 person at 1 location.'
-          : 'Buy today’s add-on first: same location ₹99, or different location ₹199.',
-      );
+  const handleAddStudent = (type: DeliveryType) => {
+    if (students.length >= 10) {
+      setError('You can add up to 10 people in one booking.');
       return;
     }
     setError('');
-    setStudents((current) => [...current, emptyFoodReadyStudent(selectedWhere[0])]);
+    setStudents((current) => [...current, emptyFoodReadyStudent(type)]);
   };
 
   const handleRemoveStudent = (index: number) => {
-    setStudents((current) => (current.length <= 1 ? current : current.filter((_, i) => i !== index)));
+    setStudents((current) => current.filter((_, i) => i !== index));
   };
+
+  const needsMoreSeats = students.length > quota.maxPeople;
 
   const handleStudentFieldChange = (
     index: number,
@@ -480,60 +432,49 @@ function DialogBody({
           />
 
           <Text style={styles.fieldLabel}>Where</Text>
+          <Text style={styles.sectionHint}>
+            Tap School, College, or Office to add each person. Tap the same option again for another.
+          </Text>
           <View style={styles.typeRow}>
             {WHERE_OPTIONS.map((option) => {
-              const active = selectedWhere.includes(option.id);
+              const addedCount = countByType(students, option.id);
               return (
                 <Pressable
                   key={option.id}
-                  style={[styles.typeChip, active && styles.typeChipActive]}
-                  onPress={() => handleToggleWhere(option.id)}
+                  style={[styles.typeChip, addedCount > 0 && styles.typeChipActive]}
+                  onPress={() => handleAddStudent(option.id)}
                 >
-                  <Text style={[styles.typeChipText, active && styles.typeChipTextActive]}>{option.label}</Text>
+                  <Text style={[styles.typeChipText, addedCount > 0 && styles.typeChipTextActive]}>
+                    {option.label}
+                    {addedCount > 0 ? ` (${addedCount})` : ''}
+                  </Text>
                 </Pressable>
               );
             })}
           </View>
 
-          <Text style={styles.fieldLabel}>{personSectionLabel(selectedWhere)}</Text>
+          {students.length > 0 ? (
+            <Text style={[styles.fieldLabel, styles.personListLabel]}>{personSectionLabel(students)}</Text>
+          ) : null}
+
+          {students.length === 0 ? (
+            <Text style={styles.emptyPersonHint}>No one added yet. Tap School, College, or Office above.</Text>
+          ) : null}
+
           {students.map((student, index) => {
             const entryType = normalizeDeliveryType(student.deliveryType);
             return (
               <View key={`student-${index}`} style={styles.studentCard}>
                 <View style={styles.studentCardHeader}>
-                  <Text style={styles.studentCardTitle}>{entryCardTitle(student, index, students.length)}</Text>
-                  {students.length > 1 ? (
-                    <Pressable
-                      style={styles.removeBtn}
-                      onPress={() => handleRemoveStudent(index)}
-                      accessibilityLabel="Remove person"
-                    >
-                      <Ionicons name="close-circle" size={22} color={colors.muted} />
-                    </Pressable>
-                  ) : null}
+                  <Text style={styles.studentCardTitle}>{entryCardTitle(student, index, students)}</Text>
+                  <Pressable
+                    style={styles.removeBtn}
+                    onPress={() => handleRemoveStudent(index)}
+                    accessibilityLabel="Remove person"
+                  >
+                    <Ionicons name="close-circle" size={22} color={colors.muted} />
+                  </Pressable>
                 </View>
-
-                {selectedWhere.length > 1 ? (
-                  <>
-                    <Text style={styles.subLabel}>Type</Text>
-                    <View style={styles.typeRowCompact}>
-                      {WHERE_OPTIONS.filter((option) => selectedWhere.includes(option.id)).map((option) => {
-                        const active = entryType === option.id;
-                        return (
-                          <Pressable
-                            key={option.id}
-                            style={[styles.typeChipCompact, active && styles.typeChipActive]}
-                            onPress={() => handleStudentFieldChange(index, 'deliveryType', option.id)}
-                          >
-                            <Text style={[styles.typeChipText, active && styles.typeChipTextActive]}>
-                              {option.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </>
-                ) : null}
 
                 <Text style={styles.subLabel}>{getPersonLabel(entryType)}</Text>
                 <TextInput
@@ -572,18 +513,19 @@ function DialogBody({
             );
           })}
 
-          {quota.allowAddPeople && students.length < quota.maxPeople ? (
-            <Pressable style={styles.addStudentBtn} onPress={handleAddStudent}>
-              <Ionicons name="add-circle-outline" size={18} color={colors.orange} />
-              <Text style={styles.addStudentText}>{personAddLabel(selectedWhere)}</Text>
-            </Pressable>
-          ) : (
+          {needsMoreSeats ? (
             <Text style={styles.quotaHint}>
               {quota.isSingleOrder
-                ? 'Single delivery (₹29): 1 person · 1 location only'
-                : `Seats today ${students.length}/${quota.maxPeople} · Same location ₹99 · Different location ₹199`}
+                ? `You have ${students.length} ${students.length === 1 ? 'person' : 'people'} · Plan covers ${quota.maxPeople}. Tap Ready to pay ₹29 for each extra person.`
+                : `You have ${students.length} people · Plan covers ${quota.maxPeople} today. Tap Ready to buy add-ons (₹99 same location · ₹199 different location).`}
             </Text>
-          )}
+          ) : students.length > 0 ? (
+            <Text style={styles.quotaHint}>
+              {quota.isSingleOrder
+                ? `Single delivery: ${students.length}/${quota.maxPeople} ${quota.maxPeople === 1 ? 'person' : 'people'}`
+                : `Seats today: ${students.length}/${quota.maxPeople}`}
+            </Text>
+          ) : null}
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -662,6 +604,26 @@ const styles = StyleSheet.create({
       : {}),
   },
   fieldLabel: { fontSize: 13, fontWeight: '600', color: colors.text, marginBottom: 6 },
+  sectionHint: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+    lineHeight: 17,
+    marginBottom: spacing.sm,
+    marginTop: -2,
+  },
+  personListLabel: {
+    marginTop: spacing.sm,
+  },
+  emptyPersonHint: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+    fontStyle: 'italic',
+    marginBottom: spacing.sm,
+    paddingVertical: spacing.sm,
+    textAlign: 'center',
+  },
   subLabel: {
     fontSize: 12,
     fontWeight: '600',
@@ -728,15 +690,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  addStudentBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    alignSelf: 'flex-start',
-    marginBottom: spacing.md,
-    paddingVertical: 4,
-  },
-  addStudentText: { fontSize: 13, fontWeight: '700', color: colors.orange },
   quotaHint: {
     fontSize: 12,
     fontWeight: '600',

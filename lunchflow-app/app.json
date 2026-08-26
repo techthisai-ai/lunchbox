@@ -37,7 +37,15 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
-      ]
+      ],
+      "manifest": {
+        "queries": [
+          { "intent": { "action": "android.intent.action.VIEW", "data": { "scheme": "upi" } } },
+          { "intent": { "action": "android.intent.action.VIEW", "data": { "scheme": "tez" } } },
+          { "intent": { "action": "android.intent.action.VIEW", "data": { "scheme": "phonepe" } } },
+          { "intent": { "action": "android.intent.action.VIEW", "data": { "scheme": "paytmmp" } } }
+        ]
+      }
     },
     "plugins": [
       [

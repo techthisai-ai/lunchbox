@@ -21,15 +21,20 @@ export function PickupVerifyDialog({ visible, orderLabel, onVerify, onCancel }: 
   const handleVerify = async () => {
     setError('');
     setLoading(true);
-    const err = await onVerify(code.trim());
-    setLoading(false);
-    if (err) {
-      setError(err);
-      return;
+    try {
+      const err = await onVerify(code.trim());
+      if (err) {
+        setError(err);
+        return;
+      }
+      setCode('');
+      setScanning(false);
+      onCancel();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Verification failed');
+    } finally {
+      setLoading(false);
     }
-    setCode('');
-    setScanning(false);
-    onCancel();
   };
 
   const startScan = async () => {

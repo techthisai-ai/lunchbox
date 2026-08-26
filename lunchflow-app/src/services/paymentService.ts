@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Linking, Platform } from 'react-native';
 import { httpsCallable } from 'firebase/functions';
 import { colors } from '../constants/theme';
+import { isMobileWebBrowser } from '../lib/firestoreRest';
 import { functions } from '../lib/firebase';
 
 export type OnlinePaymentOption = {
@@ -62,19 +63,152 @@ const MERCHANT_NAME = 'LunchFlow';
 const createPaymentOrderFn = httpsCallable(functions, 'createPaymentOrder');
 const verifyPaymentOrderFn = httpsCallable(functions, 'verifyPaymentOrder');
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** UPI deep links and Cloud Functions payment callables are unreliable in web browsers. */
+function usesWebDemoPayment(): boolean {
+  return Platform.OS === 'web' || (typeof window !== 'undefined' && typeof document !== 'undefined');
+}
+
+function shouldUseInAppCheckout(methodId: string): boolean {
+  if (methodId === 'card') return true;
+  // Desktop browsers cannot open UPI apps — only card stays in-app there.
+  if (Platform.OS === 'web' && !isMobileWebBrowser()) return true;
+  return false;
+}
+
 function formatAmountForUpi(amount: number): string {
   return amount.toFixed(2);
 }
 
+function buildUpiQuery(amount: number, description: string): string {
+  const params = [
+    `pa=${encodeURIComponent(MERCHANT_VPA)}`,
+    `pn=${encodeURIComponent(MERCHANT_NAME)}`,
+    `am=${formatAmountForUpi(amount)}`,
+    'cu=INR',
+    `tn=${encodeURIComponent(description.slice(0, 80))}`,
+  ];
+  return params.join('&');
+}
+
 export function buildUpiPaymentLink(amount: number, description: string): string {
-  const params = new URLSearchParams({
-    pa: MERCHANT_VPA,
-    pn: MERCHANT_NAME,
-    am: formatAmountForUpi(amount),
-    cu: 'INR',
-    tn: description.slice(0, 80),
+  return `upi://pay?${buildUpiQuery(amount, description)}`;
+}
+
+function buildPaymentAppLink(methodId: string, amount: number, description: string): string {
+  const query = buildUpiQuery(amount, description);
+  switch (methodId) {
+    case 'gpay':
+      return `tez://upi/pay?${query}`;
+    case 'phonepe':
+      return `phonepe://pay?${query}`;
+    case 'paytm':
+      return `paytmmp://pay?${query}`;
+    case 'upi':
+    default:
+      return buildUpiPaymentLink(amount, description);
+  }
+}
+
+/** Chrome on Android needs intent:// URLs to hand off to installed UPI apps. */
+function buildAndroidIntentLink(methodId: string, amount: number, description: string): string | null {
+  if (typeof navigator === 'undefined' || !/Android/i.test(navigator.userAgent)) {
+    return null;
+  }
+
+  const query = buildUpiQuery(amount, description);
+  const playStoreFallback =
+    'S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.google.android.apps.nbu.paisa.user';
+
+  switch (methodId) {
+    case 'gpay':
+      return `intent://upi/pay?${query}#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;${playStoreFallback};end`;
+    case 'phonepe':
+      return `intent://upi/pay?${query}#Intent;scheme=upi;package=com.phonepe.app;end`;
+    case 'paytm':
+      return `intent://upi/pay?${query}#Intent;scheme=upi;package=net.one97.paytm;end`;
+    case 'upi':
+    default:
+      return `intent://upi/pay?${query}#Intent;scheme=upi;end`;
+  }
+}
+
+/** URL opened when the customer taps a UPI payment option. */
+export function getPaymentLaunchUrl(methodId: string, amount: number, description: string): string {
+  const query = buildUpiQuery(amount, description);
+
+  if (Platform.OS === 'web' && typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) {
+    return buildAndroidIntentLink(methodId, amount, description) ?? `upi://pay?${query}`;
+  }
+
+  if (Platform.OS === 'android') {
+    return `upi://pay?${query}`;
+  }
+
+  return buildPaymentAppLink(methodId, amount, description);
+}
+
+export function usesUpiAppLink(methodId: string): boolean {
+  return !shouldUseInAppCheckout(methodId);
+}
+
+function getBestPaymentLaunchUrl(methodId: string, amount: number, description: string): string {
+  return getPaymentLaunchUrl(methodId, amount, description);
+}
+
+let paymentAppOpenedInGesture = false;
+
+export function markPaymentAppLaunching(): void {
+  paymentAppOpenedInGesture = true;
+}
+
+function openPaymentUrlSync(url: string, fallbackUrl?: string): boolean {
+  if (Platform.OS === 'web') {
+    if (typeof document === 'undefined') return false;
+    try {
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.style.display = 'none';
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      return true;
+    } catch {
+      try {
+        window.location.href = url;
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  void Linking.openURL(url).catch(() => {
+    if (fallbackUrl) {
+      void Linking.openURL(fallbackUrl);
+    }
   });
-  return `upi://pay?${params.toString()}`;
+  return true;
+}
+
+/** Must run synchronously inside the payment method tap (before any await). */
+export function openPaymentAppImmediately(methodId: string, amount: number, description: string): boolean {
+  if (shouldUseInAppCheckout(methodId)) {
+    paymentAppOpenedInGesture = false;
+    return false;
+  }
+
+  const primary = getPaymentLaunchUrl(methodId, amount, description);
+  const fallback = buildUpiPaymentLink(amount, description);
+  paymentAppOpenedInGesture = openPaymentUrlSync(primary, fallback);
+  return paymentAppOpenedInGesture;
+}
+
+async function openPaymentUrl(url: string): Promise<boolean> {
+  return openPaymentUrlSync(url);
 }
 
 function getPaymentMethodLabel(methodId: string): string {
@@ -88,34 +222,32 @@ export async function launchOnlinePayment(
 ): Promise<{ launched: boolean; methodLabel: string }> {
   const methodLabel = getPaymentMethodLabel(methodId);
 
-  if (methodId === 'card') {
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+  if (shouldUseInAppCheckout(methodId)) {
+    await delay(methodId === 'card' ? 1200 : 700);
     return { launched: true, methodLabel };
   }
 
-  const upiLink = buildUpiPaymentLink(amount, description);
-
-  try {
-    if (Platform.OS === 'web') {
-      if (typeof window !== 'undefined') {
-        window.location.href = upiLink;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      return { launched: true, methodLabel };
-    }
-
-    const canOpen = await Linking.canOpenURL(upiLink);
-    if (canOpen) {
-      await Linking.openURL(upiLink);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      return { launched: true, methodLabel };
-    }
-  } catch {
-    // Fall through to simulated success for demo environments.
+  if (paymentAppOpenedInGesture) {
+    paymentAppOpenedInGesture = false;
+    await delay(1500);
+    return { launched: true, methodLabel };
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 800));
-  return { launched: true, methodLabel };
+  const primaryLink = getBestPaymentLaunchUrl(methodId, amount, description);
+  if (await openPaymentUrl(primaryLink)) {
+    await delay(1500);
+    return { launched: true, methodLabel };
+  }
+
+  if (methodId !== 'upi') {
+    const fallbackLink = buildUpiPaymentLink(amount, description);
+    if (await openPaymentUrl(fallbackLink)) {
+      await delay(1500);
+      return { launched: true, methodLabel };
+    }
+  }
+
+  return { launched: false, methodLabel };
 }
 
 export type WalletTransaction = {
@@ -225,16 +357,23 @@ export async function processOnlinePayment(
   if (!phone || amount <= 0) return loadWallet(phone);
 
   let paymentId = `local-${Date.now()}`;
-  try {
-    const created = await createPaymentOrderFn({ phone, amount, method, planId: planId ?? '' });
-    paymentId = String((created.data as { paymentId?: string }).paymentId ?? paymentId);
-    await verifyPaymentOrderFn({ paymentId, phone, providerRef: method });
-  } catch {
-    // Continue with local receipt if Cloud Functions are unavailable.
+  const useRemotePayment = !usesWebDemoPayment();
+
+  if (useRemotePayment) {
+    try {
+      const created = await createPaymentOrderFn({ phone, amount, method, planId: planId ?? '' });
+      paymentId = String((created.data as { paymentId?: string }).paymentId ?? paymentId);
+      await verifyPaymentOrderFn({ paymentId, phone, providerRef: method });
+    } catch {
+      // Continue with local receipt if Cloud Functions are unavailable.
+    }
   }
 
   const wallet = await loadWallet(phone);
   const now = new Date();
+  const verificationNote = useRemotePayment
+    ? 'Status: Paid (server verified when available)'
+    : 'Status: Paid (browser demo payment — use the mobile app for live UPI)';
   const tx: WalletTransaction = {
     id: paymentId,
     date: formatTxDate(now),
@@ -249,7 +388,7 @@ export async function processOnlinePayment(
       `Amount: ${formatAmount(amount)}`,
       `Method: ${method}`,
       `Date: ${now.toLocaleString('en-IN')}`,
-      'Status: Paid (server verified when available)',
+      verificationNote,
     ].join('\n'),
   };
 

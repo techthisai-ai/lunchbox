@@ -4,6 +4,7 @@ import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { Platform } from 'react-native';
 import { gradients } from '../constants/theme';
 import { auth, db, storage } from '../lib/firebase';
+import { ensureAdminFirestoreAccess } from './authService';
 import { PromoAd, PromoAdAudience } from '../types/promoAd';
 
 const STORAGE_KEY = '@lunchflow_promo_ads';
@@ -63,6 +64,39 @@ function builtInPromoAds(): PromoAd[] {
   ];
 }
 
+function isBuiltInPromoAd(id: string): boolean {
+  return BUILTIN_PROMO_AD_IDS.includes(id as (typeof BUILTIN_PROMO_AD_IDS)[number]);
+}
+
+function mergeRemotePromoAds(remote: PromoAd[], local: PromoAd[]): PromoAd[] {
+  const remoteIds = new Set(remote.map((ad) => ad.id));
+  const unsyncedLocal = local.filter((ad) => !remoteIds.has(ad.id) && !isBuiltInPromoAd(ad.id));
+  return sortAds([...remote, ...unsyncedLocal]);
+}
+
+function customPromoAdsOnly(ads: PromoAd[]): PromoAd[] {
+  return ads.filter((ad) => !isBuiltInPromoAd(ad.id));
+}
+
+function firestorePromoPayload(record: PromoAd): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
+}
+
+function promoFirestoreError(error: unknown): string {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = String((error as { code: string }).code);
+    if (code === 'permission-denied') {
+      return 'Could not save ad post. Please log out and sign in to admin again.';
+    }
+  }
+  return error instanceof Error ? error.message : 'Could not save ad post';
+}
+
+async function mergeRemoteIntoCache(remote: PromoAd[]): Promise<void> {
+  const local = await readLocalAds();
+  await writeLocalAds(customPromoAdsOnly(mergeRemotePromoAds(remote, local)));
+}
+
 function mergeBuiltInPromoAds(stored: PromoAd[]): PromoAd[] {
   const byId = new Map(stored.map((ad) => [ad.id, ad]));
   for (const builtin of builtInPromoAds()) {
@@ -90,37 +124,17 @@ async function writeLocalAds(ads: PromoAd[]): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(sortAds(ads)));
 }
 
-async function syncFromFirestore(): Promise<PromoAd[]> {
-  const local = await readLocalAds();
+export async function listAllPromoAds(): Promise<PromoAd[]> {
+  const cached = mergeBuiltInPromoAds(await readLocalAds());
   try {
     const snap = await getDocs(collection(db, 'promo_ads'));
     const remote = snap.docs.map((entry) => ({ ...(entry.data() as PromoAd), id: entry.id }));
-    const remoteIds = new Set(remote.map((ad) => ad.id));
-
-    // Firestore is the source of truth; keep unsynced local custom ads as a fallback.
-    const unsyncedLocal = local.filter(
-      (ad) =>
-        !remoteIds.has(ad.id) &&
-        !BUILTIN_PROMO_AD_IDS.includes(ad.id as (typeof BUILTIN_PROMO_AD_IDS)[number]),
-    );
-
-    const merged = sortAds([...remote, ...unsyncedLocal]);
-    await writeLocalAds(merged);
-    return merged;
+    const merged = mergeBuiltInPromoAds(mergeRemotePromoAds(remote, cached));
+    await writeLocalAds(customPromoAdsOnly(merged));
+    return merged.filter((ad) => !ad.removed);
   } catch {
-    // Local cache remains the fallback.
+    return cached.filter((ad) => !ad.removed);
   }
-  return readLocalAds();
-}
-
-export async function listAllPromoAds(): Promise<PromoAd[]> {
-  const synced = await syncFromFirestore();
-  const base = synced.length > 0 ? synced : await readLocalAds();
-  const merged = mergeBuiltInPromoAds(base);
-  if (merged.length !== base.length) {
-    await writeLocalAds(merged);
-  }
-  return merged.filter((ad) => !ad.removed);
 }
 
 function isCustomerHomeAd(ad: PromoAd): boolean {
@@ -338,22 +352,16 @@ export function subscribeToOnboardingPageAds(onPages: (pages: OnboardingPageAds)
   });
 
   const syncRemoteToCache = (remote: PromoAd[]) => {
-    void writeLocalAds(
-      sortAds(
-        remote.filter(
-          (ad) => !BUILTIN_PROMO_AD_IDS.includes(ad.id as (typeof BUILTIN_PROMO_AD_IDS)[number]),
-        ),
-      ),
-    );
+    void mergeRemoteIntoCache(remote);
   };
 
-  const fetchAndPublish = async (): Promise<OnboardingPageAds> => {
+  const fetchAndPublish = async () => {
     try {
       const remote = await fetchPromoAdsFromFirestore();
       if (cancelled) return parseOnboardingPageAds(remote);
       const pages = parseOnboardingPageAds(remote);
       publishPages(pages);
-      syncRemoteToCache(remote);
+      await mergeRemoteIntoCache(remote);
       return pages;
     } catch {
       const local = await readLocalAds();
@@ -462,13 +470,7 @@ export function subscribeToActivePromoAds(
   };
 
   const syncRemoteToCache = (remote: PromoAd[]) => {
-    void writeLocalAds(
-      sortAds(
-        remote.filter(
-          (ad) => !BUILTIN_PROMO_AD_IDS.includes(ad.id as (typeof BUILTIN_PROMO_AD_IDS)[number]),
-        ),
-      ),
-    );
+    void mergeRemoteIntoCache(remote);
   };
 
   const fetchAndPublish = async () => {
@@ -476,7 +478,7 @@ export function subscribeToActivePromoAds(
       const remote = await fetchPromoAdsFromFirestore();
       if (cancelled) return;
       publishFromRemote(remote);
-      syncRemoteToCache(remote);
+      await mergeRemoteIntoCache(remote);
     } catch {
       if (cancelled) return;
       const ads = await listAllPromoAds();
@@ -544,7 +546,7 @@ export async function savePromoAd(input: Omit<PromoAd, 'createdAt' | 'updatedAt'
     imageAssetKey: input.imageAssetKey,
     audience: input.audience ?? 'customer',
     onboardingStep:
-      input.audience === 'onboarding' ? (input.onboardingStep ?? 1) : input.onboardingStep,
+      input.audience === 'onboarding' ? (input.onboardingStep ?? 1) : undefined,
     removed: input.removed === true,
     createdAt: input.createdAt ?? now,
     updatedAt: now,
@@ -554,33 +556,34 @@ export async function savePromoAd(input: Omit<PromoAd, 'createdAt' | 'updatedAt'
   const next = local.some((ad) => ad.id === record.id)
     ? local.map((ad) => (ad.id === record.id ? record : ad))
     : [record, ...local];
-  await writeLocalAds(mergeBuiltInPromoAds(next));
+  await writeLocalAds(customPromoAdsOnly(mergeBuiltInPromoAds(next)));
 
+  await ensureAdminFirestoreAccess();
   try {
-    await setDoc(doc(db, 'promo_ads', record.id), record, { merge: true });
-  } catch {
-    // Local save still works when remote write fails.
+    await setDoc(doc(db, 'promo_ads', record.id), firestorePromoPayload(record), { merge: true });
+  } catch (error) {
+    throw new Error(promoFirestoreError(error));
   }
 
   return record;
 }
 
 export async function deletePromoAd(id: string): Promise<void> {
-  if (BUILTIN_PROMO_AD_IDS.includes(id as (typeof BUILTIN_PROMO_AD_IDS)[number])) {
+  if (isBuiltInPromoAd(id)) {
     const local = mergeBuiltInPromoAds(await readLocalAds());
-    const existing =
-      local.find((ad) => ad.id === id) ?? builtInPromoAds().find((ad) => ad.id === id);
+    const existing = local.find((ad) => ad.id === id) ?? builtInPromoAds().find((ad) => ad.id === id);
     if (!existing) return;
     await savePromoAd({ ...existing, isActive: false, removed: true });
     return;
   }
 
   const local = mergeBuiltInPromoAds(await readLocalAds());
-  await writeLocalAds(local.filter((ad) => ad.id !== id));
+  await writeLocalAds(customPromoAdsOnly(local.filter((ad) => ad.id !== id)));
+  await ensureAdminFirestoreAccess();
   try {
     await deleteDoc(doc(db, 'promo_ads', id));
-  } catch {
-    // Ignore remote delete failures.
+  } catch (error) {
+    throw new Error(promoFirestoreError(error));
   }
 }
 
@@ -642,28 +645,50 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-export async function uploadPromoBannerImage(adId: string, localUri: string): Promise<string> {
-  const rawBlob = await readPhotoBlob(localUri);
-  const blob = await compressBannerBlob(rawBlob);
+const STORAGE_UPLOAD_TIMEOUT_MS = 6000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]);
+}
+
+async function tryUploadBannerToStorage(adId: string, blob: Blob): Promise<string | null> {
+  if (!auth.currentUser) return null;
+
   const fileName = `${Date.now()}.jpg`;
   const storageRef = ref(storage, `promo-ads/${adId}/${fileName}`);
 
-  if (!auth.currentUser) {
-    const dataUrl = await blobToDataUrl(blob);
-    if (dataUrl.length > 900_000) {
-      throw new Error('Image is too large. Sign in again or choose a smaller banner.');
-    }
+  try {
+    await withTimeout(
+      uploadBytes(storageRef, blob, { contentType: 'image/jpeg' }),
+      STORAGE_UPLOAD_TIMEOUT_MS,
+      'Storage upload timed out',
+    );
+    return await withTimeout(
+      getDownloadURL(storageRef),
+      STORAGE_UPLOAD_TIMEOUT_MS,
+      'Storage URL timed out',
+    );
+  } catch {
+    return null;
+  }
+}
+
+export async function uploadPromoBannerImage(adId: string, localUri: string): Promise<string> {
+  const rawBlob = await readPhotoBlob(localUri);
+  const blob = await compressBannerBlob(rawBlob);
+
+  const dataUrl = await blobToDataUrl(blob);
+  if (dataUrl.length <= 900_000) {
     return dataUrl;
   }
 
-  try {
-    await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' });
-    return getDownloadURL(storageRef);
-  } catch {
-    const dataUrl = await blobToDataUrl(blob);
-    if (dataUrl.length > 900_000) {
-      throw new Error('Image upload failed. Try a smaller banner image.');
-    }
-    return dataUrl;
-  }
+  const storageUrl = await tryUploadBannerToStorage(adId, blob);
+  if (storageUrl) return storageUrl;
+
+  throw new Error('Image is too large. Choose a smaller banner or enable Firebase Storage.');
 }
