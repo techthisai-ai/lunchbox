@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Badge } from '../components/Badge';
@@ -12,6 +12,7 @@ import { colors, radius, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { ProfileStackParamList } from '../navigation/types';
 import { goBackInProfileStack } from '../navigation/customerRoutes';
+import { fetchCustomerAddressFromGps } from '../services/customerAddressLocationService';
 import {
   getCustomerOrderToday,
   loadCustomerProfile,
@@ -109,6 +110,35 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [locatingAddress, setLocatingAddress] = useState(false);
+  const gpsFocusAttemptedRef = useRef(false);
+
+  const fillHomeAddressFromGps = async (options: { replaceExisting?: boolean; promptOnFailure?: boolean } = {}) => {
+    const replaceExisting = options.replaceExisting ?? false;
+    const promptOnFailure = options.promptOnFailure ?? replaceExisting;
+    if (locatingAddress) return;
+    setLocatingAddress(true);
+    setError('');
+    try {
+      const detected = await fetchCustomerAddressFromGps({ promptOnFailure });
+      if (!detected) return;
+      setEditTarget((current) => {
+        if (!current || current.kind !== 'home') return current;
+        if (!replaceExisting && current.address.trim()) return current;
+        return { kind: 'home', address: detected };
+      });
+    } finally {
+      setLocatingAddress(false);
+    }
+  };
+
+  const handleHomeAddressFocus = () => {
+    if (editTarget?.kind !== 'home' || gpsFocusAttemptedRef.current || locatingAddress || editTarget.address.trim()) {
+      return;
+    }
+    gpsFocusAttemptedRef.current = true;
+    void fillHomeAddressFromGps({ replaceExisting: true, promptOnFailure: true });
+  };
 
   const loadAddresses = useCallback(async () => {
     if (!user?.phone) return;
@@ -138,6 +168,7 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
 
   const openHomeEdit = () => {
     setError('');
+    gpsFocusAttemptedRef.current = false;
     setEditTarget({ kind: 'home', address: homeAddress });
   };
 
@@ -280,13 +311,26 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
             </Text>
 
             {editTarget?.kind === 'home' ? (
-              <Input
-                label="Home Address"
-                value={editTarget.address}
-                onChangeText={(address) => setEditTarget({ kind: 'home', address })}
-                placeholder="Enter your home pickup address"
-                multiline
-              />
+              <>
+                <Input
+                  label="Home Address"
+                  value={editTarget.address}
+                  onChangeText={(address) => setEditTarget({ kind: 'home', address })}
+                  onFocus={handleHomeAddressFocus}
+                  placeholder={locatingAddress ? 'Detecting your location...' : 'Tap to use location or enter your home pickup address'}
+                  multiline
+                />
+                <Pressable
+                  style={styles.useLocationBtn}
+                  onPress={() => void fillHomeAddressFromGps({ replaceExisting: true, promptOnFailure: true })}
+                  disabled={locatingAddress}
+                >
+                  <Ionicons name="locate-outline" size={16} color={colors.orange} />
+                  <Text style={styles.useLocationText}>
+                    {locatingAddress ? 'Detecting location...' : 'Use my location'}
+                  </Text>
+                </Pressable>
+              </>
             ) : editTarget?.kind === 'delivery' ? (
               <>
                 <Input
@@ -375,4 +419,14 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 18, fontWeight: '800', color: colors.text, marginBottom: 8 },
   error: { color: colors.red, fontSize: 13, marginBottom: 8 },
+  useLocationBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    marginTop: -4,
+    marginBottom: 8,
+    paddingVertical: 4,
+  },
+  useLocationText: { fontSize: 13, fontWeight: '700', color: colors.orange },
 });

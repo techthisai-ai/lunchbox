@@ -41,6 +41,8 @@ import { emitOrderChange } from './orderSync';
 import { PICKUP_READY_TIMEOUT_MINUTES } from '../constants/business';
 import { buildSchoolBatches, markBatchDelivered as closeBatchRecord } from './batchDeliveryService';
 import { logDeliveryConfirmation } from './deliveryLogService';
+import { updateFoodReadyDefaultsPickupAddress } from './foodReadyDefaultsService';
+import { clearPickupSlotBannerSession } from '../utils/pickupSlotBanner';
 
 const ORDERS_INDEX_KEY = '@lunchflow_orders_index';
 
@@ -800,6 +802,8 @@ export async function updateCustomerHomeAddress(phone: string, homeAddress: stri
   if (!trimmed) throw new Error('Enter your home address');
 
   await updateCustomerRegistration(phone, { address: trimmed });
+  await clearPickupSlotBannerSession(phone);
+  await updateFoodReadyDefaultsPickupAddress(phone, trimmed);
 
   const order = await getCustomerOrderToday(phone);
   if (!order) return;

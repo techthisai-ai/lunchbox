@@ -85,6 +85,21 @@ export async function loadFoodReadyDefaults(phone: string): Promise<FoodReadyDet
   return null;
 }
 
+export async function updateFoodReadyDefaultsPickupAddress(phone: string, pickupAddress: string): Promise<void> {
+  const normalized = normalizePhone(phone);
+  const trimmed = pickupAddress.trim();
+  if (normalized.length !== 10 || !trimmed) return;
+
+  const current = await loadFoodReadyDefaults(normalized);
+  if (!current) return;
+
+  const next = normalizeFoodReadyDetails({ ...current, pickupAddress: trimmed });
+  if (!next) return;
+
+  await AsyncStorage.setItem(defaultsKey(normalized), JSON.stringify(next));
+  await syncDocument('food_ready_defaults', normalized, next as unknown as Record<string, unknown>);
+}
+
 export async function saveFoodReadyDefaults(phone: string, details: FoodReadyDetails): Promise<void> {
   const normalized = normalizePhone(phone);
   const record = normalizeFoodReadyDetails(details);

@@ -410,3 +410,60 @@ export function isRecentGpsLocation(updatedAt?: string, maxAgeMs = 120000): bool
   if (!updatedAt) return false;
   return Date.now() - new Date(updatedAt).getTime() <= maxAgeMs;
 }
+
+function formatReverseGeocodeResult(data: {
+  display_name?: string;
+  address?: Record<string, string | undefined>;
+}): string {
+  const addr = data.address;
+  if (addr) {
+    const parts = [
+      addr.house_number,
+      addr.house_name,
+      addr.road,
+      addr.residential,
+      addr.suburb,
+      addr.neighbourhood,
+      addr.village,
+      addr.town,
+      addr.city,
+      addr.county,
+      addr.state,
+    ]
+      .map((part) => part?.trim())
+      .filter(Boolean);
+    if (parts.length >= 2) {
+      return parts.join(', ');
+    }
+  }
+
+  const display = data.display_name?.trim() ?? '';
+  return display.replace(/,\s*India$/i, '').trim();
+}
+
+async function fetchNominatimReverseGeocode(point: GeoPoint): Promise<string | null> {
+  const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${point.lat}&lon=${point.lng}&zoom=18&addressdetails=1`;
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'LunchFlow/1.0 (lunch delivery app)',
+      },
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as {
+      display_name?: string;
+      address?: Record<string, string | undefined>;
+    };
+    const formatted = formatReverseGeocodeResult(data);
+    return formatted || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Convert GPS coordinates into a readable pickup address for customer forms. */
+export async function reverseGeocodeAsync(point: GeoPoint): Promise<string | null> {
+  if (!isTamilNaduPoint(point)) return null;
+  return fetchNominatimReverseGeocode(point);
+}

@@ -18,7 +18,7 @@ import { loadFoodReadyDefaults } from '../services/foodReadyDefaultsService';
 import { loadCustomerProfile } from '../services/orderHubService';
 import { hasActiveSubscription } from '../services/subscriptionService';
 import { clearPendingFoodReady, loadPendingFoodReady } from '../services/pendingFoodReadyService';
-import { blockPickupOutsideAreaSlot } from '../utils/pickupSlotGuard';
+import { getPickupSlotBlockInfo, resolveCustomerPickupAddress } from '../utils/pickupSlotGuard';
 import {
   buildFoodReadyStudents,
   DeliveryOrder,
@@ -220,9 +220,12 @@ export function FoodReadyScreen({ navigation }: Props) {
   const openPickupDialog = useCallback(async () => {
     if (!user?.phone) return;
 
-    const profile = await loadCustomerProfile(user.phone);
-    const pickupAddress = order?.pickupAddress || profile.address || '';
-    if (await blockPickupOutsideAreaSlot(pickupAddress)) return;
+    const pickupAddress = await resolveCustomerPickupAddress(user.phone, order?.pickupAddress);
+    const slotInfo = await getPickupSlotBlockInfo(pickupAddress);
+    if (slotInfo.blocked) {
+      Alert.alert('Pickup Slot', slotInfo.message ?? 'Pickup is not available right now.');
+      return;
+    }
 
     if (hasSentPickupRequest(order)) {
       Alert.alert(
@@ -232,8 +235,9 @@ export function FoodReadyScreen({ navigation }: Props) {
       return;
     }
 
-    const [savedDefaults] = await Promise.all([
+    const [savedDefaults, profile] = await Promise.all([
       loadFoodReadyDefaults(user.phone),
+      loadCustomerProfile(user.phone),
     ]);
 
     const openDialog = (initialValues: Parameters<typeof openFoodReadyDialog>[0]['initialValues']) => {
@@ -248,14 +252,14 @@ export function FoodReadyScreen({ navigation }: Props) {
     };
 
     if (savedDefaults) {
-      openDialog(savedDefaults);
+      openDialog({ ...savedDefaults, pickupAddress });
       return;
     }
 
     openDialog({
       name: user.name || profile.name || '',
       deliveryType: normalizeDeliveryType(profile.deliveryType),
-      pickupAddress: profile.address || '',
+      pickupAddress,
       dropAddress: profile.school || '',
       person: profile.studentName || '',
       students: buildFoodReadyStudents({

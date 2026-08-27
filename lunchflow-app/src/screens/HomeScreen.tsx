@@ -12,12 +12,8 @@ import { PromoBannerImage } from '../components/PromoBannerImage';
 import { Avatar } from '../components/Avatar';
 import { getInitials } from '../constants/auth';
 import { colors, gradients, shadow, spacing } from '../constants/theme';
-import { getPickupSlotBlockInfo } from '../utils/pickupSlotGuard';
-import {
-  activatePickupSlotBanner,
-  clearPickupSlotBannerSession,
-  getPickupSlotBannerExpiry,
-} from '../utils/pickupSlotBanner';
+import { getPickupSlotBlockInfo, resolveCustomerPickupAddress } from '../utils/pickupSlotGuard';
+import { clearPickupSlotBannerSession, ensurePickupSlotBannerForAddress } from '../utils/pickupSlotBanner';
 import { useAuth } from '../context/AuthContext';
 import { useDelivery } from '../context/DeliveryContext';
 import { useFoodReadyOverlay } from '../context/FoodReadyOverlayContext';
@@ -949,8 +945,7 @@ export function HomeScreen({ navigation }: Props) {
       return;
     }
 
-    const profile = await loadCustomerProfile(user.phone);
-    const pickupAddress = displayOrder?.pickupAddress || profile.address || '';
+    const pickupAddress = await resolveCustomerPickupAddress(user.phone, displayOrder?.pickupAddress);
     const slotInfo = await getPickupSlotBlockInfo(pickupAddress);
 
     if (!slotInfo.blocked) {
@@ -959,17 +954,18 @@ export function HomeScreen({ navigation }: Props) {
       return;
     }
 
-    const expiresAt = await getPickupSlotBannerExpiry(user.phone);
+    if (!slotInfo.message) {
+      hidePickupSlotBanner();
+      return;
+    }
+
+    const expiresAt = await ensurePickupSlotBannerForAddress(user.phone, pickupAddress);
     if (expiresAt <= Date.now()) {
       hidePickupSlotBanner();
       return;
     }
 
-    if (slotInfo.message) {
-      showPickupSlotBanner(slotInfo.message, expiresAt);
-    } else {
-      hidePickupSlotBanner();
-    }
+    showPickupSlotBanner(slotInfo.message, expiresAt);
   }, [user?.phone, displayOrder, hidePickupSlotBanner, showPickupSlotBanner]);
 
   useEffect(() => {
@@ -1008,9 +1004,10 @@ export function HomeScreen({ navigation }: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      refreshDelivery();
+      pickupBannerDismissedRef.current = false;
+      setErrorMessage('');
+      void refreshDelivery().then(() => refreshPickupSlotBanner());
       void loadHomeData();
-      void refreshPickupSlotBanner();
       const interval = setInterval(() => {
         void refreshUnreadBadge();
       }, 4000);
@@ -1038,7 +1035,7 @@ export function HomeScreen({ navigation }: Props) {
         name: user?.name || profile?.name || '',
         deliveryType: normalizeDeliveryType(order?.deliveryType),
         deliveryTypes: normalizeDeliveryTypes(order?.deliveryTypes, normalizeDeliveryType(order?.deliveryType)),
-        pickupAddress: order?.pickupAddress || profile?.address || '',
+        pickupAddress: profile?.address || order?.pickupAddress || '',
         dropAddress: dropValue,
         person: personValue,
         students,
@@ -1087,7 +1084,8 @@ export function HomeScreen({ navigation }: Props) {
         if (result.error.startsWith('Pickup Slot')) {
           if (user?.phone) {
             pickupBannerDismissedRef.current = false;
-            const expiresAt = await activatePickupSlotBanner(user.phone);
+            const pickupAddress = await resolveCustomerPickupAddress(user.phone, result.order?.pickupAddress ?? order?.pickupAddress);
+            const expiresAt = await ensurePickupSlotBannerForAddress(user.phone, pickupAddress);
             showPickupSlotBanner(result.error, expiresAt);
           }
         }
@@ -1107,12 +1105,11 @@ export function HomeScreen({ navigation }: Props) {
   const handleFoodReady = useCallback(async () => {
     if (!user?.phone) return;
 
-    const profile = await loadCustomerProfile(user.phone);
-    const pickupAddress = order?.pickupAddress || profile.address || '';
+    const pickupAddress = await resolveCustomerPickupAddress(user.phone, order?.pickupAddress);
     const slotInfo = await getPickupSlotBlockInfo(pickupAddress);
     if (slotInfo.blocked && slotInfo.message) {
       pickupBannerDismissedRef.current = false;
-      const expiresAt = await activatePickupSlotBanner(user.phone);
+      const expiresAt = await ensurePickupSlotBannerForAddress(user.phone, pickupAddress);
       showPickupSlotBanner(slotInfo.message, expiresAt);
       return;
     }
@@ -1138,9 +1135,12 @@ export function HomeScreen({ navigation }: Props) {
       loadCustomerProfile(user.phone),
     ]);
 
+    const currentPickupAddress =
+      profileForDefaults.address?.trim() || order?.pickupAddress?.trim() || savedDefaults?.pickupAddress || '';
+
     if (savedDefaults) {
       openFoodReadyDialog({
-        initialValues: savedDefaults,
+        initialValues: { ...savedDefaults, pickupAddress: currentPickupAddress },
         startInReviewMode: true,
         submitting,
         onConfirm: handleConfirmFoodReady,

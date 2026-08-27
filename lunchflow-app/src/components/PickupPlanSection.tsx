@@ -28,6 +28,7 @@ import {
   resolvePlanAmount,
 } from '../services/slotPricingService';
 import { buildSubscriptionPaymentDescription } from '../utils/paymentDescription';
+import { resolveSubscriptionPlanForDisplay } from '../utils/subscriptionPlanDisplay';
 
 type PaymentDraft = {
   amountPaid: number;
@@ -209,7 +210,11 @@ export function PickupPlanSection({ mode = 'status', peopleCount = 1, onPlanRead
     setActive(hasPlan);
     setMonthlyActive(hasMonthly);
     setRecord(subscriptionRecord?.status === 'active' ? subscriptionRecord : null);
-    setPlan(subscriptionRecord ? getSubscriptionPlan(subscriptionRecord.planId) : null);
+    setPlan(
+      subscriptionRecord?.status === 'active'
+        ? await resolveSubscriptionPlanForDisplay(subscriptionRecord.planId)
+        : null,
+    );
 
     if (hasPlan && subscriptionRecord?.status === 'active') {
       const activePlan = getSubscriptionPlan(subscriptionRecord.planId);

@@ -16,7 +16,7 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Scan customer QR codes to verify pickup.",
-        "NSLocationWhenInUseUsageDescription": "Share live delivery location with customers and admin."
+        "NSLocationWhenInUseUsageDescription": "Allow LunchFlow to detect your pickup address from GPS."
       }
     },
     "android": {
@@ -73,7 +73,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow LunchFlow to share your live delivery location."
+          "locationWhenInUsePermission": "Allow LunchFlow to detect your pickup address from GPS."
         }
       ],
       [

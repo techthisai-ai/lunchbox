@@ -1,9 +1,19 @@
 import { Alert } from 'react-native';
+import { loadCustomerProfile } from '../services/orderHubService';
 import {
   formatPickupAreaSlotLabel,
   getPickupAreaForAddress,
   isWithinPickupBookingWindow,
 } from '../services/pickupAreaSlotService';
+
+/** Prefer saved profile address so slot alerts follow profile edits immediately. */
+export async function resolveCustomerPickupAddress(
+  phone: string,
+  orderPickupAddress?: string | null,
+): Promise<string> {
+  const profile = await loadCustomerProfile(phone);
+  return profile.address?.trim() || orderPickupAddress?.trim() || '';
+}
 
 export async function getPickupSlotBlockInfo(
   pickupAddress: string,

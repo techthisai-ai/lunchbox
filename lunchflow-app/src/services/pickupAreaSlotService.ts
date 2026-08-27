@@ -3,6 +3,7 @@ import { collection, deleteDoc, doc, getDocs, getDocsFromServer, onSnapshot, set
 import { db } from '../lib/firebase';
 import { ensureAdminFirestoreAccess } from './authService';
 import { PickupAreaSlot } from '../types/pickupAreaSlot';
+import { matchKeywordInAddress } from '../utils/pickupAreaMatch';
 
 const CACHE_KEY = '@lunchflow_pickup_area_slots';
 
@@ -213,8 +214,8 @@ export function resolvePickupAreaForAddress(
       Boolean,
     );
     for (const keyword of keywords) {
-      if (!normalizedAddress.includes(keyword)) continue;
-      const score = keyword.length;
+      const { matched, score } = matchKeywordInAddress(normalizedAddress, keyword);
+      if (!matched) continue;
       if (!best || score > best.score) {
         best = { area, score };
       }

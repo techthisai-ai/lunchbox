@@ -1,35 +1,57 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { normalizePhone } from '../constants/auth';
 
 export const PICKUP_SLOT_BANNER_DURATION_MS = 10 * 60 * 1000;
 
+type PickupSlotBannerSession = {
+  expiresAt: number;
+  pickupAddress: string;
+};
+
 function storageKey(phone: string): string {
-  return `@lunchflow_pickup_slot_banner_until_${phone}`;
+  return `@lunchflow_pickup_slot_banner_${normalizePhone(phone)}`;
 }
 
-export async function activatePickupSlotBanner(phone: string): Promise<number> {
+function normalizePickupAddressKey(pickupAddress: string): string {
+  return pickupAddress.trim().toLowerCase();
+}
+
+async function readSession(phone: string): Promise<PickupSlotBannerSession | null> {
+  try {
+    const raw = await AsyncStorage.getItem(storageKey(phone));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PickupSlotBannerSession;
+    if (!parsed?.expiresAt || !parsed.pickupAddress) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export async function activatePickupSlotBanner(phone: string, pickupAddress: string): Promise<number> {
   const expiresAt = Date.now() + PICKUP_SLOT_BANNER_DURATION_MS;
-  await AsyncStorage.setItem(storageKey(phone), String(expiresAt));
+  const session: PickupSlotBannerSession = {
+    expiresAt,
+    pickupAddress: normalizePickupAddressKey(pickupAddress),
+  };
+  await AsyncStorage.setItem(storageKey(phone), JSON.stringify(session));
   return expiresAt;
 }
 
-export async function getPickupSlotBannerExpiry(phone: string): Promise<number> {
-  try {
-    const raw = await AsyncStorage.getItem(storageKey(phone));
-    return raw ? Number(raw) : 0;
-  } catch {
-    return 0;
+/** Reuses the active session only when the pickup address is unchanged. */
+export async function ensurePickupSlotBannerForAddress(phone: string, pickupAddress: string): Promise<number> {
+  const now = Date.now();
+  const key = normalizePickupAddressKey(pickupAddress);
+  const existing = await readSession(phone);
+  if (existing && existing.pickupAddress === key && existing.expiresAt > now) {
+    return existing.expiresAt;
   }
+  return activatePickupSlotBanner(phone, pickupAddress);
 }
 
-/** Starts a new 10-minute banner session, or returns the active one. */
-export async function ensurePickupSlotBannerSession(phone: string): Promise<{ expiresAt: number }> {
-  const now = Date.now();
-  const existing = await getPickupSlotBannerExpiry(phone);
-  if (existing > now) {
-    return { expiresAt: existing };
-  }
-  const expiresAt = await activatePickupSlotBanner(phone);
-  return { expiresAt };
+export async function getPickupSlotBannerExpiry(phone: string): Promise<number> {
+  const session = await readSession(phone);
+  return session?.expiresAt ?? 0;
 }
 
 export async function clearPickupSlotBannerSession(phone: string): Promise<void> {

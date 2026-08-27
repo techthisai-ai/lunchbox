@@ -6,7 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { SubscriptionPlan, getSubscriptionPlan, isSingleOrderPlan } from '../constants/subscriptions';
+import { SubscriptionPlan, isSingleOrderPlan } from '../constants/subscriptions';
 import { brandHeadingStyle } from '../constants/fonts';
 import { colors, gradients, radius, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
@@ -16,7 +16,6 @@ import { DeliveryHistoryEntry, syncDeliveryHistory } from '../services/deliveryH
 import { listCustomerOrders } from '../services/orderHubService';
 import {
   checkSubscriptionRenewalReminders,
-  getSubscriptionDurationLabel,
   getSubscriptionEndLabel,
   getSubscriptionRemainingDays,
   hasActiveSubscription,
@@ -25,6 +24,11 @@ import {
 import { CustomerSubscription } from '../types/subscription';
 import { DeliveryType, normalizeDeliveryType } from '../types/delivery';
 import { isHistoryThisMonth, resolveHistoryDateKey } from '../utils/date';
+import {
+  getSubscriptionDisplayDuration,
+  getSubscriptionDisplayName,
+  resolveSubscriptionPlanForDisplay,
+} from '../utils/subscriptionPlanDisplay';
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Subscription'>,
@@ -34,13 +38,6 @@ type Nav = CompositeNavigationProp<
 type Props = {
   navigation: Nav;
 };
-
-function getPlanDisplayName(plan: SubscriptionPlan): string {
-  if (plan.detailTitle) return plan.detailTitle;
-  const category = plan.category === 'student' ? 'Student' : plan.category === 'college' ? 'College' : 'Office';
-  const period = plan.billingMonths === 3 ? '3M' : plan.billingMonths === 1 ? '1M' : '';
-  return period ? `${category} Meal Plan (${period})` : plan.name;
-}
 
 function getDeliveryTypeLabel(type?: DeliveryType): string {
   if (type === 'office') return 'Home to Office Delivery';
@@ -91,7 +88,7 @@ export function MySubscriptionScreen({ navigation }: Props) {
 
     if (active && record) {
       setSubscription(record);
-      setPlan(getSubscriptionPlan(record.planId));
+      setPlan(await resolveSubscriptionPlanForDisplay(record.planId));
     } else {
       setSubscription(null);
       setPlan(null);
@@ -148,7 +145,7 @@ export function MySubscriptionScreen({ navigation }: Props) {
             <View style={styles.activeTop}>
               <View style={styles.activeTopCopy}>
                 <Text style={styles.activePlanName} numberOfLines={1}>
-                  {getPlanDisplayName(plan)}
+                  {getSubscriptionDisplayName(plan)}
                 </Text>
                 <Text style={styles.activeRoute} numberOfLines={1}>
                   {getDeliveryTypeLabel(deliveryType)}
@@ -189,9 +186,9 @@ export function MySubscriptionScreen({ navigation }: Props) {
         {plan && subscription ? (
           <View style={styles.detailsCard}>
             <Text style={styles.sectionTitle}>Plan Details</Text>
-            <DetailRow label="Plan Name" value={getPlanDisplayName(plan)} />
+            <DetailRow label="Plan Name" value={getSubscriptionDisplayName(plan)} />
             <DetailRow label="Delivery Type" value={getDeliveryTypeLabel(deliveryType)} />
-            <DetailRow label="Plan Duration" value={getSubscriptionDurationLabel(plan)} />
+            <DetailRow label="Plan Duration" value={getSubscriptionDisplayDuration(subscription, plan)} />
             <DetailRow label="Start Date" value={formatFullDate(subscription.startDate)} />
             <DetailRow label="End Date" value={getSubscriptionEndLabel(plan, subscription)} />
             <Pressable

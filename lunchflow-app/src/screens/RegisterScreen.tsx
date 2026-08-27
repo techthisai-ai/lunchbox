@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -12,6 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/types';
 import { navigateAfterCustomerLogin, navigateAfterCustomerRegistration } from '../navigation/customerRoutes';
 import { navigateAfterDriverLogin } from '../navigation/driverRoutes';
+import { fetchCustomerAddressFromGps } from '../services/customerAddressLocationService';
 import { prefetchOnboardingPageAds } from '../services/promoAdService';
 import { isCustomerRegistered } from '../services/userRegistryService';
 
@@ -40,6 +41,29 @@ export function RegisterScreen({ navigation, route }: Props) {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [checking, setChecking] = useState(Boolean(route.params?.phone) && initialRole === 'customer');
+  const [locatingAddress, setLocatingAddress] = useState(false);
+  const gpsFocusAttemptedRef = useRef(false);
+
+  const fillAddressFromGps = async (options: { replaceExisting?: boolean; promptOnFailure?: boolean } = {}) => {
+    const replaceExisting = options.replaceExisting ?? false;
+    const promptOnFailure = options.promptOnFailure ?? replaceExisting;
+    if (locatingAddress) return;
+    setLocatingAddress(true);
+    setError('');
+    try {
+      const detected = await fetchCustomerAddressFromGps({ promptOnFailure });
+      if (!detected) return;
+      setAddress((current) => (replaceExisting || !current.trim() ? detected : current));
+    } finally {
+      setLocatingAddress(false);
+    }
+  };
+
+  const handleAddressFocus = () => {
+    if (gpsFocusAttemptedRef.current || locatingAddress || address.trim()) return;
+    gpsFocusAttemptedRef.current = true;
+    void fillAddressFromGps({ replaceExisting: true, promptOnFailure: true });
+  };
 
   useEffect(() => {
     if (route.params?.phone) {
@@ -56,6 +80,7 @@ export function RegisterScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (selectedRole === 'customer') {
       void prefetchOnboardingPageAds();
+      gpsFocusAttemptedRef.current = false;
     }
   }, [selectedRole]);
 
@@ -190,8 +215,19 @@ export function RegisterScreen({ navigation, route }: Props) {
               label="Home Address"
               value={address}
               onChangeText={setAddress}
-              placeholder="Enter your home address"
+              onFocus={handleAddressFocus}
+              placeholder={locatingAddress ? 'Detecting your location...' : 'Tap to use location or enter your home address'}
             />
+            <Pressable
+              style={styles.useLocationBtn}
+              onPress={() => void fillAddressFromGps({ replaceExisting: true, promptOnFailure: true })}
+              disabled={locatingAddress}
+            >
+              <Ionicons name="locate-outline" size={16} color={colors.orange} />
+              <Text style={styles.useLocationText}>
+                {locatingAddress ? 'Detecting location...' : 'Use my location'}
+              </Text>
+            </Pressable>
             <Input
               label="Referral Code (optional)"
               value={referralCode}
@@ -267,4 +303,14 @@ const styles = StyleSheet.create({
   },
   loginLink: { textAlign: 'center', marginTop: spacing.lg, fontSize: 13, color: colors.muted },
   link: { color: colors.orange, fontWeight: '700' },
+  useLocationBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    marginTop: -4,
+    marginBottom: 8,
+    paddingVertical: 4,
+  },
+  useLocationText: { fontSize: 13, fontWeight: '700', color: colors.orange },
 });
