@@ -3,7 +3,7 @@ import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase
 import { httpsCallable } from 'firebase/functions';
 import { normalizePhone } from '../constants/auth';
 import { db, functions } from '../lib/firebase';
-import { DeliveryType, normalizeDeliveryType } from '../types/delivery';
+import { DeliveryType, GeoPoint, normalizeDeliveryType } from '../types/delivery';
 
 const CUSTOMERS_KEY = '@lunchflow_registered_customers';
 const DRIVERS_KEY = '@lunchflow_registered_drivers';
@@ -16,6 +16,8 @@ export type CustomerRegistration = {
   name: string;
   phone: string;
   address: string;
+  /** Device GPS captured when the customer saved their pickup address. */
+  addressLocation?: GeoPoint | null;
   registrationType: DeliveryType;
   school: string;
   studentName: string;
@@ -155,6 +157,15 @@ async function cacheCustomerRegistrationLocal(registration: CustomerRegistration
   await AsyncStorage.setItem(CUSTOMERS_KEY, JSON.stringify(local));
 }
 
+function readGeoPoint(data: Record<string, unknown>, key: string): GeoPoint | null {
+  const raw = data[key];
+  if (!raw || typeof raw !== 'object') return null;
+  const lat = Number((raw as { lat?: unknown }).lat);
+  const lng = Number((raw as { lng?: unknown }).lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
 function customerFromFirestoreData(
   normalized: string,
   data: Record<string, unknown>,
@@ -163,6 +174,7 @@ function customerFromFirestoreData(
     name: String(data.name ?? ''),
     phone: normalized,
     address: String(data.address ?? ''),
+    addressLocation: readGeoPoint(data, 'addressLocation'),
     registrationType: normalizeDeliveryType(data.registrationType),
     school: String(data.school ?? ''),
     studentName: String(data.studentName ?? ''),

@@ -244,6 +244,7 @@ export type DeliveryProfile = {
   studentName: string;
   school: string;
   address: string;
+  addressLocation?: GeoPoint | null;
   deliveryType?: DeliveryType;
 };
 

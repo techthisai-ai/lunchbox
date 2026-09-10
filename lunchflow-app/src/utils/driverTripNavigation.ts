@@ -165,9 +165,7 @@ export function groupOrdersByPickupLocation(orders: DeliveryOrder[]): TripStopGr
       type: 'pickup' as const,
       address: order.pickupAddress,
       locationName: customerLabel,
-      point:
-        resolveKnownLocalityPoint(order.pickupAddress) ??
-        resolveMapPoint(order.pickupLocation, order.pickupAddress, DEMO_PICKUP),
+      point: resolveMapPoint(order.pickupLocation, order.pickupAddress, DEMO_PICKUP),
       orders: [order],
       sequence: 0,
       status: ['picked_up', 'in_transit', 'at_drop', 'delivered'].includes(order.status)
@@ -186,10 +184,7 @@ export function groupOrdersByDropLocation(orders: DeliveryOrder[]): TripStopGrou
       type: 'drop' as const,
       address,
       locationName: getOrderStudentName(order),
-      point:
-        resolveKnownLocalityPoint(institution) ??
-        resolveKnownLocalityPoint(address) ??
-        resolveMapPoint(order.dropLocation, address, DEMO_DROP),
+      point: resolveMapPoint(order.dropLocation, address, DEMO_DROP),
       orders: [order],
       sequence: 0,
       status: order.status === 'delivered' ? 'completed' : 'pending',

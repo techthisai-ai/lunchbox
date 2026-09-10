@@ -30,6 +30,7 @@ import {
   markBatchOrdersDelivered,
   markDelivered,
   markPickedUp,
+  markInTransit,
   verifyPickup,
 } from '../../services/orderHubService';
 import { isNearStop } from '../../services/enfieldMapsService';
@@ -290,6 +291,17 @@ export function DriverDeliveriesScreen() {
     try {
       await verifyPickup(verifyOrder.id, code);
       await markPickedUp(verifyOrder.id);
+      const pendingPickups = activeOrders.filter((entry) =>
+        ['driver_assigned', 'at_pickup', 'pickup_verified', 'awaiting_driver', 'food_ready'].includes(entry.status) &&
+        entry.id !== verifyOrder.id,
+      );
+      if (pendingPickups.length === 0) {
+        try {
+          await markInTransit(verifyOrder.id);
+        } catch {
+          // Pickup may still be the active phase for this order.
+        }
+      }
       setVerifyOrder(null);
       await refresh();
       return null;

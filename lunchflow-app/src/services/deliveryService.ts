@@ -16,6 +16,7 @@ export {
   markDelivered,
   markFoodReady,
   markPickedUp,
+  markInTransit,
   acceptPickup,
   verifyPickup,
   markAtPickup,

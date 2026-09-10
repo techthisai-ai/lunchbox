@@ -24,6 +24,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useDriverTrip } from '../../context/DriverTripContext';
 import { DriverTabParamList, RootStackParamList } from '../../navigation/types';
 import { isNearStop } from '../../services/enfieldMapsService';
+import { openMapsNavigation } from '../../services/mapsNavigation';
 import {
   listDriverActiveOrders,
   listDriverCompletedToday,
@@ -205,6 +206,12 @@ export function DriverRouteScreen() {
   };
 
   const handleStartNavigation = () => {
+    if (currentStop?.point) {
+      void openMapsNavigation(currentStop.point, driverLocation ?? undefined, currentStop.address).catch(() => {
+        setRecenterToken((token) => token + 1);
+      });
+      return;
+    }
     setRecenterToken((token) => token + 1);
   };
 

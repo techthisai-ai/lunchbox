@@ -10,9 +10,9 @@ import { normalizePhone } from '../constants/auth';
 import { colors, radius, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/types';
-import { navigateAfterCustomerLogin, navigateAfterCustomerRegistration } from '../navigation/customerRoutes';
+import { navigateAfterCustomerRegistration } from '../navigation/customerRoutes';
 import { navigateAfterDriverLogin } from '../navigation/driverRoutes';
-import { fetchCustomerAddressFromGps } from '../services/customerAddressLocationService';
+import { fetchCustomerLocationFromGps } from '../services/customerAddressLocationService';
 import { prefetchOnboardingPageAds } from '../services/promoAdService';
 import { isCustomerRegistered } from '../services/userRegistryService';
 
@@ -29,12 +29,13 @@ const ROLES: {
 ];
 
 export function RegisterScreen({ navigation, route }: Props) {
-  const { registerCustomer, registerDriver, loginAsCustomerPhone } = useAuth();
+  const { registerCustomer, registerDriver, sendCustomerOtp } = useAuth();
   const initialRole: RegisterRole = route.params?.role === 'driver' ? 'driver' : 'customer';
   const [selectedRole, setSelectedRole] = useState<RegisterRole>(initialRole);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState(route.params?.phone ?? '');
   const [address, setAddress] = useState('');
+  const [addressLocation, setAddressLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [referralCode, setReferralCode] = useState(route.params?.referralCode ?? '');
   const [vehicle, setVehicle] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
@@ -51,9 +52,12 @@ export function RegisterScreen({ navigation, route }: Props) {
     setLocatingAddress(true);
     setError('');
     try {
-      const detected = await fetchCustomerAddressFromGps({ promptOnFailure });
+      const detected = await fetchCustomerLocationFromGps({ promptOnFailure });
       if (!detected) return;
-      setAddress((current) => (replaceExisting || !current.trim() ? detected : current));
+      if (replaceExisting || !address.trim()) {
+        setAddress(detected.address);
+        setAddressLocation(detected.location);
+      }
     } finally {
       setLocatingAddress(false);
     }
@@ -105,10 +109,10 @@ export function RegisterScreen({ navigation, route }: Props) {
         setChecking(false);
         return;
       }
-      const err = await loginAsCustomerPhone(normalized);
+      const err = await sendCustomerOtp(normalized);
       if (cancelled) return;
       if (!err) {
-        await navigateAfterCustomerLogin(navigation, normalized);
+        navigation.replace('OtpVerify', { phone: normalized, role: 'customer' });
         return;
       }
       setChecking(false);
@@ -117,7 +121,7 @@ export function RegisterScreen({ navigation, route }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [route.params?.phone, selectedRole, loginAsCustomerPhone, navigation]);
+  }, [route.params?.phone, selectedRole, sendCustomerOtp, navigation]);
 
   const handleCustomerRegister = async () => {
     setError('');
@@ -127,6 +131,7 @@ export function RegisterScreen({ navigation, route }: Props) {
         name,
         phone,
         address,
+        addressLocation,
         registrationType: 'school',
         school: '',
         studentName: '',
@@ -214,7 +219,10 @@ export function RegisterScreen({ navigation, route }: Props) {
             <Input
               label="Home Address"
               value={address}
-              onChangeText={setAddress}
+              onChangeText={(text) => {
+                setAddress(text);
+                setAddressLocation(null);
+              }}
               onFocus={handleAddressFocus}
               placeholder={locatingAddress ? 'Detecting your location...' : 'Tap to use location or enter your home address'}
             />

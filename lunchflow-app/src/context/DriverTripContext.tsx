@@ -13,6 +13,7 @@ import {
 } from '../services/enfieldMapsService';
 import {
   markAtPickup,
+  markInTransit,
   markPickedUp,
   subscribeToDriverOrdersToday,
   verifyPickup,
@@ -385,6 +386,22 @@ export function DriverTripProvider({ children }: { children: ReactNode }) {
       }
 
       await markPickedUp(order.id);
+
+      const stillPendingPickup = tripRef.current.pickupGroups.some(
+        (entry) => entry.status === 'pending' && entry.id !== group.id,
+      );
+
+      if (!stillPendingPickup) {
+        await Promise.all(
+          orders.map(async (entry) => {
+            try {
+              await markInTransit(entry.id);
+            } catch {
+              // Only picked-up orders can enter transit.
+            }
+          }),
+        );
+      }
 
       setTrip((current) => {
         const pickupGroups = current.pickupGroups.map((entry) =>

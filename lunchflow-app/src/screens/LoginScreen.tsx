@@ -19,14 +19,12 @@ import { colors, gradients, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { RootStackParamList } from '../navigation/types';
-import { navigateAfterCustomerLogin } from '../navigation/customerRoutes';
-import { navigateAfterDriverLogin } from '../navigation/driverRoutes';
-import { isCustomerRegistered, isDriverRegistered } from '../services/userRegistryService';
+import { isCustomerRegistered, isDriverRegistered, driverHasPassword, loadDriverByPhone } from '../services/userRegistryService';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
 export function LoginScreen({ navigation, route }: Props) {
-  const { loginAsCustomerPhone, loginAsDriver } = useAuth();
+  const { sendCustomerOtp, sendDriverOtp } = useAuth();
   const { horizontalPadding } = useResponsive();
   const { width } = useWindowDimensions();
   const logoHeight = Math.min(148, Math.round(width * 0.36));
@@ -52,22 +50,36 @@ export function LoginScreen({ navigation, route }: Props) {
       ]);
 
       if (driverRegistered) {
-        const err = await loginAsDriver(phone);
+        const driver = await loadDriverByPhone(normalized);
+        if (driverHasPassword(driver)) {
+          navigation.navigate('DriverLogin', { phone: normalized });
+          return;
+        }
+
+        const err = await sendDriverOtp(phone);
+        if (err === 'DRIVER_REGISTER_REQUIRED') {
+          navigation.replace('DriverRegister', { phone: normalized });
+          return;
+        }
         if (err) {
           setError(err);
           return;
         }
-        await navigateAfterDriverLogin(navigation, normalized);
+        navigation.navigate('OtpVerify', { phone: normalized, role: 'driver' });
         return;
       }
 
       if (customerRegistered) {
-        const err = await loginAsCustomerPhone(phone);
+        const err = await sendCustomerOtp(phone);
+        if (err === 'REGISTER_REQUIRED') {
+          navigation.replace('Register', { phone: normalized });
+          return;
+        }
         if (err) {
           setError(err);
           return;
         }
-        await navigateAfterCustomerLogin(navigation, normalized);
+        navigation.navigate('OtpVerify', { phone: normalized, role: 'customer' });
         return;
       }
 

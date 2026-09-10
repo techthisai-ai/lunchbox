@@ -22,7 +22,13 @@ import {
   normalizeDeliveryType,
   normalizeDeliveryTypes,
 } from '../types/delivery';
-import { loadCustomerRegistration, loadRegisteredDrivers, incrementDriverCompletedDeliveries, updateCustomerRegistration } from './userRegistryService';
+import {
+  CustomerRegistration,
+  loadCustomerRegistration,
+  loadRegisteredDrivers,
+  incrementDriverCompletedDeliveries,
+  updateCustomerRegistration,
+} from './userRegistryService';
 import { loadSubscriptionPaymentSnapshot } from './subscriptionService';
 import { getDriverRatingSummary } from './ratingService';
 import {
@@ -577,6 +583,7 @@ export async function loadCustomerProfile(phone: string): Promise<DeliveryProfil
       studentName: registration.studentName,
       school: registration.school,
       address: registration.address,
+      addressLocation: registration.addressLocation ?? null,
       deliveryType: normalizeDeliveryType(registration.registrationType),
     };
   }
@@ -664,10 +671,14 @@ export async function createBooking(
   const now = new Date();
   const id = generateOrderId();
   const slot = await pickAvailableSlot();
-  const locations = {
-    pickupLocation: await geocodeAddressAsync(profile.address, DEMO_PICKUP),
-    dropLocation: await geocodeAddressAsync(profile.school, DEMO_DROP),
-  };
+  const locations = await resolveOrderLocationsAsync({
+    pickupAddress: profile.address,
+    dropAddress: profile.school,
+    school: profile.school,
+    pickupLocation: profile.addressLocation ?? null,
+    dropLocation: null,
+    customerPickupLocation: profile.addressLocation ?? null,
+  });
   const payment = await loadSubscriptionPaymentSnapshot(normalizedPhone);
   const order: DeliveryOrder = {
     id,
@@ -741,12 +752,14 @@ export async function markFoodReady(phone: string, details?: FoodReadyDetails): 
   );
   const deliveryType = deliveryTypes[0] ?? normalizeDeliveryType(details?.deliveryType ?? order.deliveryType);
   const primaryDrop = filledStudents[0]?.dropLocation.trim() || dropAddress;
+  const profile = await loadCustomerProfile(phone);
   const locations = await resolveOrderLocationsAsync({
     pickupAddress,
     dropAddress: primaryDrop,
     school: primaryDrop,
     pickupLocation: order.pickupLocation,
     dropLocation: order.dropLocation,
+    customerPickupLocation: profile.addressLocation ?? null,
   });
 
   const nowIso = new Date().toISOString();
@@ -797,11 +810,20 @@ export async function getCustomerOrderToday(phone: string): Promise<DeliveryOrde
   return sortOrdersByBookedDesc(mine)[0] ?? null;
 }
 
-export async function updateCustomerHomeAddress(phone: string, homeAddress: string): Promise<void> {
+export async function updateCustomerHomeAddress(
+  phone: string,
+  homeAddress: string,
+  addressLocation?: GeoPoint | null,
+): Promise<void> {
   const trimmed = homeAddress.trim();
   if (!trimmed) throw new Error('Enter your home address');
 
-  await updateCustomerRegistration(phone, { address: trimmed });
+  const registrationFields: Partial<CustomerRegistration> = { address: trimmed };
+  if (addressLocation !== undefined) {
+    registrationFields.addressLocation = addressLocation;
+  }
+
+  await updateCustomerRegistration(phone, registrationFields);
   await clearPickupSlotBannerSession(phone);
   await updateFoodReadyDefaultsPickupAddress(phone, trimmed);
 
@@ -812,8 +834,9 @@ export async function updateCustomerHomeAddress(phone: string, homeAddress: stri
     pickupAddress: trimmed,
     dropAddress: getDropAddress(order),
     school: order.school,
-    pickupLocation: null,
+    pickupLocation: addressLocation ?? order.pickupLocation,
     dropLocation: order.dropLocation,
+    customerPickupLocation: addressLocation ?? null,
   });
 
   await persistOrder({
@@ -1220,8 +1243,30 @@ export async function markPickedUp(orderId: string): Promise<DeliveryOrder> {
 
   const updated: DeliveryOrder = {
     ...order,
-    status: 'in_transit',
+    status: 'picked_up',
     pickedUpAt: formatTime(new Date()),
+    driverLocation: computeDriverLocation({ ...order, status: 'picked_up', driver: order.driver }),
+  };
+  await persistOrder(updated);
+
+  return updated;
+}
+
+export async function markInTransit(orderId: string): Promise<DeliveryOrder> {
+  const order = await loadOrder(orderId);
+  if (!order) throw new Error('Order not found');
+
+  if (order.status === 'in_transit' || order.status === 'at_drop' || order.status === 'delivered') {
+    return order;
+  }
+  if (order.status !== 'picked_up' && order.status !== 'pickup_verified') {
+    throw new Error('Complete pickup before starting delivery');
+  }
+
+  const updated: DeliveryOrder = {
+    ...order,
+    status: 'in_transit',
+    pickedUpAt: order.pickedUpAt ?? formatTime(new Date()),
     driverLocation: computeDriverLocation({ ...order, status: 'in_transit', driver: order.driver }),
     ...applyEta(order, 14),
   };

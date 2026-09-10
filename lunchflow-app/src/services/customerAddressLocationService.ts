@@ -48,14 +48,19 @@ async function getCustomerDeviceLocation(): Promise<GeoPoint | null> {
   }
 }
 
+export type CustomerGpsAddressResult = {
+  address: string;
+  location: GeoPoint;
+};
+
 type FetchCustomerAddressOptions = {
   /** Shows a turn-on-location prompt when GPS or permission fails. */
   promptOnFailure?: boolean;
 };
 
-export async function fetchCustomerAddressFromGps(
+export async function fetchCustomerLocationFromGps(
   options: FetchCustomerAddressOptions = {},
-): Promise<string | null> {
+): Promise<CustomerGpsAddressResult | null> {
   const point = await getCustomerDeviceLocation();
   if (!point) {
     if (options.promptOnFailure) promptTurnOnLocation();
@@ -63,11 +68,22 @@ export async function fetchCustomerAddressFromGps(
   }
 
   const address = await reverseGeocodeAsync(point);
-  if (!address && options.promptOnFailure) {
-    Alert.alert(
-      'Location unavailable',
-      'Could not read an address for your current location. Enter your pickup address manually.',
-    );
+  if (!address) {
+    if (options.promptOnFailure) {
+      Alert.alert(
+        'Location unavailable',
+        'Could not read an address for your current location. Enter your pickup address manually.',
+      );
+    }
+    return null;
   }
-  return address;
+
+  return { address, location: point };
+}
+
+export async function fetchCustomerAddressFromGps(
+  options: FetchCustomerAddressOptions = {},
+): Promise<string | null> {
+  const result = await fetchCustomerLocationFromGps(options);
+  return result?.address ?? null;
 }

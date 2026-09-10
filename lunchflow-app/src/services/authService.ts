@@ -392,6 +392,11 @@ export async function sendCustomerOtp(phone: string): Promise<void> {
     throw new RegistrationRequiredError('customer');
   }
 
+  const registration = await loadCustomerRegistration(normalized);
+  if (registration) {
+    await saveCustomerRegistration(registration);
+  }
+
   confirmationResult = null;
   await requestLoginOtpFn({ phone: normalized, role: 'customer' });
 }
@@ -458,6 +463,7 @@ export async function registerCustomer(data: CustomerRegistration): Promise<Auth
     name: data.name.trim(),
     phone,
     address: data.address.trim(),
+    addressLocation: data.addressLocation ?? null,
     registrationType,
     school: data.school.trim(),
     studentName: data.studentName.trim(),
@@ -480,6 +486,7 @@ export async function registerCustomer(data: CustomerRegistration): Promise<Auth
       studentName: data.studentName.trim(),
       school: data.school.trim(),
       address: data.address.trim(),
+      addressLocation: data.addressLocation ?? null,
       deliveryType: registrationType,
     });
   } catch {

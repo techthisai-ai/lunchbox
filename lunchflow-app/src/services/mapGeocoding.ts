@@ -50,6 +50,18 @@ export function haversineDistanceKm(from: GeoPoint, to: GeoPoint): number {
   return 2 * earthRadiusKm * Math.asin(Math.sqrt(a));
 }
 
+export function isValidGeoPoint(point: GeoPoint | null | undefined): boolean {
+  if (!point) return false;
+  return (
+    Number.isFinite(point.lat) &&
+    Number.isFinite(point.lng) &&
+    point.lat >= -90 &&
+    point.lat <= 90 &&
+    point.lng >= -180 &&
+    point.lng <= 180
+  );
+}
+
 /** Reject legacy Delhi / far-south coords and other bad cached points */
 export function isTrustedMapPoint(stored: GeoPoint | null | undefined, address: string): boolean {
   if (!stored) return false;
@@ -105,7 +117,7 @@ export function resolveMapPoint(
   address: string,
   fallback: GeoPoint,
 ): GeoPoint {
-  if (stored && isTrustedMapPoint(stored, address)) return stored;
+  if (stored && isValidGeoPoint(stored) && isTrustedMapPoint(stored, address)) return stored;
   return geocodeAddress(address, fallback);
 }
 
@@ -353,7 +365,9 @@ export async function geocodeAddressAsync(address: string, fallback: GeoPoint): 
 }
 
 export async function resolveOrderLocationsAsync(
-  order: Pick<DeliveryOrder, 'pickupAddress' | 'dropAddress' | 'school' | 'pickupLocation' | 'dropLocation'>,
+  order: Pick<DeliveryOrder, 'pickupAddress' | 'dropAddress' | 'school' | 'pickupLocation' | 'dropLocation'> & {
+    customerPickupLocation?: GeoPoint | null;
+  },
 ): Promise<{ pickupLocation: GeoPoint; dropLocation: GeoPoint }> {
   const pickupAddress = order.pickupAddress?.trim() ?? '';
   const dropAddress = getDropAddress(order)?.trim() ?? '';
@@ -361,7 +375,10 @@ export async function resolveOrderLocationsAsync(
   let pickupLocation = order.pickupLocation;
   let dropLocation = order.dropLocation;
 
-  if (!pickupLocation || !isTrustedMapPoint(pickupLocation, pickupAddress)) {
+  const customerPickup = order.customerPickupLocation;
+  if (isValidGeoPoint(customerPickup)) {
+    pickupLocation = customerPickup;
+  } else if (!pickupLocation || !isTrustedMapPoint(pickupLocation, pickupAddress)) {
     pickupLocation = pickupAddress
       ? await geocodeAddressAsync(pickupAddress, DEMO_PICKUP)
       : DEMO_PICKUP;
@@ -380,7 +397,10 @@ export async function resolveOrderLocationsAsync(
     }
   }
 
-  return { pickupLocation, dropLocation };
+  return {
+    pickupLocation: pickupLocation ?? DEMO_PICKUP,
+    dropLocation: dropLocation ?? DEMO_DROP,
+  };
 }
 
 export function interpolatePoint(from: GeoPoint, to: GeoPoint, progress: number): GeoPoint {

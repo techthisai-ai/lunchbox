@@ -40,6 +40,12 @@ import {
   normalizeDeliveryTypes,
 } from '../types/delivery';
 import { isHistoryToday, isHistoryTodayOrYesterday, resolveHistoryDateKey } from '../utils/date';
+import {
+  getActiveStepTime,
+  getHomeGaugeMeta,
+  getHomeProgressIndex,
+  HOME_PROGRESS_STEPS,
+} from '../utils/homeOrderProgress';
 import { PromoAd, PromoAdAssetKey } from '../types/promoAd';
 
 function formatDeliveredClock(raw: string | null | undefined): string {
@@ -99,64 +105,6 @@ const FOOD_READY_FORM_STATUSES = new Set(['booked']);
 const GAUGE_SIZE = 208;
 const GAUGE_STROKE = 10;
 
-const HOME_PROGRESS_STEPS: {
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  timeKey: 'bookedAt' | 'foodReadyAt' | 'pickedUpAt' | 'deliveredAt';
-}[] = [
-  { label: 'Booked', icon: 'checkmark', timeKey: 'bookedAt' },
-  { label: 'Food Ready', icon: 'restaurant-outline', timeKey: 'foodReadyAt' },
-  { label: 'Picked Up', icon: 'bag-handle-outline', timeKey: 'pickedUpAt' },
-  { label: 'In Transit', icon: 'bicycle-outline', timeKey: 'pickedUpAt' },
-  { label: 'Delivered', icon: 'cube-outline', timeKey: 'deliveredAt' },
-];
-
-function getHomeProgressIndex(status: DeliveryStatus): number {
-  if (status === 'delivered') return 4;
-  if (status === 'in_transit' || status === 'at_drop') return 3;
-  if (status === 'picked_up') return 2;
-  if (
-    status === 'food_ready' ||
-    status === 'awaiting_driver' ||
-    status === 'driver_assigned' ||
-    status === 'at_pickup' ||
-    status === 'pickup_verified'
-  ) {
-    return 1;
-  }
-  return 0;
-}
-
-function formatProgressTime(value: string | null | undefined): string {
-  if (!value?.trim()) return '--';
-  const trimmed = value.trim();
-  if (/am|pm/i.test(trimmed)) return trimmed;
-  const parsed = Date.parse(`1970-01-01 ${trimmed}`);
-  if (!Number.isNaN(parsed)) {
-    return new Date(parsed).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
-  }
-  const iso = Date.parse(trimmed);
-  if (!Number.isNaN(iso)) {
-    return new Date(iso).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
-  }
-  return trimmed;
-}
-
-function getActiveStepTime(order: DeliveryOrder | null): string | null {
-  if (!order) return null;
-
-  const activeIndex = getHomeProgressIndex(order.status);
-  const step = HOME_PROGRESS_STEPS[activeIndex];
-  if (!step) return null;
-
-  const raw = order[step.timeKey];
-  if (!raw?.trim() && activeIndex === 0 && order.bookedAt?.trim()) {
-    return formatProgressTime(order.bookedAt);
-  }
-  if (!raw?.trim()) return null;
-
-  return formatProgressTime(raw);
-}
 
 function HorizontalLiveProgress({ order }: { order: DeliveryOrder | null }) {
   const activeIndex = order && order.status !== 'pickup_closed' ? getHomeProgressIndex(order.status) : -1;
@@ -219,35 +167,6 @@ function parseDestination(order: DeliveryOrder | null) {
   return { name: shortenWords(raw, 3), kind };
 }
 
-function getGaugeMeta(order: DeliveryOrder | null) {
-  if (!order || order.status === 'booked') {
-    return { percent: 25, status: 'READY TO BOOK', hint: 'Tap when lunchbox is packed & ready.' };
-  }
-  if (order.status === 'pickup_closed') {
-    return { percent: 0, status: 'CANCELLED', hint: 'This delivery was cancelled.' };
-  }
-  if (order.status === 'delivered') {
-    return { percent: 100, status: 'DELIVERED', hint: 'Enjoy your meal!' };
-  }
-  if (order.status === 'picked_up' || order.status === 'in_transit' || order.status === 'at_drop') {
-    return { percent: 90, status: 'IN TRANSIT', hint: 'Your lunchbox is on the way.' };
-  }
-  if (
-    order.driver &&
-    (order.status === 'driver_assigned' ||
-      order.status === 'at_pickup' ||
-      order.status === 'pickup_verified')
-  ) {
-    return { percent: 82, status: 'RIDER ASSIGNED', hint: 'Rider is heading to pickup.' };
-  }
-  if (order.status === 'awaiting_driver') {
-    return { percent: 75, status: 'FOOD READY', hint: 'Waiting for a rider to accept.' };
-  }
-  if (order.status === 'food_ready') {
-    return { percent: 75, status: 'FOOD READY', hint: 'Waiting for a rider to accept.' };
-  }
-  return { percent: 25, status: 'READY TO BOOK', hint: 'Tap when lunchbox is packed & ready.' };
-}
 
 function CircularGauge({ percent, cancelled }: { percent: number; cancelled?: boolean }) {
   const radius = (GAUGE_SIZE - GAUGE_STROKE) / 2;
@@ -533,7 +452,7 @@ function LiveTrackingCard({
   }
 
   const displayOrder = order ?? stableOrderRef.current;
-  const gauge = getGaugeMeta(displayOrder);
+  const gauge = getHomeGaugeMeta(displayOrder);
   const isCancelled = displayOrder?.status === 'pickup_closed';
   const activeStepTime = getActiveStepTime(displayOrder);
   const lastStepTimeRef = useRef<string | null>(null);

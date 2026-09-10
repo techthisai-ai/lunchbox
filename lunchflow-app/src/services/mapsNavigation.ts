@@ -1,5 +1,6 @@
 import { Linking, Platform } from 'react-native';
 import { GeoPoint } from '../types/delivery';
+import { isValidGeoPoint } from './mapGeocoding';
 
 function formatAddressForMaps(address: string): string {
   const trimmed = address.trim();
@@ -50,8 +51,11 @@ export async function openMapsNavigation(
   origin?: GeoPoint,
   addressHint?: string,
 ): Promise<boolean> {
-  if (addressHint?.trim()) {
-    return openMapsNavigationToAddress(addressHint);
+  if (!isValidGeoPoint(destination)) {
+    if (addressHint?.trim()) {
+      return openMapsNavigationToAddress(addressHint);
+    }
+    return false;
   }
 
   const webUrl = buildGoogleMapsDirectionsUrl(destination, origin);

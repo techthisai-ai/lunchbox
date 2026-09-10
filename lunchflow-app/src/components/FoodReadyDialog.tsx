@@ -95,7 +95,7 @@ function ReviewInfoCard({
       </View>
       <View style={styles.reviewInfoDivider} />
       <View style={styles.reviewInfoRow}>
-        <Text style={styles.reviewInfoLabel}>Where</Text>
+        <Text style={styles.reviewInfoLabel}>Delivery Location</Text>
         <Text style={styles.reviewInfoValue} numberOfLines={1}>
           {whereLabel}
         </Text>
@@ -431,7 +431,7 @@ function DialogBody({
             multiline
           />
 
-          <Text style={styles.fieldLabel}>Where</Text>
+          <Text style={styles.fieldLabel}>Delivery Location</Text>
           <Text style={styles.sectionHint}>
             Tap School, College, or Office to add each person. Tap the same option again for another.
           </Text>

@@ -8,6 +8,9 @@ import {
   getDropAddress,
   normalizeDeliveryType,
 } from '../types/delivery';
+import { openMapsNavigation } from '../services/mapsNavigation';
+import { resolveMapPoint } from '../services/mapGeocoding';
+import { DEMO_DROP, DEMO_PICKUP } from '../constants/maps';
 import { Button } from './Button';
 
 type Props = {
@@ -20,6 +23,24 @@ type Props = {
 export function DriverOrderAddressDialog({ visible, order, onClose, onOpenRouteMap }: Props) {
   if (!order) return null;
 
+  const pickupPoint = resolveMapPoint(order.pickupLocation, order.pickupAddress, DEMO_PICKUP);
+  const dropAddress = getDropAddress(order);
+  const dropPoint = resolveMapPoint(order.dropLocation, dropAddress, DEMO_DROP);
+
+  const openPickupNavigation = () => {
+    onClose();
+    void openMapsNavigation(pickupPoint, undefined, order.pickupAddress).catch(() => {
+      onOpenRouteMap?.();
+    });
+  };
+
+  const openDropNavigation = () => {
+    onClose();
+    void openMapsNavigation(dropPoint, undefined, dropAddress).catch(() => {
+      onOpenRouteMap?.();
+    });
+  };
+
   const students = buildFoodReadyStudents({
     studentEntries: order.studentEntries,
     students: order.studentEntries,
@@ -29,7 +50,7 @@ export function DriverOrderAddressDialog({ visible, order, onClose, onOpenRouteM
     deliveryTypes: order.deliveryTypes,
   }).filter((entry) => entry.name.trim() || entry.dropLocation.trim());
 
-  const dropFallback = getDropAddress(order);
+  const dropFallback = dropAddress;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -54,10 +75,7 @@ export function DriverOrderAddressDialog({ visible, order, onClose, onOpenRouteM
                   title="Navigate to Pickup"
                   variant="outline"
                   small
-                  onPress={() => {
-                    onClose();
-                    onOpenRouteMap?.();
-                  }}
+                  onPress={openPickupNavigation}
                   style={styles.navBtn}
                 />
               ) : null}
@@ -87,10 +105,7 @@ export function DriverOrderAddressDialog({ visible, order, onClose, onOpenRouteM
                         title="Navigate"
                         variant="outline"
                         small
-                        onPress={() => {
-                          onClose();
-                          onOpenRouteMap?.();
-                        }}
+                        onPress={openDropNavigation}
                         style={styles.navBtn}
                       />
                     ) : null}
@@ -104,10 +119,7 @@ export function DriverOrderAddressDialog({ visible, order, onClose, onOpenRouteM
                       title="Navigate to Drop"
                       variant="outline"
                       small
-                      onPress={() => {
-                        onClose();
-                        onOpenRouteMap?.();
-                      }}
+                      onPress={openDropNavigation}
                       style={styles.navBtn}
                     />
                   ) : null}

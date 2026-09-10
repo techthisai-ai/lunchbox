@@ -12,7 +12,7 @@ import { colors, radius, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { ProfileStackParamList } from '../navigation/types';
 import { goBackInProfileStack } from '../navigation/customerRoutes';
-import { fetchCustomerAddressFromGps } from '../services/customerAddressLocationService';
+import { fetchCustomerLocationFromGps } from '../services/customerAddressLocationService';
 import {
   getCustomerOrderToday,
   loadCustomerProfile,
@@ -22,6 +22,7 @@ import {
 import {
   DeliveryType,
   FoodReadyStudentEntry,
+  GeoPoint,
   buildFoodReadyStudents,
   getDeliveryTypeLabel,
   getDropAddress,
@@ -40,7 +41,7 @@ type DeliveryAddressCard = {
 };
 
 type EditTarget =
-  | { kind: 'home'; address: string }
+  | { kind: 'home'; address: string; addressLocation?: GeoPoint | null }
   | { kind: 'delivery'; index: number; name: string; address: string; detail: string };
 
 function deliveryIcon(type: DeliveryType): {
@@ -106,6 +107,7 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
     focus === 'pickup' ? 'Pickup Address' : focus === 'drop' ? 'Drop Address' : 'Saved Addresses';
   const { user } = useAuth();
   const [homeAddress, setHomeAddress] = useState('');
+  const [homeAddressLocation, setHomeAddressLocation] = useState<GeoPoint | null>(null);
   const [deliveryCards, setDeliveryCards] = useState<DeliveryAddressCard[]>([]);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [saving, setSaving] = useState(false);
@@ -120,12 +122,12 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
     setLocatingAddress(true);
     setError('');
     try {
-      const detected = await fetchCustomerAddressFromGps({ promptOnFailure });
+      const detected = await fetchCustomerLocationFromGps({ promptOnFailure });
       if (!detected) return;
       setEditTarget((current) => {
         if (!current || current.kind !== 'home') return current;
         if (!replaceExisting && current.address.trim()) return current;
-        return { kind: 'home', address: detected };
+        return { kind: 'home', address: detected.address, addressLocation: detected.location };
       });
     } finally {
       setLocatingAddress(false);
@@ -147,6 +149,7 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
       getCustomerOrderToday(user.phone),
     ]);
     setHomeAddress(profile.address || order?.pickupAddress || '');
+    setHomeAddressLocation(profile.addressLocation ?? order?.pickupLocation ?? null);
 
     const fallbackType = normalizeDeliveryType(order?.deliveryType ?? profile.deliveryType);
     const fallbackAddress = (order ? getDropAddress(order) : '') || profile.school || '';
@@ -169,7 +172,7 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
   const openHomeEdit = () => {
     setError('');
     gpsFocusAttemptedRef.current = false;
-    setEditTarget({ kind: 'home', address: homeAddress });
+    setEditTarget({ kind: 'home', address: homeAddress, addressLocation: homeAddressLocation });
   };
 
   const openDeliveryEdit = (entry: DeliveryAddressCard) => {
@@ -190,7 +193,7 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
     setError('');
     try {
       if (editTarget.kind === 'home') {
-        await updateCustomerHomeAddress(user.phone, editTarget.address);
+        await updateCustomerHomeAddress(user.phone, editTarget.address, editTarget.addressLocation ?? null);
       } else {
         await updateCustomerDeliveryAddress(user.phone, editTarget.index, {
           name: editTarget.name,
@@ -315,7 +318,7 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
                 <Input
                   label="Home Address"
                   value={editTarget.address}
-                  onChangeText={(address) => setEditTarget({ kind: 'home', address })}
+                  onChangeText={(address) => setEditTarget({ kind: 'home', address, addressLocation: null })}
                   onFocus={handleHomeAddressFocus}
                   placeholder={locatingAddress ? 'Detecting your location...' : 'Tap to use location or enter your home pickup address'}
                   multiline
