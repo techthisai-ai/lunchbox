@@ -98,16 +98,16 @@ export async function resolvePlanAmount(
   const base =
     plans.find((p) => p.id === planId)?.amount ?? SUBSCRIPTION_PLANS.find((p) => p.id === planId)?.baseAmount ?? 0;
 
-  if (planId !== 'single-order') return base;
-
-  if (options?.phone && options.peopleCount) {
+  if (planId === 'single-order' && options?.phone && options.peopleCount) {
     const { calculateSingleOrderPayment } = await import('./subscriptionService');
     const quote = await calculateSingleOrderPayment(options.phone, options.peopleCount);
     return quote.amountDue;
   }
 
   if (options?.peopleCount && options.peopleCount > 0) {
-    return base * options.peopleCount;
+    if (planId === 'single-order' || planId.startsWith('addon-')) {
+      return base * options.peopleCount;
+    }
   }
 
   return base;

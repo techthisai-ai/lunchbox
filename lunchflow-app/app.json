@@ -90,6 +90,12 @@
           "resizeMode": "contain",
           "backgroundColor": "#FDF2F8"
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow LunchFlow to choose a profile picture from your photo library."
+        }
       ]
     ],
     "extra": {

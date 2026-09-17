@@ -1,13 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { OnlinePaymentDialog } from '../components/OnlinePaymentDialog';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { SubscriptionPlanPriceText } from '../components/SubscriptionPlanPriceText';
-import { SubscriptionPlan, getSubscriptionDetailLineLabel, isAddonSubscriptionPlan } from '../constants/subscriptions';
+import { SubscriptionDetailPlanCard } from '../components/SubscriptionDetailPlanCard';
+import { SubscriptionPlan, isAddonSubscriptionPlan } from '../constants/subscriptions';
 import { colors, radius, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
@@ -16,48 +16,19 @@ import { useSubscriptionPayment } from '../hooks/useSubscriptionPayment';
 import { ProfileStackParamList } from '../navigation/types';
 import { hasActiveMonthlySubscription } from '../services/subscriptionService';
 import { goBackInProfileStack } from '../navigation/customerRoutes';
+import { formatPlanPrice } from '../utils/subscription';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'SubscriptionDetails'>;
-
-function DetailPlanCard({
-  plan,
-  disabled,
-  onPress,
-}: {
-  plan: SubscriptionPlan;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  const iconName = (plan.detailIcon ?? 'document-text-outline') as keyof typeof Ionicons.glyphMap;
-  const lineLabel = getSubscriptionDetailLineLabel(plan);
-  const dashIndex = lineLabel.lastIndexOf(' - ');
-  const titlePart = dashIndex >= 0 ? lineLabel.slice(0, dashIndex) : lineLabel;
-  const pricePart = dashIndex >= 0 ? lineLabel.slice(dashIndex + 3) : '';
-
-  return (
-    <Pressable
-      style={({ pressed }) => [styles.planCard, disabled && styles.planCardDisabled, pressed && !disabled && styles.planCardPressed]}
-      onPress={onPress}
-      disabled={disabled}
-    >
-      <View style={styles.planRow}>
-        <View style={styles.planIcon}>
-          <Ionicons name={iconName} size={18} color={colors.orange} />
-        </View>
-        <Text style={styles.planLine} numberOfLines={2}>
-          <Text style={styles.planLabel}>{titlePart}</Text>
-          {pricePart ? <SubscriptionPlanPriceText plan={plan} amountText={pricePart} /> : null}
-        </Text>
-      </View>
-    </Pressable>
-  );
-}
 
 export function SubscriptionDetailsScreen({ navigation }: Props) {
   const { user } = useAuth();
   const { horizontalPadding } = useResponsive();
   const { plans } = useSubscriptionDetailPlans();
   const [monthlyActive, setMonthlyActive] = useState(false);
+  const [quantities, setQuantities] = useState<Record<string, number>>({
+    'addon-same-drop': 1,
+    'addon-diff-drop': 1,
+  });
   const {
     paymentVisible,
     paymentDraft,
@@ -78,12 +49,27 @@ export function SubscriptionDetailsScreen({ navigation }: Props) {
     }, [user?.phone]),
   );
 
+  const summaryTotal = useMemo(() => {
+    let total = 0;
+    for (const plan of plans) {
+      if (!isAddonSubscriptionPlan(plan)) continue;
+      const qty = quantities[plan.id] ?? 1;
+      total += plan.baseAmount * qty;
+    }
+    return total;
+  }, [plans, quantities]);
+
   const handlePlanPress = (plan: SubscriptionPlan) => {
     if (isAddonSubscriptionPlan(plan) && !monthlyActive) {
       Alert.alert('Monthly plan required', 'Add-on plans are available only when you have an active monthly subscription.');
       return;
     }
-    void startPaymentForPlan(plan);
+    const quantity = isAddonSubscriptionPlan(plan) ? quantities[plan.id] ?? 1 : 1;
+    void startPaymentForPlan(plan, quantity);
+  };
+
+  const setQuantity = (planId: string, next: number) => {
+    setQuantities((current) => ({ ...current, [planId]: Math.max(1, next) }));
   };
 
   return (
@@ -101,14 +87,35 @@ export function SubscriptionDetailsScreen({ navigation }: Props) {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
       >
+        <View style={styles.hero}>
+          <Text style={styles.heroTitle}>Choose the plan that fits you</Text>
+          <Text style={styles.heroSub}>
+            All prices are shown in Indian Rupees (₹). Select a plan to continue to payment.
+          </Text>
+        </View>
+
         {plans.map((plan) => (
-          <DetailPlanCard
+          <SubscriptionDetailPlanCard
             key={plan.id}
             plan={plan}
             disabled={isAddonSubscriptionPlan(plan) && !monthlyActive}
-            onPress={() => handlePlanPress(plan)}
+            quantity={isAddonSubscriptionPlan(plan) ? quantities[plan.id] ?? 1 : 1}
+            onQuantityChange={
+              isAddonSubscriptionPlan(plan) ? (next) => setQuantity(plan.id, next) : undefined
+            }
+            onSelect={() => handlePlanPress(plan)}
           />
         ))}
+
+        {summaryTotal > 0 && monthlyActive ? (
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryTitle}>Add-on summary</Text>
+            <Text style={styles.summaryText}>
+              Selected add-ons total: <Text style={styles.summaryAmount}>{formatPlanPrice(summaryTotal)}</Text>
+            </Text>
+            <Text style={styles.summaryHint}>Totals update when you change the quantity on each add-on card.</Text>
+          </View>
+        ) : null}
 
         {message ? <Text style={styles.successMessage}>{message}</Text> : null}
 
@@ -120,7 +127,9 @@ export function SubscriptionDetailsScreen({ navigation }: Props) {
           <Text style={styles.noteItem}>• All prices are inclusive of taxes.</Text>
           <Text style={styles.noteItem}>• Monthly plan will be auto-renewed until cancelled.</Text>
           <Text style={styles.noteItem}>• Single-order plans expire after delivery is completed.</Text>
-          <Text style={styles.noteItem}>• You can manage your plan from the Plan section.</Text>
+          <Text style={styles.noteItem}>
+            • Add-on plans (₹149 or ₹249 per month, was ₹499) require an active monthly subscription.
+          </Text>
         </View>
 
         <Pressable
@@ -137,48 +146,55 @@ export function SubscriptionDetailsScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  scroll: { paddingTop: spacing.sm, paddingBottom: 32, gap: 12 },
-  planCard: {
+  scroll: { paddingTop: spacing.sm, paddingBottom: 32, gap: 14 },
+  hero: {
+    gap: 6,
+    marginBottom: 2,
+  },
+  heroTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  heroSub: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.muted,
+    lineHeight: 18,
+  },
+  summaryCard: {
     backgroundColor: colors.white,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.borderSubtle,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    padding: spacing.md,
     gap: 6,
     ...shadow.subtle,
   },
-  planCardPressed: { opacity: 0.95 },
-  planCardDisabled: { opacity: 0.72 },
-  planRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  planIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.orangeLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  planLine: {
-    flex: 1,
-    minWidth: 0,
+  summaryTitle: {
     fontSize: 14,
-    lineHeight: 20,
-  },
-  planLabel: {
-    fontWeight: '700',
+    fontWeight: '800',
     color: colors.text,
+  },
+  summaryText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.muted,
+  },
+  summaryAmount: {
+    color: colors.green,
+    fontWeight: '800',
+  },
+  summaryHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.muted,
+    lineHeight: 16,
   },
   successMessage: {
     fontSize: 13,
     color: colors.green,
     fontWeight: '600',
-    marginTop: 4,
   },
   noteCard: {
     backgroundColor: '#FFF8E1',

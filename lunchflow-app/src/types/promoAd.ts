@@ -1,6 +1,11 @@
 export type PromoAdAudience = 'customer' | 'driver' | 'onboarding';
 export type PromoAdDisplayType = 'banner' | 'composed';
-export type PromoAdAssetKey = 'tiffin-sticker' | 'meal-plate';
+export type PromoAdAssetKey =
+  | 'tiffin-sticker'
+  | 'meal-plate'
+  | 'lunch-bag'
+  | 'tiffin-thankyou'
+  | 'lunch-hero';
 export type PromoAdOnboardingStep = 1 | 2;
 
 export type PromoAd = {

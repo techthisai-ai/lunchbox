@@ -24,6 +24,8 @@ export type CustomerRegistration = {
   classSection: string;
   emergencyContact: string;
   referralCode?: string;
+  email?: string;
+  avatarUrl?: string;
 };
 
 export type DriverRegistration = {
@@ -181,6 +183,8 @@ function customerFromFirestoreData(
     classSection: String(data.classSection ?? ''),
     emergencyContact: String(data.emergencyContact ?? ''),
     referralCode: data.referralCode ? String(data.referralCode) : undefined,
+    email: data.email ? String(data.email) : undefined,
+    avatarUrl: data.avatarUrl ? String(data.avatarUrl) : undefined,
   };
 }
 
@@ -322,6 +326,8 @@ export async function loadRegisteredCustomers(): Promise<RegisteredCustomer[]> {
         studentName: String(data.studentName ?? ''),
         classSection: String(data.classSection ?? ''),
         emergencyContact: String(data.emergencyContact ?? ''),
+        email: data.email ? String(data.email) : undefined,
+        avatarUrl: data.avatarUrl ? String(data.avatarUrl) : undefined,
         registeredAt: String(data.registeredAt ?? data.createdAt ?? ''),
       });
     }

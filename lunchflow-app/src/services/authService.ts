@@ -148,12 +148,18 @@ function getRecaptchaVerifier(): RecaptchaVerifier {
   return recaptchaVerifier;
 }
 
-function customerAuthUser(phone: string, name: string): AuthUser {
+function customerAuthUser(
+  phone: string,
+  name: string,
+  extras?: { email?: string; avatarUrl?: string },
+): AuthUser {
   return {
     id: `CUS-${phone}`,
     role: 'customer',
     name,
     phone,
+    email: extras?.email?.trim() || undefined,
+    avatarUrl: extras?.avatarUrl || undefined,
   };
 }
 
@@ -330,7 +336,10 @@ export async function loginCustomer(phone: string): Promise<AuthUser> {
     void saveCustomerRegistration(registration);
   }
 
-  return customerAuthUser(normalized, name);
+  return customerAuthUser(normalized, name, {
+    email: registration?.email,
+    avatarUrl: registration?.avatarUrl,
+  });
 }
 
 export async function sendDriverOtp(phone: string): Promise<void> {
@@ -428,12 +437,11 @@ export async function verifyCustomerOtp(otp: string, phoneHint?: string): Promis
       user: { id: string; role: UserRole; name: string; phone: string };
     };
     await signInWithCustomToken(auth, data.customToken);
-    return {
-      id: data.user.id,
-      role: 'customer',
-      name: data.user.name,
-      phone: data.user.phone,
-    };
+    const registration = await loadCustomerRegistration(data.user.phone);
+    return customerAuthUser(data.user.phone, data.user.name, {
+      email: registration?.email,
+      avatarUrl: registration?.avatarUrl,
+    });
   } catch (error) {
     throw new Error(firebaseErrorMessage(error));
   }
@@ -456,7 +464,10 @@ export async function registerCustomer(data: CustomerRegistration): Promise<Auth
   if (alreadyRegistered) {
     // Never force re-registration — just restore the existing account.
     const registration = await loadCustomerRegistration(phone);
-    return customerAuthUser(phone, registration?.name?.trim() || data.name.trim() || 'Customer');
+    return customerAuthUser(phone, registration?.name?.trim() || data.name.trim() || 'Customer', {
+      email: registration?.email,
+      avatarUrl: registration?.avatarUrl,
+    });
   }
 
   await saveCustomerRegistration({
@@ -509,7 +520,10 @@ export async function registerCustomer(data: CustomerRegistration): Promise<Auth
     }
   }
 
-  return customerAuthUser(phone, data.name.trim());
+  return customerAuthUser(phone, data.name.trim(), {
+    email: data.email,
+    avatarUrl: undefined,
+  });
 }
 
 export async function registerDriver(data: DriverRegistration): Promise<AuthUser> {

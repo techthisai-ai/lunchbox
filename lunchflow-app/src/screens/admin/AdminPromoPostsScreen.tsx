@@ -27,11 +27,15 @@ import {
 import { PromoAd, PromoAdAssetKey } from '../../types/promoAd';
 
 const PROMO_TIFFIN_STICKER = require('../../../assets/promo-tiffin-sticker.png');
+const PROMO_LUNCH_BAG = require('../../../assets/lunch-bag.png');
 const PROMO_MEAL_PLATE = require('../../../assets/driver-promo-meal.png');
 
 const PROMO_ASSET_MAP: Record<PromoAdAssetKey, number> = {
   'tiffin-sticker': PROMO_TIFFIN_STICKER,
   'meal-plate': PROMO_MEAL_PLATE,
+  'lunch-bag': PROMO_LUNCH_BAG,
+  'tiffin-thankyou': require('../../../assets/promo-tiffin-thankyou-cutout.png'),
+  'lunch-hero': require('../../../assets/promo-lunch-hero.png'),
 };
 
 type AdPlacement = 'customer_home' | 'onboarding_1' | 'onboarding_2';

@@ -590,8 +590,8 @@ export function normalizeDropLocationKey(address: string): string {
  * Pricing concepts (admin amounts unchanged):
  * - Single delivery in one location (₹29 single order): exactly 1 person / 1 drop
  * - Monthly (₹499): 1 person included per day
- * - More than one delivery at the same drop (₹99 1-day add-on each)
- * - Multiple deliveries at different drops (₹199 1-day add-on each)
+ * - More than one delivery at the same drop (₹149/month add-on)
+ * - Multiple deliveries at different drops (₹249/month add-on)
  */
 export async function getFoodReadyDeliveryQuota(phone: string): Promise<FoodReadyDeliveryQuota> {
   const normalized = normalizePhone(phone);
@@ -647,7 +647,7 @@ export function validateFoodReadyPeopleCount(
     if (quota.isSingleOrder) {
       return `Single delivery (₹29 per person): you can include ${quota.maxPeople} ${quota.maxPeople === 1 ? 'person' : 'people'}. Pay for more people to add them.`;
     }
-    return `Today you can include ${quota.maxPeople} ${quota.maxPeople === 1 ? 'person' : 'people'} (monthly + today’s add-ons). Same drop ₹99 · Different drop ₹199.`;
+    return `Today you can include ${quota.maxPeople} ${quota.maxPeople === 1 ? 'person' : 'people'} (monthly + add-ons). Same drop ₹149/month · Different drop ₹249/month.`;
   }
   return null;
 }
@@ -655,7 +655,7 @@ export function validateFoodReadyPeopleCount(
 /**
  * Enforce location concepts:
  * - Single order: 1 person only
- * - Monthly: 1 included; same-drop extras need ₹99 seats; different-drop extras need ₹199 seats
+ * - Monthly: 1 included; same-drop extras need ₹149/month add-on; different-drop extras need ₹249/month add-on
  */
 export async function validateFoodReadyDropLocations(
   phone: string,
@@ -676,7 +676,7 @@ export async function validateFoodReadyDropLocations(
 
   if (keys.length < students.length) {
     if (students.length - 1 > sameDropSeats + diffDropSeats) {
-      return 'Buy a 1-day add-on for today: same location ₹99, or different location ₹199.';
+      return 'Buy an add-on: same location ₹149/month, or different location ₹249/month.';
     }
     return null;
   }
@@ -686,10 +686,10 @@ export async function validateFoodReadyDropLocations(
   const differentDropPeople = keys.slice(1).filter((key) => key !== primary).length;
 
   if (sameDropExtras > sameDropSeats) {
-    return `More than one delivery at the same location needs the ₹99 add-on (1 day each). You need ${sameDropExtras}, have ${sameDropSeats}.`;
+    return `More than one delivery at the same location needs the ₹149/month add-on. You need ${sameDropExtras}, have ${sameDropSeats}.`;
   }
   if (differentDropPeople > diffDropSeats) {
-    return `Deliveries at different locations need the ₹199 add-on (1 day each). You need ${differentDropPeople}, have ${diffDropSeats}.`;
+    return `Deliveries at different locations need the ₹249/month add-on. You need ${differentDropPeople}, have ${diffDropSeats}.`;
   }
   return null;
 }

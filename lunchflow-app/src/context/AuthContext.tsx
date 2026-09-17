@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { AuthUser, DEMO_ADMIN, UserRole } from '../constants/auth';
 import {
   loginAdmin as loginAdminService,
@@ -24,6 +24,7 @@ import {
   registerForPushNotifications,
   rememberIncomingDeliveredPush,
 } from '../services/pushNotificationService';
+import { refreshCustomerAuthUser } from '../services/customerProfileService';
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -38,6 +39,8 @@ type AuthContextValue = {
   registerCustomer: (data: CustomerRegistration) => Promise<string | null>;
   registerDriver: (data: DriverRegistration) => Promise<string | null>;
   refreshDriverProfile: () => Promise<AuthUser | null>;
+  refreshCustomerProfile: () => Promise<AuthUser | null>;
+  syncCustomerProfile: (profile: AuthUser) => Promise<void>;
   logout: () => Promise<void>;
   role: UserRole | null;
 };
@@ -133,6 +136,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (user?.role !== 'customer') return undefined;
     return rememberIncomingDeliveredPush();
   }, [user?.role]);
+
+  const refreshCustomerProfile = useCallback(async () => {
+    if (!user?.phone || user.role !== 'customer') return null;
+    const profile = await refreshCustomerAuthUser(user.phone);
+    if (!profile) return null;
+
+    setUser((current) => {
+      if (
+        current?.id === profile.id &&
+        current.name === profile.name &&
+        current.email === profile.email &&
+        current.avatarUrl === profile.avatarUrl
+      ) {
+        return current;
+      }
+      return profile;
+    });
+    await persistAuthSession(profile);
+    return profile;
+  }, [user?.phone, user?.role]);
+
+  const syncCustomerProfile = useCallback(async (profile: AuthUser) => {
+    setUser(profile);
+    await persistAuthSession(profile);
+  }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -255,12 +283,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         return profile;
       },
+      refreshCustomerProfile,
+      syncCustomerProfile,
       logout: async () => {
         await logoutUser();
         setUser(null);
       },
     }),
-    [user, loading],
+    [user, loading, refreshCustomerProfile, syncCustomerProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -6,6 +6,7 @@ export type AuthUser = {
   name: string;
   email?: string;
   phone?: string;
+  avatarUrl?: string;
   vehicle?: string;
   driverApprovalStatus?: 'pending' | 'approved' | 'rejected';
 };

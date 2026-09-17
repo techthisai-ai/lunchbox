@@ -3,14 +3,22 @@ import { Image, ImageStyle, Platform, StyleProp, StyleSheet } from 'react-native
 
 type Props = {
   uri: string;
-  width: number;
-  height: number;
+  width?: number;
+  height?: number;
+  fill?: boolean;
   style?: StyleProp<ImageStyle>;
   accessibilityLabel?: string;
 };
 
 /** Remote promo banners — uses native <img> on web so mobile browsers render reliably. */
-export function PromoBannerImage({ uri, width, height, style, accessibilityLabel }: Props) {
+export function PromoBannerImage({
+  uri,
+  width,
+  height,
+  fill = false,
+  style,
+  accessibilityLabel,
+}: Props) {
   const [src, setSrc] = useState(uri);
 
   useEffect(() => {
@@ -40,18 +48,22 @@ export function PromoBannerImage({ uri, width, height, style, accessibilityLabel
     };
   }, [uri]);
 
+  const flat = StyleSheet.flatten(style) ?? {};
+  const sizingStyle = fill
+    ? { width: '100%' as const, height: '100%' as const }
+    : { width, height };
+
   if (Platform.OS === 'web') {
-    const flat = StyleSheet.flatten(style) ?? {};
     return createElement('img', {
       src,
       alt: accessibilityLabel ?? '',
       decoding: 'async',
       style: {
-        width,
-        height,
-        objectFit: 'cover',
-        display: 'block',
         ...flat,
+        ...sizingStyle,
+        objectFit: 'cover',
+        objectPosition: 'center',
+        display: 'block',
       },
     });
   }
@@ -59,7 +71,7 @@ export function PromoBannerImage({ uri, width, height, style, accessibilityLabel
   return (
     <Image
       source={{ uri: src }}
-      style={[{ width, height }, style]}
+      style={[sizingStyle, flat]}
       resizeMode="cover"
       accessibilityLabel={accessibilityLabel}
     />

@@ -17,7 +17,7 @@ export const PROMO_CAROUSEL_HEIGHT = 124;
 export const PROMO_CAROUSEL_REFERENCE_WIDTH = 358;
 export const PROMO_CAROUSEL_ASPECT = PROMO_CAROUSEL_REFERENCE_WIDTH / PROMO_CAROUSEL_HEIGHT;
 
-export const MAX_CUSTOMER_PROMO_ADS = 3;
+export const MAX_CUSTOMER_PROMO_ADS = 4;
 export const MAX_ONBOARDING_ADS_PER_STEP = 2;
 export const MIN_ONBOARDING_LIVE_SLIDES = 2;
 
@@ -28,40 +28,73 @@ export const ONBOARDING_AD_REFERENCE_WIDTH = ONBOARDING_SLIDE_REFERENCE_WIDTH;
 export const ONBOARDING_AD_HEIGHT = ONBOARDING_SLIDE_REFERENCE_HEIGHT;
 export const ONBOARDING_AD_ASPECT = ONBOARDING_AD_REFERENCE_WIDTH / ONBOARDING_AD_HEIGHT;
 
-export const BUILTIN_PROMO_AD_IDS = ['default-we-cook', 'default-thank-you'] as const;
+export const BUILTIN_PROMO_AD_IDS = [
+  'default-home-carousel-1',
+  'default-home-carousel-2',
+  'default-home-carousel-3',
+  'default-home-carousel-4',
+] as const;
+
+const HOME_CAROUSEL_SLIDES: Array<
+  Pick<PromoAd, 'title' | 'subtitle' | 'imageAssetKey' | 'gradientStart' | 'gradientEnd'> & {
+    sortOrder: number;
+  }
+> = [
+  {
+    title: 'You Cook • We Deliver',
+    subtitle: 'Home-cooked meals packed with Chef Queen care.',
+    imageAssetKey: 'tiffin-sticker',
+    gradientStart: gradients.premium[0],
+    gradientEnd: gradients.premium[1],
+    sortOrder: 1,
+  },
+  {
+    title: 'Made with Love',
+    subtitle: 'Delivered with care — thank you for trusting Chef Queen.',
+    imageAssetKey: 'tiffin-thankyou',
+    gradientStart: gradients.primary[0],
+    gradientEnd: gradients.primary[1],
+    sortOrder: 2,
+  },
+  {
+    title: 'Refer Your Friends and Family',
+    subtitle: 'Refer Lunch Box to your friends and family.',
+    imageAssetKey: 'lunch-bag',
+    gradientStart: gradients.brand[0],
+    gradientEnd: gradients.brand[1],
+    sortOrder: 3,
+  },
+  {
+    title: 'Monthly Plan · Save More',
+    subtitle: 'Subscribe once for hassle-free lunch deliveries all month.',
+    imageAssetKey: 'lunch-hero',
+    gradientStart: gradients.premium[0],
+    gradientEnd: gradients.premium[1],
+    sortOrder: 4,
+  },
+];
 
 function builtInPromoAds(): PromoAd[] {
   const stamp = '2026-01-01T00:00:00.000Z';
-  return [
-    {
-      id: 'default-we-cook',
-      title: 'You Cook • We Deliver',
-      subtitle: 'Home-cooked meals packed with Chef Queen care.',
-      displayType: 'composed',
-      imageAssetKey: 'tiffin-sticker',
-      gradientStart: gradients.premium[0],
-      gradientEnd: gradients.premium[1],
-      audience: 'customer',
-      sortOrder: 1,
-      isActive: true,
-      createdAt: stamp,
-      updatedAt: stamp,
-    },
-    {
-      id: 'default-thank-you',
-      title: 'Made with Love',
-      subtitle: 'Delivered with care — thank you for trusting Chef Queen.',
-      displayType: 'composed',
-      imageAssetKey: 'meal-plate',
-      gradientStart: gradients.primary[0],
-      gradientEnd: gradients.primary[1],
-      audience: 'customer',
-      sortOrder: 2,
-      isActive: true,
-      createdAt: stamp,
-      updatedAt: stamp,
-    },
-  ];
+  return HOME_CAROUSEL_SLIDES.map((slide) => ({
+    id: `default-home-carousel-${slide.sortOrder}`,
+    title: slide.title,
+    subtitle: slide.subtitle,
+    displayType: 'composed' as const,
+    imageAssetKey: slide.imageAssetKey,
+    gradientStart: slide.gradientStart,
+    gradientEnd: slide.gradientEnd,
+    audience: 'customer' as const,
+    sortOrder: slide.sortOrder,
+    isActive: true,
+    createdAt: stamp,
+    updatedAt: stamp,
+  }));
+}
+
+function isReferralPromoAd(ad: PromoAd): boolean {
+  const haystack = `${ad.id} ${ad.title} ${ad.subtitle}`.toLowerCase();
+  return haystack.includes('refer') || haystack.includes('friends');
 }
 
 function isBuiltInPromoAd(id: string): boolean {
@@ -100,9 +133,11 @@ async function mergeRemoteIntoCache(remote: PromoAd[]): Promise<void> {
 function mergeBuiltInPromoAds(stored: PromoAd[]): PromoAd[] {
   const byId = new Map(stored.map((ad) => [ad.id, ad]));
   for (const builtin of builtInPromoAds()) {
-    if (!byId.has(builtin.id)) {
-      byId.set(builtin.id, builtin);
-    }
+    const existing = byId.get(builtin.id);
+    byId.set(
+      builtin.id,
+      existing ? { ...builtin, isActive: existing.isActive, removed: existing.removed } : builtin,
+    );
   }
   return sortAds([...byId.values()]);
 }
@@ -141,10 +176,13 @@ function isCustomerHomeAd(ad: PromoAd): boolean {
   return !ad.removed && ad.isActive && (ad.audience ?? 'customer') === 'customer';
 }
 
+const HOME_CAROUSEL_AD_IDS = new Set<string>(BUILTIN_PROMO_AD_IDS);
+
 export function parseActiveCustomerHomeAds(source: PromoAd[]): PromoAd[] {
   const merged = mergeBuiltInPromoAds(source.filter((ad) => !ad.removed));
   return merged
     .filter(isCustomerHomeAd)
+    .filter((ad) => HOME_CAROUSEL_AD_IDS.has(ad.id))
     .sort((a, b) => a.sortOrder - b.sortOrder || b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, MAX_CUSTOMER_PROMO_ADS);
 }

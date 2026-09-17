@@ -3,12 +3,12 @@ import { CommonActions, useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Dimensions, Image, ImageSourcePropType, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Dimensions, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { HistoryClockListIcon } from '../components/HistoryClockListIcon';
 import { HomeDeliveredProofCard } from '../components/HomeDeliveredProofCard';
-import { PromoBannerImage } from '../components/PromoBannerImage';
+import { BannerCarousel, BannerCarouselSlide } from '../components/BannerCarousel';
 import { Avatar } from '../components/Avatar';
 import { getInitials } from '../constants/auth';
 import { colors, gradients, shadow, spacing } from '../constants/theme';
@@ -26,7 +26,7 @@ import { checkSubscriptionRenewalReminders, hasActiveSubscription, getFoodReadyD
 import { countFoodReadyPeople, savePendingFoodReady } from '../services/pendingFoodReadyService';
 import { getSubscriptionPlan, isMonthlySubscriptionPlan, isSingleOrderPlan } from '../constants/subscriptions';
 import { countUnread, loadNotifications } from '../services/notificationService';
-import { subscribeToActivePromoAds, PROMO_CAROUSEL_HEIGHT } from '../services/promoAdService';
+import { subscribeToActivePromoAds } from '../services/promoAdService';
 import {
   DeliveryOrder,
   DeliveryProfile,
@@ -328,12 +328,14 @@ function PickupSlotHomeBanner({ message, onDismiss }: { message: string; onDismi
 function HomeHeader({
   name,
   initials,
+  avatarUrl,
   hasUnread,
   onNotifications,
   onProfile,
 }: {
   name: string;
   initials: string;
+  avatarUrl?: string;
   hasUnread: boolean;
   onNotifications: () => void;
   onProfile: () => void;
@@ -352,7 +354,7 @@ function HomeHeader({
           {hasUnread ? <View style={styles.notifDot} /> : null}
         </Pressable>
         <Pressable onPress={onProfile}>
-          <Avatar initials={initials} size={42} />
+          <Avatar initials={initials} imageUrl={avatarUrl} size={42} />
         </Pressable>
       </View>
     </View>
@@ -601,20 +603,7 @@ function QuickActionsAndReferRow({
   );
 }
 
-type LunchboxAd =
-  | {
-      id: string;
-      kind: 'banner';
-      bannerImageUrl: string;
-    }
-  | {
-      id: string;
-      kind: 'composed';
-      title: string;
-      subtitle: string;
-      colors: [string, string];
-      image: ImageSourcePropType;
-    };
+type LunchboxAd = BannerCarouselSlide;
 
 const PROMO_TIFFIN_STICKER = require('../../assets/promo-tiffin-sticker.png');
 const PROMO_MEAL_PLATE = require('../../assets/driver-promo-meal.png');
@@ -622,9 +611,34 @@ const PROMO_MEAL_PLATE = require('../../assets/driver-promo-meal.png');
 const PROMO_ASSET_MAP: Record<PromoAdAssetKey, number> = {
   'tiffin-sticker': PROMO_TIFFIN_STICKER,
   'meal-plate': PROMO_MEAL_PLATE,
+  'lunch-bag': require('../../assets/lunch-bag.png'),
+  'tiffin-thankyou': require('../../assets/promo-tiffin-thankyou-cutout.png'),
+  'lunch-hero': require('../../assets/promo-lunch-hero.png'),
 };
 
+function isReferralPromoAd(ad: PromoAd): boolean {
+  const haystack = `${ad.id} ${ad.title} ${ad.subtitle}`.toLowerCase();
+  return haystack.includes('refer') || haystack.includes('friends');
+}
+
 function promoAdToSlide(ad: PromoAd): LunchboxAd {
+  const assetImage = ad.imageAssetKey ? PROMO_ASSET_MAP[ad.imageAssetKey] : undefined;
+
+  if (
+    isReferralPromoAd(ad) &&
+    !ad.id.startsWith('default-home-carousel-') &&
+    (ad.displayType === 'banner' || ad.bannerImageUrl)
+  ) {
+    return {
+      id: ad.id,
+      kind: 'composed',
+      title: ad.title.trim() || 'Refer Your Friends and Family',
+      subtitle: ad.subtitle.trim() || 'Refer Lunch Box to your friends and family.',
+      colors: [ad.gradientStart, ad.gradientEnd],
+      image: PROMO_ASSET_MAP['lunch-bag'],
+    };
+  }
+
   if ((ad.displayType === 'banner' || ad.bannerImageUrl) && ad.bannerImageUrl) {
     return {
       id: ad.id,
@@ -632,8 +646,6 @@ function promoAdToSlide(ad: PromoAd): LunchboxAd {
       bannerImageUrl: ad.bannerImageUrl,
     };
   }
-
-  const assetImage = ad.imageAssetKey ? PROMO_ASSET_MAP[ad.imageAssetKey] : undefined;
 
   return {
     id: ad.id,
@@ -646,119 +658,23 @@ function promoAdToSlide(ad: PromoAd): LunchboxAd {
 }
 
 const LUNCHBOX_AD_AUTO_SCROLL_MS = 4000;
-const MAX_HOME_PROMO_ADS = 3;
+const MAX_HOME_PROMO_ADS = 4;
 
 function ExploreMenuBanner() {
-  const scrollRef = useRef<ScrollView>(null);
-  const activeIndexRef = useRef(0);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [slideWidth, setSlideWidth] = useState(Dimensions.get('window').width - spacing.md * 2);
   const [remoteAds, setRemoteAds] = useState<LunchboxAd[]>([]);
+  const [autoScrollMs, setAutoScrollMs] = useState(LUNCHBOX_AD_AUTO_SCROLL_MS);
   const slides = useMemo(() => remoteAds.slice(0, MAX_HOME_PROMO_ADS), [remoteAds]);
 
   useEffect(() => subscribeToActivePromoAds('customer', (ads) => setRemoteAds(ads.map(promoAdToSlide))), []);
 
-  const goToSlide = useCallback(
-    (index: number, animated = true) => {
-      if (!slideWidth || slides.length === 0) return;
-      const nextIndex = ((index % slides.length) + slides.length) % slides.length;
-      activeIndexRef.current = nextIndex;
-      setActiveIndex(nextIndex);
-      scrollRef.current?.scrollTo({ x: slideWidth * nextIndex, animated });
-    },
-    [slideWidth, slides.length],
-  );
-
-  useEffect(() => {
-    if (activeIndexRef.current >= slides.length) {
-      goToSlide(0, false);
-    }
-  }, [slides.length, goToSlide]);
-
   useFocusEffect(
     useCallback(() => {
-      if (!slideWidth || slides.length === 0) return undefined;
-
-      const interval = setInterval(() => {
-        goToSlide(activeIndexRef.current + 1);
-      }, LUNCHBOX_AD_AUTO_SCROLL_MS);
-
-      return () => clearInterval(interval);
-    }, [slideWidth, slides.length, goToSlide]),
+      setAutoScrollMs(LUNCHBOX_AD_AUTO_SCROLL_MS);
+      return () => setAutoScrollMs(0);
+    }, []),
   );
 
-  const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (!slideWidth || slides.length === 0) return;
-    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / slideWidth);
-    activeIndexRef.current = Math.max(0, Math.min(slides.length - 1, nextIndex));
-    setActiveIndex(activeIndexRef.current);
-  };
-
-  return (
-    <View
-      style={styles.exploreCarousel}
-      onLayout={(event) => {
-        const width = event.nativeEvent.layout.width;
-        if (width > 0 && width !== slideWidth) setSlideWidth(width);
-      }}
-    >
-      <ScrollView
-        ref={scrollRef}
-        horizontal
-        pagingEnabled
-        nestedScrollEnabled
-        showsHorizontalScrollIndicator={false}
-        onMomentumScrollEnd={handleScrollEnd}
-        onScroll={Platform.OS === 'web' ? handleScrollEnd : undefined}
-        scrollEventThrottle={16}
-        style={styles.exploreCarouselScroll}
-      >
-        {slides.map((ad) => (
-          <View key={ad.id} style={[styles.exploreSlide, { width: slideWidth }]}>
-            {ad.kind === 'banner' ? (
-              <View style={styles.exploreBannerSlot}>
-                <PromoBannerImage
-                  uri={ad.bannerImageUrl}
-                  width={slideWidth}
-                  height={PROMO_CAROUSEL_HEIGHT}
-                  accessibilityLabel="Promotional banner"
-                />
-              </View>
-            ) : (
-              <LinearGradient
-                colors={ad.colors}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.exploreBanner}
-              >
-                <View style={styles.exploreCopy}>
-                  <Text style={styles.exploreTitle} numberOfLines={2}>
-                    {ad.title}
-                  </Text>
-                  <Text style={styles.exploreSub} numberOfLines={3}>
-                    {ad.subtitle}
-                  </Text>
-                </View>
-                <View style={styles.exploreImageFrame}>
-                  <Image
-                    source={ad.image}
-                    style={styles.exploreHeroImage}
-                    resizeMode="cover"
-                    accessibilityLabel="Chef Queen lunch packing"
-                  />
-                </View>
-              </LinearGradient>
-            )}
-          </View>
-        ))}
-      </ScrollView>
-      <View style={styles.exploreDots}>
-        {slides.map((ad, index) => (
-          <View key={ad.id} style={[styles.exploreDot, index === activeIndex && styles.exploreDotActive]} />
-        ))}
-      </View>
-    </View>
-  );
+  return <BannerCarousel slides={slides} autoScrollMs={autoScrollMs} />;
 }
 
 function RecentDeliveryCard({ entry }: { entry: DeliveryHistoryEntry }) {
@@ -1158,6 +1074,7 @@ export function HomeScreen({ navigation }: Props) {
         <HomeHeader
           name={displayName}
           initials={initials}
+          avatarUrl={user?.avatarUrl}
           hasUnread={hasUnreadNotifications}
           onNotifications={() => navigation.navigate('Notifications')}
           onProfile={() => navigation.getParent()?.navigate('Profile')}
@@ -1626,87 +1543,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: '500',
     lineHeight: 13,
-  },
-  exploreCarousel: {
-    marginBottom: 2,
-  },
-  exploreCarouselScroll: {
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  exploreSlide: {
-    height: PROMO_CAROUSEL_HEIGHT,
-    ...shadow.card,
-  },
-  exploreBannerSlot: {
-    flex: 1,
-    height: PROMO_CAROUSEL_HEIGHT,
-    borderRadius: 22,
-    overflow: 'hidden',
-    backgroundColor: colors.bg,
-  },
-  exploreBannerImage: {
-    width: '100%',
-    height: '100%',
-  },
-  exploreBanner: {
-    borderRadius: 22,
-    paddingLeft: 16,
-    paddingRight: 12,
-    paddingVertical: 14,
-    height: PROMO_CAROUSEL_HEIGHT,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    overflow: 'hidden',
-  },
-  exploreCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  exploreTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: colors.onPrimary,
-    lineHeight: 21,
-  },
-  exploreSub: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.9)',
-    marginTop: 6,
-    fontWeight: '500',
-    lineHeight: 17,
-  },
-  exploreImageFrame: {
-    width: 92,
-    height: 92,
-    borderRadius: 16,
-    backgroundColor: colors.white,
-    padding: 5,
-    flexShrink: 0,
-    overflow: 'hidden',
-  },
-  exploreHeroImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 12,
-  },
-  exploreDots: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 8,
-  },
-  exploreDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(228, 94, 26, 0.25)',
-  },
-  exploreDotActive: {
-    width: 16,
-    backgroundColor: colors.orange,
   },
   gaugeCard: {
     borderRadius: 22,

@@ -1,6 +1,7 @@
 import { StyleSheet, Text } from 'react-native';
 import { SubscriptionPlan } from '../constants/subscriptions';
 import { colors } from '../constants/theme';
+import { formatPlanPrice } from '../utils/subscription';
 
 type Props = {
   plan: SubscriptionPlan;
@@ -15,8 +16,9 @@ export function SubscriptionPlanPriceText({ plan, amountText, priceStyle }: Prop
     return (
       <Text>
         <Text style={priceStyles}> - </Text>
-        <Text style={styles.compareAt}>{plan.detailCompareAtAmount}</Text>
+        <Text style={styles.compareAt}>{formatPlanPrice(plan.detailCompareAtAmount)}</Text>
         <Text style={priceStyles}> {amountText}</Text>
+        {plan.detailPriceSuffix ? <Text style={styles.suffix}> {plan.detailPriceSuffix}</Text> : null}
       </Text>
     );
   }

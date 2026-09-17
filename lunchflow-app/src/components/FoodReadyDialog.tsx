@@ -517,7 +517,7 @@ function DialogBody({
             <Text style={styles.quotaHint}>
               {quota.isSingleOrder
                 ? `You have ${students.length} ${students.length === 1 ? 'person' : 'people'} · Plan covers ${quota.maxPeople}. Tap Ready to pay ₹29 for each extra person.`
-                : `You have ${students.length} people · Plan covers ${quota.maxPeople} today. Tap Ready to buy add-ons (₹99 same location · ₹199 different location).`}
+                : `You have ${students.length} people · Plan covers ${quota.maxPeople} today. Tap Ready to buy add-ons (₹149/month same location · ₹249/month different location).`}
             </Text>
           ) : students.length > 0 ? (
             <Text style={styles.quotaHint}>

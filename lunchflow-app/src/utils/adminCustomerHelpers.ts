@@ -13,6 +13,8 @@ export type CustomerDetail = {
   displayId: string;
   name: string;
   phone: string;
+  email?: string;
+  avatarUrl?: string;
   registrationType: string;
   institutionLabel: string;
   personLabel: string;
@@ -70,6 +72,8 @@ export async function buildCustomerDetail(order: DeliveryOrder, orders: Delivery
     displayId: formatCustomerDisplayId(phone),
     name: formatCustomerName(registration?.name || order.customerName),
     phone,
+    email: registration?.email,
+    avatarUrl: registration?.avatarUrl,
     registrationType: getDeliveryTypeLabel(registrationType),
     institutionLabel: getInstitutionLabel(registrationType),
     personLabel: getPersonLabel(registrationType),

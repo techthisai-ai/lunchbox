@@ -2,7 +2,7 @@ import { NavigationContainer, DefaultTheme, NavigationContainerRef, NavigationSt
 import * as ExpoSplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { MobileShell, AppLayoutFrame } from './src/components/MobileShell';
 import { colors } from './src/constants/theme';
 import { AuthProvider } from './src/context/AuthContext';
@@ -33,6 +33,11 @@ const navTheme = {
 
 const styles = StyleSheet.create({
   navRoot: { flex: 1 },
+  bootLoader: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.bg,
+  },
 });
 
 function getActiveRouteName(state: NavigationState | undefined): string {
@@ -60,7 +65,11 @@ function MobileApp() {
   }, []);
 
   if (!fontsReady) {
-    return <View style={styles.navRoot} />;
+    return (
+      <View style={[styles.navRoot, styles.bootLoader]}>
+        <ActivityIndicator size="large" color={colors.orange} />
+      </View>
+    );
   }
 
   return (

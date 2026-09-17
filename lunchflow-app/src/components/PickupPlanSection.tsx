@@ -1,18 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { OnlinePaymentDialog } from './OnlinePaymentDialog';
+import {
+  PICKUP_PRICING,
+  PickupPrimaryPlan,
+  calculatePickupTotal,
+} from '../constants/pickupPricing';
 import {
   SubscriptionPlan,
   getSubscriptionPlan,
-  isAddonSubscriptionPlan,
   isMonthlySubscriptionPlan,
   isSingleOrderPlan,
 } from '../constants/subscriptions';
 import { colors, radius, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
-import { launchOnlinePayment, processOnlinePayment } from '../services/paymentService';
+import { openRazorpayCheckout } from '../services/razorpayCheckout';
 import {
   calculateSingleOrderPayment,
   getFoodReadyDeliveryQuota,
@@ -22,18 +25,9 @@ import {
   saveActiveSubscription,
 } from '../services/subscriptionService';
 import { CustomerSubscription } from '../types/subscription';
-import {
-  applyPricingToPlan,
-  loadSubscriptionDetailPlans,
-  resolvePlanAmount,
-} from '../services/slotPricingService';
-import { buildSubscriptionPaymentDescription } from '../utils/paymentDescription';
+import { loadSubscriptionDetailPlans } from '../services/slotPricingService';
+import { formatPlanPrice } from '../utils/subscription';
 import { resolveSubscriptionPlanForDisplay } from '../utils/subscriptionPlanDisplay';
-
-type PaymentDraft = {
-  amountPaid: number;
-  description: string;
-};
 
 function getDaysRemaining(endDate: string): number {
   const end = new Date(`${endDate}T23:59:59`);
@@ -60,32 +54,24 @@ function ActivePlanBanner({
   const statusText = getPlanStatusText(plan, subscription);
   const urgent = !isSingleOrderPlan(plan) && getDaysRemaining(subscription.endDate) <= 3;
   const paidPeople = subscription.paidPeopleCount ?? 1;
-  const singleOrderCopy = isSingleOrderPlan(plan)
-    ? formatSingleOrderPlanCard(plan, paidPeople)
-    : null;
   const displayPrice =
     isSingleOrderPlan(plan) && subscription.amountPaid > 0
-      ? `₹${subscription.amountPaid.toLocaleString('en-IN')}`
-      : singleOrderCopy?.price ?? plan.price;
+      ? formatPlanPrice(subscription.amountPaid)
+      : plan.price;
 
   return (
     <View style={[styles.activeBanner, urgent && styles.activeBannerUrgent]}>
       <View style={styles.activeBannerTop}>
         <View style={styles.activeIcon}>
           <Ionicons
-            name={
-              (singleOrderCopy?.icon ?? plan.detailIcon ?? 'document-text-outline') as keyof typeof Ionicons.glyphMap
-            }
+            name={(plan.detailIcon ?? 'document-text-outline') as keyof typeof Ionicons.glyphMap}
             size={18}
             color={colors.orange}
           />
         </View>
         <View style={styles.activeCopy}>
-          <Text style={styles.activeTitle}>{singleOrderCopy?.title ?? plan.detailTitle ?? plan.name}</Text>
+          <Text style={styles.activeTitle}>{plan.detailTitle ?? plan.name}</Text>
           <Text style={styles.activePrice}>{displayPrice}</Text>
-          {singleOrderCopy?.subtitle ? (
-            <Text style={styles.activeSubtitle}>{singleOrderCopy.subtitle}</Text>
-          ) : null}
         </View>
         <View style={styles.activeBadge}>
           <Text style={styles.activeBadgeText}>Active</Text>
@@ -94,75 +80,282 @@ function ActivePlanBanner({
       <Text style={[styles.activeStatus, urgent && styles.activeStatusUrgent]}>{statusText}</Text>
       {!isSingleOrderPlan(plan) ? (
         <Text style={styles.activeMeta}>Renews on {subscription.endDate}</Text>
+      ) : paidPeople > 1 ? (
+        <Text style={styles.activeMeta}>Covers {paidPeople} people</Text>
       ) : null}
     </View>
   );
 }
 
-function formatSingleOrderPlanCard(plan: SubscriptionPlan, peopleCount: number) {
-  const rate = getSubscriptionPlan('single-order').baseAmount;
-  const count = Math.max(1, peopleCount);
-  const total = rate * count;
-
-  if (count <= 1) {
-    return {
-      title: 'Single order for 1 person',
-      subtitle: `₹${rate} per person · 1 day only`,
-      price: plan.price ?? `₹${rate}`,
-      icon: 'person-outline' as keyof typeof Ionicons.glyphMap,
-    };
-  }
-
-  return {
-    title: `Single order for ${count} persons`,
-    subtitle: `₹${rate} × ${count} persons`,
-    price: plan.price ?? `₹${total}`,
-    icon: 'people-outline' as keyof typeof Ionicons.glyphMap,
-  };
-}
-
-function PlanOptionCard({
-  plan,
+function PrimaryPlanOption({
+  label,
+  priceLabel,
+  subtitle,
   selected,
-  disabled,
-  peopleCount = 1,
   onPress,
 }: {
-  plan: SubscriptionPlan;
+  label: string;
+  priceLabel: string;
+  subtitle: string;
   selected: boolean;
-  disabled?: boolean;
-  peopleCount?: number;
   onPress: () => void;
 }) {
-  const singleOrderCopy = isSingleOrderPlan(plan) ? formatSingleOrderPlanCard(plan, peopleCount) : null;
-  const iconName = (singleOrderCopy?.icon ??
-    plan.detailIcon ??
-    'document-text-outline') as keyof typeof Ionicons.glyphMap;
-
   return (
     <Pressable
       style={({ pressed }) => [
-        styles.planOption,
-        selected && styles.planOptionSelected,
-        disabled && styles.planOptionDisabled,
-        pressed && !disabled && styles.planOptionPressed,
+        styles.radioCard,
+        selected && styles.radioCardSelected,
+        pressed && styles.radioCardPressed,
       ]}
       onPress={onPress}
-      disabled={disabled}
     >
-      <View style={styles.planOptionIcon}>
-        <Ionicons name={iconName} size={18} color={colors.orange} />
+      <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
+        {selected ? <View style={styles.radioInner} /> : null}
       </View>
-      <View style={styles.planOptionCopy}>
-        <Text style={styles.planOptionTitle}>
-          {singleOrderCopy?.title ?? plan.detailTitle ?? plan.name}
-        </Text>
-        <Text style={styles.planOptionSub}>
-          {singleOrderCopy?.subtitle ?? plan.detailSubtitle ?? plan.desc}
-        </Text>
+      <View style={styles.radioCopy}>
+        <Text style={styles.radioTitle}>{label}</Text>
+        <Text style={styles.radioSub}>{subtitle}</Text>
       </View>
-      <Text style={styles.planOptionPrice}>{singleOrderCopy?.price ?? plan.price}</Text>
+      <Text style={styles.radioPrice}>{priceLabel}</Text>
     </Pressable>
+  );
+}
+
+function AddonCounterRow({
+  title,
+  subtitle,
+  unitPrice,
+  value,
+  onChange,
+}: {
+  title: string;
+  subtitle: string;
+  unitPrice: number;
+  value: number;
+  onChange: (next: number) => void;
+}) {
+  return (
+    <View style={styles.addonRow}>
+      <View style={styles.addonCopy}>
+        <Text style={styles.addonTitle}>{title}</Text>
+        <Text style={styles.addonSub}>{subtitle}</Text>
+        <Text style={styles.addonRate}>+{formatPlanPrice(unitPrice)}/person</Text>
+      </View>
+      <View style={styles.stepper}>
+        <Pressable
+          style={[styles.stepperBtn, value <= 0 && styles.stepperBtnDisabled]}
+          onPress={() => onChange(Math.max(0, value - 1))}
+          disabled={value <= 0}
+        >
+          <Ionicons name="remove" size={16} color={colors.text} />
+        </Pressable>
+        <Text style={styles.stepperValue}>{value}</Text>
+        <Pressable style={styles.stepperBtn} onPress={() => onChange(value + 1)}>
+          <Ionicons name="add" size={16} color={colors.text} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function PickupPlanPicker({
+  peopleCount,
+  onPlanReady,
+  addonsOnly = false,
+}: {
+  peopleCount: number;
+  onPlanReady?: () => void;
+  addonsOnly?: boolean;
+}) {
+  const { user } = useAuth();
+  const [primaryPlan, setPrimaryPlan] = useState<PickupPrimaryPlan>('single');
+  const [sameDropCount, setSameDropCount] = useState(0);
+  const [diffDropCount, setDiffDropCount] = useState(0);
+  const [paying, setPaying] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const totalAmount = useMemo(() => {
+    if (addonsOnly) {
+      return (
+        sameDropCount * PICKUP_PRICING.sameDropPerPerson +
+        diffDropCount * PICKUP_PRICING.diffDropPerPerson
+      );
+    }
+    return calculatePickupTotal(primaryPlan, sameDropCount, diffDropCount);
+  }, [addonsOnly, primaryPlan, sameDropCount, diffDropCount]);
+
+  const totalPeople = 1 + sameDropCount + diffDropCount;
+
+  const handlePayment = async () => {
+    if (!user?.phone) {
+      Alert.alert('Sign in required', 'Please log in to continue with payment.');
+      return;
+    }
+
+    setPaying(true);
+    setMessage('');
+
+    try {
+      const description = `Pickup Plan — ${primaryPlan === 'single' ? 'Single Order' : 'Monthly'}${sameDropCount || diffDropCount ? ' + add-ons' : ''}`;
+
+      const payment = await openRazorpayCheckout({
+        amountInr: totalAmount,
+        description,
+        name: 'LunchBox Delivery',
+        prefillName: user.name,
+        prefillEmail: user.email,
+        prefillContact: user.phone,
+      });
+
+      const paymentLabel = `Razorpay (${payment.razorpay_payment_id})`;
+      if (!addonsOnly) {
+        const primaryPlanId = primaryPlan === 'single' ? 'single-order' : 'monthly-standard';
+        await saveActiveSubscription(
+          user.phone,
+          primaryPlanId,
+          primaryPlan === 'single' ? PICKUP_PRICING.singleDay : PICKUP_PRICING.monthly,
+          undefined,
+          undefined,
+          paymentLabel,
+          primaryPlan === 'single' ? Math.max(totalPeople, peopleCount) : undefined,
+        );
+      }
+
+      if (addonsOnly || primaryPlan === 'monthly') {
+        for (let i = 0; i < sameDropCount; i += 1) {
+          await saveActiveSubscription(
+            user.phone,
+            'addon-same-drop',
+            PICKUP_PRICING.sameDropPerPerson,
+            undefined,
+            undefined,
+            paymentLabel,
+          );
+        }
+        for (let i = 0; i < diffDropCount; i += 1) {
+          await saveActiveSubscription(
+            user.phone,
+            'addon-diff-drop',
+            PICKUP_PRICING.diffDropPerPerson,
+            undefined,
+            undefined,
+            paymentLabel,
+          );
+        }
+      }
+
+      if (addonsOnly && sameDropCount === 0 && diffDropCount === 0) {
+        throw new Error('Add at least one person using the counters above.');
+      }
+
+      Alert.alert(
+        'Payment successful',
+        `Payment ID: ${payment.razorpay_payment_id}\nAmount: ${formatPlanPrice(totalAmount)}`,
+        [{ text: 'Continue', onPress: () => onPlanReady?.() }],
+      );
+      setMessage(`Paid ${formatPlanPrice(totalAmount)} successfully.`);
+    } catch (error) {
+      const note = error instanceof Error ? error.message : 'Payment could not be completed.';
+      if (note !== 'Payment cancelled.') {
+        Alert.alert('Payment failed', note);
+      }
+      setMessage(note);
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  return (
+    <View style={styles.wrap}>
+      <Text style={styles.sectionTitle}>{addonsOnly ? 'Add Extra People' : 'Choose Your Plan'}</Text>
+      <Text style={styles.sectionSub}>
+        {addonsOnly
+          ? 'Your monthly plan is active. Add seats for extra people, then pay to continue.'
+          : 'Select a base plan, add extra people if needed, then pay to continue your pickup request.'}
+      </Text>
+
+      {!addonsOnly ? (
+        <>
+          <Text style={styles.groupLabel}>Primary plan</Text>
+          <PrimaryPlanOption
+            label="Single Order (1 Day)"
+            priceLabel={formatPlanPrice(PICKUP_PRICING.singleDay)}
+            subtitle="One-day delivery for a single pickup request"
+            selected={primaryPlan === 'single'}
+            onPress={() => setPrimaryPlan('single')}
+          />
+          <PrimaryPlanOption
+            label="Monthly Subscription"
+            priceLabel={formatPlanPrice(PICKUP_PRICING.monthly)}
+            subtitle="Best for regular daily lunch delivery"
+            selected={primaryPlan === 'monthly'}
+            onPress={() => setPrimaryPlan('monthly')}
+          />
+        </>
+      ) : null}
+
+      <Text style={styles.groupLabel}>{addonsOnly ? 'Add-on seats' : 'Add-ons (optional)'}</Text>
+      <View style={styles.addonCard}>
+        <AddonCounterRow
+          title="Same Drop Location"
+          subtitle="Extra person at the same drop point"
+          unitPrice={PICKUP_PRICING.sameDropPerPerson}
+          value={sameDropCount}
+          onChange={setSameDropCount}
+        />
+        <View style={styles.addonDivider} />
+        <AddonCounterRow
+          title="Different Drop Location"
+          subtitle="Extra person at a different drop point"
+          unitPrice={PICKUP_PRICING.diffDropPerPerson}
+          value={diffDropCount}
+          onChange={setDiffDropCount}
+        />
+      </View>
+
+      <View style={styles.summaryCard}>
+        {!addonsOnly ? (
+          <Text style={styles.summaryLine}>
+            Base plan:{' '}
+            <Text style={styles.summaryValue}>
+              {formatPlanPrice(primaryPlan === 'single' ? PICKUP_PRICING.singleDay : PICKUP_PRICING.monthly)}
+            </Text>
+          </Text>
+        ) : null}
+        {sameDropCount > 0 ? (
+          <Text style={styles.summaryLine}>
+            Same drop × {sameDropCount}:{' '}
+            <Text style={styles.summaryValue}>
+              {formatPlanPrice(sameDropCount * PICKUP_PRICING.sameDropPerPerson)}
+            </Text>
+          </Text>
+        ) : null}
+        {diffDropCount > 0 ? (
+          <Text style={styles.summaryLine}>
+            Different drop × {diffDropCount}:{' '}
+            <Text style={styles.summaryValue}>
+              {formatPlanPrice(diffDropCount * PICKUP_PRICING.diffDropPerPerson)}
+            </Text>
+          </Text>
+        ) : null}
+        <Text style={styles.summaryTotal}>
+          Total: <Text style={styles.summaryTotalValue}>{formatPlanPrice(totalAmount)}</Text>
+        </Text>
+      </View>
+
+      {message ? <Text style={styles.message}>{message}</Text> : null}
+
+      <Pressable
+        style={({ pressed }) => [styles.payBtn, (paying || pressed) && styles.payBtnPressed]}
+        onPress={() => void handlePayment()}
+        disabled={paying}
+      >
+        <Ionicons name="card-outline" size={18} color={colors.onPrimary} />
+        <Text style={styles.payBtnText}>
+          {paying ? 'Processing…' : `Pay & Continue • ${formatPlanPrice(totalAmount)}`}
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -176,18 +369,11 @@ export function PickupPlanSection({ mode = 'status', peopleCount = 1, onPlanRead
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState(false);
-  const [monthlyActive, setMonthlyActive] = useState(false);
   const [record, setRecord] = useState<CustomerSubscription | null>(null);
   const [plan, setPlan] = useState<SubscriptionPlan | null>(null);
-  const [detailPlans, setDetailPlans] = useState<SubscriptionPlan[]>([]);
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
-  const [paymentVisible, setPaymentVisible] = useState(false);
-  const [paymentDraft, setPaymentDraft] = useState<PaymentDraft | null>(null);
-  const [paying, setPaying] = useState(false);
   const [singleUpgradeAmount, setSingleUpgradeAmount] = useState<number | null>(null);
-  const [payingPlan, setPayingPlan] = useState<SubscriptionPlan | null>(null);
   const [needsMoreSeats, setNeedsMoreSeats] = useState(false);
+  const [paying, setPaying] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!user?.phone) {
@@ -198,17 +384,14 @@ export function PickupPlanSection({ mode = 'status', peopleCount = 1, onPlanRead
       return;
     }
 
-    const [hasPlan, hasMonthly, subscriptionRecord, pricedPlans] = await Promise.all([
+    const [hasPlan, subscriptionRecord, pricedPlans] = await Promise.all([
       hasActiveSubscription(user.phone),
-      hasActiveMonthlySubscription(user.phone),
       loadActiveSubscriptionRecord(user.phone),
       loadSubscriptionDetailPlans(),
     ]);
 
-    setDetailPlans(pricedPlans);
-
+    void pricedPlans;
     setActive(hasPlan);
-    setMonthlyActive(hasMonthly);
     setRecord(subscriptionRecord?.status === 'active' ? subscriptionRecord : null);
     setPlan(
       subscriptionRecord?.status === 'active'
@@ -222,34 +405,21 @@ export function PickupPlanSection({ mode = 'status', peopleCount = 1, onPlanRead
         const quote = await calculateSingleOrderPayment(user.phone, peopleCount);
         setSingleUpgradeAmount(quote.amountDue);
         setNeedsMoreSeats(peopleCount > (subscriptionRecord.paidPeopleCount ?? 1));
-        setDetailPlans(
-          pricedPlans.map((item) =>
-            item.id === 'single-order' ? applyPricingToPlan(item, quote.totalAmount) : item,
-          ),
-        );
       } else if (isMonthlySubscriptionPlan(activePlan)) {
         const quota = await getFoodReadyDeliveryQuota(user.phone);
         setNeedsMoreSeats(peopleCount > quota.maxPeople);
         setSingleUpgradeAmount(null);
-        setDetailPlans(pricedPlans);
       } else {
         setNeedsMoreSeats(false);
         setSingleUpgradeAmount(null);
-        setDetailPlans(pricedPlans);
       }
     } else if (user.phone && peopleCount > 1) {
       const quote = await calculateSingleOrderPayment(user.phone, peopleCount);
       setSingleUpgradeAmount(quote.amountDue);
       setNeedsMoreSeats(false);
-      setDetailPlans(
-        pricedPlans.map((item) =>
-          item.id === 'single-order' ? applyPricingToPlan(item, quote.totalAmount) : item,
-        ),
-      );
     } else {
       setSingleUpgradeAmount(null);
       setNeedsMoreSeats(false);
-      setDetailPlans(pricedPlans);
     }
 
     setLoading(false);
@@ -265,85 +435,32 @@ export function PickupPlanSection({ mode = 'status', peopleCount = 1, onPlanRead
     }, [refresh]),
   );
 
-  const selectedPlan = detailPlans.find((item) => item.id === selectedPlanId);
-
-  const startPayment = async (planOverride?: SubscriptionPlan) => {
-    const targetPlan = planOverride ?? selectedPlan;
-    if (!targetPlan) {
-      setMessage('Please choose a plan to continue.');
-      return;
-    }
-    if (isAddonSubscriptionPlan(targetPlan) && !monthlyActive) {
-      Alert.alert('Monthly plan required', 'Add-on plans are available only with an active monthly subscription.');
-      return;
-    }
-    setMessage('');
-    let amountPaid = await resolvePlanAmount(targetPlan.id);
-    if (isSingleOrderPlan(targetPlan) && user?.phone) {
-      amountPaid = await resolvePlanAmount(targetPlan.id, { peopleCount, phone: user.phone });
-    }
-    if (amountPaid <= 0 && isSingleOrderPlan(targetPlan)) {
-      await finishAfterPayment(targetPlan);
-      return;
-    }
-    setPaymentDraft({
-      amountPaid,
-      description: buildSubscriptionPaymentDescription(targetPlan, peopleCount, amountPaid),
-    });
-    setPayingPlan(targetPlan);
-    setPaymentVisible(true);
-  };
-
-  const finishAfterPayment = async (_planOverride?: SubscriptionPlan) => {
-    await refresh();
-    onPlanReady?.();
-  };
-
-  const handlePaymentSelect = async (methodId: string) => {
-    const targetPlan = payingPlan ?? selectedPlan;
-    if (!targetPlan || !user?.phone || !paymentDraft) return;
-
+  const payUpgrade = async (amount: number, description: string, planId: string) => {
+    if (!user?.phone) return;
     setPaying(true);
-    setMessage('');
-
     try {
-      const { launched, methodLabel } = await launchOnlinePayment(
-        methodId,
-        paymentDraft.amountPaid,
-        paymentDraft.description,
-      );
-
-      if (!launched) {
-        setMessage('Could not open payment app. Please try another method.');
-        setPaying(false);
-        return;
-      }
-
-      await processOnlinePayment(
-        user.phone,
-        paymentDraft.amountPaid,
-        paymentDraft.description,
-        methodLabel,
-        targetPlan.id,
-      );
-
+      const payment = await openRazorpayCheckout({
+        amountInr: amount,
+        description,
+        name: 'LunchBox Delivery',
+        prefillName: user.name,
+        prefillContact: user.phone,
+      });
       await saveActiveSubscription(
         user.phone,
-        targetPlan.id,
-        paymentDraft.amountPaid,
+        planId,
+        amount,
         undefined,
         undefined,
-        methodLabel,
-        isSingleOrderPlan(targetPlan) ? Math.max(1, peopleCount) : undefined,
+        `Razorpay (${payment.razorpay_payment_id})`,
+        isSingleOrderPlan(getSubscriptionPlan(planId)) ? peopleCount : undefined,
       );
-
-      setPaymentVisible(false);
-      setPayingPlan(null);
-      await finishAfterPayment(targetPlan);
-      setMessage(`Paid ₹${paymentDraft.amountPaid} via ${methodLabel}. Plan is active.`);
+      Alert.alert('Payment successful', `Payment ID: ${payment.razorpay_payment_id}`);
+      await refresh();
+      onPlanReady?.();
     } catch (error) {
-      const note = error instanceof Error ? error.message : 'Payment could not be completed.';
-      setMessage(note);
+      const note = error instanceof Error ? error.message : 'Payment failed.';
+      if (note !== 'Payment cancelled.') Alert.alert('Payment failed', note);
     } finally {
       setPaying(false);
     }
@@ -370,26 +487,25 @@ export function PickupPlanSection({ mode = 'status', peopleCount = 1, onPlanRead
         <View style={styles.wrap}>
           <ActivePlanBanner plan={plan} subscription={record} />
           <Text style={styles.sectionSub}>
-            Pay ₹{singleUpgradeAmount} for {peopleCount - paidPeople} more{' '}
-            {peopleCount - paidPeople === 1 ? 'person' : 'people'} (₹29 each).
+            Pay {formatPlanPrice(singleUpgradeAmount ?? 0)} for {peopleCount - paidPeople} more{' '}
+            {peopleCount - paidPeople === 1 ? 'person' : 'people'} ({formatPlanPrice(PICKUP_PRICING.singleDay)} each).
           </Text>
           <Pressable
-            style={({ pressed }) => [styles.payBtn, pressed && styles.payBtnPressed]}
-            onPress={() => void startPayment(plan)}
+            style={({ pressed }) => [styles.payBtn, (paying || pressed) && styles.payBtnPressed]}
+            onPress={() =>
+              void payUpgrade(
+                singleUpgradeAmount ?? 0,
+                'Single order upgrade',
+                plan.id,
+              )
+            }
+            disabled={paying}
           >
             <Ionicons name="card-outline" size={18} color={colors.onPrimary} />
-            <Text style={styles.payBtnText}>Pay ₹{singleUpgradeAmount} & Continue</Text>
+            <Text style={styles.payBtnText}>
+              {paying ? 'Processing…' : `Pay & Continue • ${formatPlanPrice(singleUpgradeAmount ?? 0)}`}
+            </Text>
           </Pressable>
-          <OnlinePaymentDialog
-            visible={paymentVisible}
-            amount={paymentDraft?.amountPaid ?? 0}
-            description={paymentDraft?.description ?? 'Subscription payment'}
-            paying={paying}
-            onSelect={handlePaymentSelect}
-            onCancel={() => {
-              if (!paying) setPaymentVisible(false);
-            }}
-          />
         </View>
       );
     }
@@ -399,42 +515,9 @@ export function PickupPlanSection({ mode = 'status', peopleCount = 1, onPlanRead
         <View style={styles.wrap}>
           <ActivePlanBanner plan={plan} subscription={record} />
           <Text style={styles.sectionSub}>
-            Add a 1-day seat for extra people: same location ₹99 · different location ₹199.
+            Add extra people using the counters below, then pay to continue.
           </Text>
-          {detailPlans.map((item) => (
-            <PlanOptionCard
-              key={item.id}
-              plan={item}
-              peopleCount={peopleCount}
-              selected={selectedPlanId === item.id}
-              disabled={!isAddonSubscriptionPlan(item)}
-              onPress={() => {
-                if (!isAddonSubscriptionPlan(item)) return;
-                setSelectedPlanId(item.id);
-                setMessage('');
-              }}
-            />
-          ))}
-          {message ? <Text style={styles.message}>{message}</Text> : null}
-          <Pressable
-            style={({ pressed }) => [styles.payBtn, pressed && styles.payBtnPressed]}
-            onPress={() => void startPayment()}
-          >
-            <Ionicons name="card-outline" size={18} color={colors.onPrimary} />
-            <Text style={styles.payBtnText}>
-              {selectedPlan ? `Pay ${selectedPlan.price} & Continue` : 'Select add-on & Pay'}
-            </Text>
-          </Pressable>
-          <OnlinePaymentDialog
-            visible={paymentVisible}
-            amount={paymentDraft?.amountPaid ?? 0}
-            description={paymentDraft?.description ?? 'Subscription payment'}
-            paying={paying}
-            onSelect={handlePaymentSelect}
-            onCancel={() => {
-              if (!paying) setPaymentVisible(false);
-            }}
-          />
+          <PickupPlanPicker peopleCount={peopleCount} onPlanReady={onPlanReady} addonsOnly />
         </View>
       );
     }
@@ -450,49 +533,7 @@ export function PickupPlanSection({ mode = 'status', peopleCount = 1, onPlanRead
     );
   }
 
-  return (
-    <View style={styles.wrap}>
-      <Text style={styles.sectionTitle}>Choose Your Plan</Text>
-      <Text style={styles.sectionSub}>Select a plan and pay to continue your pickup request.</Text>
-
-      {detailPlans.map((item) => (
-        <PlanOptionCard
-          key={item.id}
-          plan={item}
-          peopleCount={peopleCount}
-          selected={selectedPlanId === item.id}
-          disabled={isAddonSubscriptionPlan(item) && !monthlyActive}
-          onPress={() => {
-            setSelectedPlanId(item.id);
-            setMessage('');
-          }}
-        />
-      ))}
-
-      {message ? <Text style={styles.message}>{message}</Text> : null}
-
-      <Pressable
-        style={({ pressed }) => [styles.payBtn, pressed && styles.payBtnPressed]}
-        onPress={() => void startPayment()}
-      >
-        <Ionicons name="card-outline" size={18} color={colors.onPrimary} />
-        <Text style={styles.payBtnText}>
-          {selectedPlan ? `Pay ${selectedPlan.price} & Continue` : 'Pay & Continue'}
-        </Text>
-      </Pressable>
-
-      <OnlinePaymentDialog
-        visible={paymentVisible}
-        amount={paymentDraft?.amountPaid ?? 0}
-        description={paymentDraft?.description ?? 'Subscription payment'}
-        paying={paying}
-        onSelect={handlePaymentSelect}
-        onCancel={() => {
-          if (!paying) setPaymentVisible(false);
-        }}
-      />
-    </View>
-  );
+  return <PickupPlanPicker peopleCount={peopleCount} onPlanReady={onPlanReady} />;
 }
 
 const styles = StyleSheet.create({
@@ -508,6 +549,14 @@ const styles = StyleSheet.create({
   loadingText: { fontSize: 13, color: colors.muted, fontWeight: '600', textAlign: 'center' },
   sectionTitle: { fontSize: 16, fontWeight: '800', color: colors.text },
   sectionSub: { fontSize: 12, color: colors.muted, fontWeight: '600', marginBottom: 4 },
+  groupLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.green,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginTop: 4,
+  },
   activeBanner: {
     backgroundColor: colors.white,
     borderRadius: 16,
@@ -537,7 +586,6 @@ const styles = StyleSheet.create({
   activeCopy: { flex: 1, minWidth: 0 },
   activeTitle: { fontSize: 14, fontWeight: '800', color: colors.text },
   activePrice: { fontSize: 13, fontWeight: '800', color: colors.orange, marginTop: 2 },
-  activeSubtitle: { fontSize: 11, fontWeight: '600', color: colors.muted, marginTop: 4 },
   activeBadge: {
     backgroundColor: colors.greenLight,
     borderRadius: radius.full,
@@ -553,34 +601,100 @@ const styles = StyleSheet.create({
   },
   activeStatusUrgent: { color: colors.orange },
   activeMeta: { marginTop: 4, fontSize: 11, color: colors.muted, fontWeight: '600' },
-  planOption: {
+  radioCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
     backgroundColor: colors.white,
-    borderRadius: 14,
-    borderWidth: 1,
+    borderRadius: 16,
+    borderWidth: 1.5,
     borderColor: colors.borderSubtle,
-    padding: 12,
+    padding: 14,
   },
-  planOptionSelected: {
+  radioCardSelected: {
     borderColor: colors.orange,
     backgroundColor: '#FFF8FB',
   },
-  planOptionDisabled: { opacity: 0.65 },
-  planOptionPressed: { opacity: 0.94 },
-  planOptionIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.orangeLight,
+  radioCardPressed: { opacity: 0.94 },
+  radioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  planOptionCopy: { flex: 1, minWidth: 0 },
-  planOptionTitle: { fontSize: 13, fontWeight: '800', color: colors.text },
-  planOptionSub: { fontSize: 11, color: colors.muted, marginTop: 2, fontWeight: '600' },
-  planOptionPrice: { fontSize: 13, fontWeight: '800', color: colors.orange },
+  radioOuterSelected: { borderColor: colors.orange },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.orange,
+  },
+  radioCopy: { flex: 1, minWidth: 0 },
+  radioTitle: { fontSize: 14, fontWeight: '800', color: colors.text },
+  radioSub: { fontSize: 11, color: colors.muted, marginTop: 2, fontWeight: '600' },
+  radioPrice: { fontSize: 14, fontWeight: '800', color: colors.orange },
+  addonCard: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    padding: spacing.md,
+    gap: 12,
+  },
+  addonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  addonCopy: { flex: 1, minWidth: 0 },
+  addonTitle: { fontSize: 13, fontWeight: '800', color: colors.text },
+  addonSub: { fontSize: 11, color: colors.muted, marginTop: 2, fontWeight: '600' },
+  addonRate: { fontSize: 11, fontWeight: '800', color: colors.green, marginTop: 4 },
+  addonDivider: {
+    height: 1,
+    backgroundColor: colors.borderSubtle,
+  },
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  stepperBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperBtnDisabled: { opacity: 0.45 },
+  stepperValue: {
+    minWidth: 24,
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  summaryCard: {
+    backgroundColor: colors.greenLight,
+    borderRadius: 14,
+    padding: 12,
+    gap: 4,
+  },
+  summaryLine: { fontSize: 12, color: colors.text, fontWeight: '600' },
+  summaryValue: { fontWeight: '800', color: colors.orange },
+  summaryTotal: {
+    marginTop: 6,
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  summaryTotalValue: { color: colors.orange, fontSize: 16 },
   message: { fontSize: 12, color: colors.orange, fontWeight: '700' },
   payBtn: {
     flexDirection: 'row',
@@ -589,7 +703,7 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: colors.orange,
     borderRadius: radius.full,
-    paddingVertical: 13,
+    paddingVertical: 14,
     marginTop: 4,
   },
   payBtnPressed: { opacity: 0.94 },

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { getInitials } from '../../constants/auth';
 import { Badge } from '../Badge';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
@@ -39,14 +40,29 @@ export function AdminCustomerDetailPanel({ customer, onClose }: Props) {
 
       <View style={styles.contactList}>
         <View style={styles.profileSummary}>
-          <Text style={styles.name}>{customer.name}</Text>
-          <Text style={styles.customerId}>{customer.displayId}</Text>
+          {customer.avatarUrl ? (
+            <Image source={{ uri: customer.avatarUrl }} style={styles.avatar} />
+          ) : (
+            <View style={styles.avatarFallback}>
+              <Text style={styles.avatarInitials}>{getInitials(customer.name)}</Text>
+            </View>
+          )}
+          <View style={styles.profileCopy}>
+            <Text style={styles.name}>{customer.name}</Text>
+            <Text style={styles.customerId}>{customer.displayId}</Text>
+          </View>
         </View>
 
         <View style={styles.contactRow}>
           <Ionicons name="call-outline" size={16} color={colors.orange} />
           <Text style={styles.contactText}>+91 {customer.phone}</Text>
         </View>
+        {customer.email ? (
+          <View style={styles.contactRow}>
+            <Ionicons name="mail-outline" size={16} color={colors.orange} />
+            <Text style={styles.contactText}>{customer.email}</Text>
+          </View>
+        ) : null}
         <View style={styles.contactRow}>
           <Ionicons name="home-outline" size={16} color={colors.orange} />
           <Text style={styles.contactText}>{customer.address || '—'}</Text>
@@ -92,6 +108,7 @@ export function AdminCustomerDetailPanel({ customer, onClose }: Props) {
             {[
               [customer.personLabel, customer.studentName],
               ['Class / Section', customer.classSection],
+              ['Email', customer.email || '—'],
               ['Address', customer.address || customer.order.pickupAddress || '—'],
               ['Current Order', formatOrderDisplayId(customer.order.id)],
             ].map(([label, value]) => (
@@ -155,7 +172,32 @@ const styles = StyleSheet.create({
   panelTitle: { fontSize: 15, fontWeight: '800', color: colors.text },
   closeBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   contactList: { gap: 8, marginBottom: spacing.sm },
-  profileSummary: { gap: 4, marginBottom: 2 },
+  profileSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 2,
+  },
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.bg,
+  },
+  avatarFallback: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    color: colors.onPrimary,
+    fontWeight: '800',
+    fontSize: 16,
+  },
+  profileCopy: { flex: 1, minWidth: 0, gap: 4 },
   name: { fontSize: 16, fontWeight: '800', color: colors.text },
   customerId: { fontSize: 11, color: colors.muted, fontWeight: '700' },
   contactRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },

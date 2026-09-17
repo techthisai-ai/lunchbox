@@ -5,6 +5,7 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { HistoryClockListIcon } from '../components/HistoryClockListIcon';
+import { ProfileHeaderCard } from '../components/ProfileHeaderCard';
 import { colors, shadow, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
@@ -126,7 +127,7 @@ function MenuRow({
 }
 
 export function ProfileScreen({ navigation }: Props) {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshCustomerProfile, syncCustomerProfile } = useAuth();
   const { horizontalPadding } = useResponsive();
   const [homeAddress, setHomeAddress] = useState('');
   const [dropLabel, setDropLabel] = useState('School Drop');
@@ -141,6 +142,7 @@ export function ProfileScreen({ navigation }: Props) {
         return;
       }
 
+      void refreshCustomerProfile();
       loadWallet(user.phone).then((wallet) => setWalletBalance(wallet?.balance ?? 0));
 
       Promise.all([loadCustomerProfile(user.phone), getCustomerOrderToday(user.phone)]).then(
@@ -203,6 +205,23 @@ export function ProfileScreen({ navigation }: Props) {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scroll, { paddingHorizontal: horizontalPadding }]}
       >
+        {user?.phone ? (
+          <ProfileHeaderCard
+            phone={user.phone}
+            name={user.name}
+            email={user.email}
+            avatarUrl={user.avatarUrl}
+            onProfileUpdated={(payload) => {
+              void syncCustomerProfile({
+                ...user,
+                name: payload.name,
+                email: payload.email,
+                avatarUrl: payload.avatarUrl,
+              });
+            }}
+          />
+        ) : null}
+
         <SectionCard title="Saved Addresses">
           <Text style={styles.addressGroupLabel}>Pickup address</Text>
           <AddressPreviewRow

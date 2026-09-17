@@ -21,6 +21,7 @@ type PaymentDraft = {
   amountPaid: number;
   description: string;
   plan: SubscriptionPlan;
+  quantity: number;
 };
 
 type Options = {
@@ -39,8 +40,10 @@ export function useSubscriptionPayment(options: Options = {}) {
   const [message, setMessage] = useState('');
 
   const startPaymentForPlan = useCallback(
-    async (plan: SubscriptionPlan) => {
+    async (plan: SubscriptionPlan, quantity = peopleCount) => {
       if (!user?.phone) return;
+
+      const count = Math.max(1, quantity);
 
       if (isAddonSubscriptionPlan(plan) && !(await hasActiveMonthlySubscription(user.phone))) {
         Alert.alert(
@@ -53,12 +56,15 @@ export function useSubscriptionPayment(options: Options = {}) {
       setMessage('');
       let amountPaid = await resolvePlanAmount(plan.id);
       if (isSingleOrderPlan(plan)) {
-        amountPaid = await resolvePlanAmount(plan.id, { peopleCount, phone: user.phone });
+        amountPaid = await resolvePlanAmount(plan.id, { peopleCount: count, phone: user.phone });
+      } else if (isAddonSubscriptionPlan(plan)) {
+        amountPaid = await resolvePlanAmount(plan.id, { peopleCount: count, phone: user.phone });
       }
       setPaymentDraft({
         plan,
         amountPaid,
-        description: buildSubscriptionPaymentDescription(plan, peopleCount, amountPaid),
+        quantity: count,
+        description: buildSubscriptionPaymentDescription(plan, count, amountPaid),
       });
       setPaymentVisible(true);
     },
@@ -73,7 +79,7 @@ export function useSubscriptionPayment(options: Options = {}) {
     async (methodId: string) => {
       if (!paymentDraft || !user?.phone) return;
 
-      const { plan, amountPaid, description } = paymentDraft;
+      const { plan, amountPaid, description, quantity } = paymentDraft;
       setPaying(true);
       setMessage('');
 
@@ -94,7 +100,7 @@ export function useSubscriptionPayment(options: Options = {}) {
           undefined,
           undefined,
           methodLabel,
-          isSingleOrderPlan(plan) ? peopleCount : undefined,
+          isSingleOrderPlan(plan) || isAddonSubscriptionPlan(plan) ? quantity : undefined,
         );
 
         let pickupError: string | null = null;
