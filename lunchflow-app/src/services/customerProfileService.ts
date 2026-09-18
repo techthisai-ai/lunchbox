@@ -15,6 +15,9 @@ export type CustomerProfileUpdate = {
   avatarUrl?: string;
   emergencyContact?: string;
   studentName?: string;
+  school?: string;
+  deliveryLandmark?: string;
+  deliveryCityPincode?: string;
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -190,6 +193,9 @@ export async function updateCustomerProfile(
   if (fields.avatarUrl != null) patch.avatarUrl = fields.avatarUrl;
   if (fields.emergencyContact != null) patch.emergencyContact = normalizePhone(fields.emergencyContact);
   if (fields.studentName != null) patch.studentName = fields.studentName.trim();
+  if (fields.school != null) patch.school = fields.school.trim();
+  if (fields.deliveryLandmark != null) patch.deliveryLandmark = fields.deliveryLandmark.trim();
+  if (fields.deliveryCityPincode != null) patch.deliveryCityPincode = fields.deliveryCityPincode.trim();
 
   const registration = await updateCustomerRegistration(normalized, patch);
   const user = customerAuthUserFromRegistration(registration);

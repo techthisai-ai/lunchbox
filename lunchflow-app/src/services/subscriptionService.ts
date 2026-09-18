@@ -9,7 +9,12 @@ import {
   SubscriptionPlan,
 } from '../constants/subscriptions';
 import { normalizePhone } from '../constants/auth';
-import { CustomerSubscription, SubscriptionHistoryEntry } from '../types/subscription';
+import {
+  CustomerSubscription,
+  SubscriptionHistoryEntry,
+  SubscriptionPaymentMethod,
+  SubscriptionPaymentStatus,
+} from '../types/subscription';
 import { getPlanBaseAmount, getPlanBillingMonths, getPlanBillingPeriod } from '../utils/subscription';
 import { db } from '../lib/firebase';
 import { loadDocument, syncDocument } from './firestoreSync';
@@ -50,6 +55,26 @@ function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+export type SubscriptionCheckoutMeta = {
+  paymentMethodLabel?: string;
+  payment_method?: SubscriptionPaymentMethod;
+  payment_status?: SubscriptionPaymentStatus;
+  transaction_id?: string | null;
+  amount_due?: number;
+};
+
+function applyPaymentMeta(record: CustomerSubscription, meta?: SubscriptionCheckoutMeta): CustomerSubscription {
+  if (!meta) return record;
+  return {
+    ...record,
+    paymentMethod: meta.paymentMethodLabel ?? record.paymentMethod,
+    payment_method: meta.payment_method ?? record.payment_method,
+    payment_status: meta.payment_status ?? record.payment_status,
+    transaction_id: meta.transaction_id ?? record.transaction_id,
+    amount_due: meta.amount_due ?? record.amount_due,
+  };
+}
+
 function buildSubscriptionRecord(
   phone: string,
   plan: SubscriptionPlan,
@@ -58,30 +83,34 @@ function buildSubscriptionRecord(
   discountAmount?: number,
   paymentMethod?: string,
   paidPeopleCount?: number,
+  checkoutMeta?: SubscriptionCheckoutMeta,
 ): CustomerSubscription {
   const now = new Date();
 
   if (isSingleOrderPlan(plan)) {
     const today = isoDate(now);
-    return {
-      id: `SUB-${Date.now()}`,
-      customerPhone: phone,
-      planId: plan.id,
-      billingPeriod: 'per_delivery',
-      months: 0,
-      status: 'active',
-      startDate: today,
-      endDate: today,
-      renewalDate: today,
-      amountPaid,
-      paymentMethod,
-      couponCode,
-      discountAmount,
-      expiresOnDelivery: true,
-      paidPeopleCount: Math.max(1, paidPeopleCount ?? 1),
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    };
+    return applyPaymentMeta(
+      {
+        id: `SUB-${Date.now()}`,
+        customerPhone: phone,
+        planId: plan.id,
+        billingPeriod: 'per_delivery',
+        months: 0,
+        status: 'active',
+        startDate: today,
+        endDate: today,
+        renewalDate: today,
+        amountPaid,
+        paymentMethod,
+        couponCode,
+        discountAmount,
+        expiresOnDelivery: true,
+        paidPeopleCount: Math.max(1, paidPeopleCount ?? 1),
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      checkoutMeta,
+    );
   }
 
   const months = getPlanBillingMonths(plan);
@@ -89,23 +118,26 @@ function buildSubscriptionRecord(
   const renewal = new Date(end);
   renewal.setDate(renewal.getDate() - 7);
 
-  return {
-    id: `SUB-${Date.now()}`,
-    customerPhone: phone,
-    planId: plan.id,
-    billingPeriod: getPlanBillingPeriod(plan),
-    months,
-    status: 'active',
-    startDate: isoDate(now),
-    endDate: isoDate(end),
-    renewalDate: isoDate(renewal),
-    amountPaid,
-    paymentMethod,
-    couponCode,
-    discountAmount,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-  };
+  return applyPaymentMeta(
+    {
+      id: `SUB-${Date.now()}`,
+      customerPhone: phone,
+      planId: plan.id,
+      billingPeriod: getPlanBillingPeriod(plan),
+      months,
+      status: 'active',
+      startDate: isoDate(now),
+      endDate: isoDate(end),
+      renewalDate: isoDate(renewal),
+      amountPaid,
+      paymentMethod,
+      couponCode,
+      discountAmount,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    },
+    checkoutMeta,
+  );
 }
 
 export async function loadActiveSubscriptionRecord(phone: string): Promise<CustomerSubscription | null> {
@@ -278,7 +310,15 @@ export async function resolveCustomerSubscriptionAmount(phone: string): Promise<
 
 export async function loadSubscriptionPaymentSnapshot(
   phone: string,
-): Promise<{ amountPaid: number; paymentMethod?: string; planId?: string } | null> {
+): Promise<{
+  amountPaid: number;
+  paymentMethod?: string;
+  planId?: string;
+  payment_method?: SubscriptionPaymentMethod;
+  payment_status?: SubscriptionPaymentStatus;
+  transaction_id?: string | null;
+  amount_due?: number;
+} | null> {
   const normalized = normalizePhone(phone);
   if (normalized.length !== 10) return null;
 
@@ -295,11 +335,57 @@ export async function loadSubscriptionPaymentSnapshot(
     .reduce((sum, entry) => sum + (entry.amountPaid || 0), 0);
 
   const amountPaid = (record.amountPaid > 0 ? record.amountPaid : getPlanBaseAmount(getSubscriptionPlan(record.planId))) + addonPaid;
+  const legacyMethod = (record.paymentMethod ?? '').toLowerCase();
+  const payment_method =
+    record.payment_method ??
+    (legacyMethod.includes('by cash') || legacyMethod.includes('cod') || legacyMethod.includes('cash on delivery')
+      ? 'COD'
+      : legacyMethod.includes('razorpay') || legacyMethod.includes('upi') || legacyMethod.includes('card')
+        ? 'RAZORPAY'
+        : undefined);
+  const payment_status =
+    record.payment_status ??
+    (payment_method === 'COD'
+      ? record.amount_due && record.amount_due > 0
+        ? 'PENDING_COD'
+        : 'COLLECTED_COD'
+      : payment_method === 'RAZORPAY'
+        ? 'PAID'
+        : undefined);
+
   return {
     amountPaid,
     paymentMethod: record.paymentMethod,
     planId: record.planId,
+    payment_method,
+    payment_status,
+    transaction_id: record.transaction_id,
+    amount_due: record.amount_due ?? (payment_status === 'PENDING_COD' ? amountPaid : undefined),
   };
+}
+
+export async function markSubscriptionCodCollected(phone: string, adminId: string): Promise<void> {
+  const normalized = normalizePhone(phone);
+  if (normalized.length !== 10) return;
+
+  const record = await loadActiveSubscriptionRecord(normalized);
+  const pendingByCash =
+    record &&
+    (record.payment_status === 'PENDING_COD' ||
+      (record.payment_method === 'COD' && record.payment_status !== 'COLLECTED_COD') ||
+      ((record.paymentMethod ?? '').toLowerCase().includes('cash') && record.payment_status !== 'COLLECTED_COD'));
+  if (!record || !pendingByCash) return;
+
+  const updated: CustomerSubscription = {
+    ...record,
+    payment_status: 'COLLECTED_COD',
+    amount_due: 0,
+    cash_collected_at: new Date().toISOString(),
+    cash_collected_by: adminId,
+    updatedAt: new Date().toISOString(),
+  };
+  await AsyncStorage.setItem(activeKey(normalized), JSON.stringify(updated));
+  await syncDocument('subscriptions', updated.id, updated);
 }
 
 export async function loadSubscriptionAmountsByPhone(phones: string[]): Promise<Map<string, number>> {
@@ -430,7 +516,12 @@ async function appendHistory(phone: string, record: CustomerSubscription): Promi
   await syncDocument('subscription_history', phone, { entries: [entry, ...history].slice(0, 20) });
 }
 
-async function appendAddon(phone: string, planId: string, amountPaid: number): Promise<void> {
+async function appendAddon(
+  phone: string,
+  planId: string,
+  amountPaid: number,
+  checkoutMeta?: SubscriptionCheckoutMeta,
+): Promise<void> {
   const addons = await loadSubscriptionAddons(phone);
   const today = isoDate(new Date());
   const entry: SubscriptionAddonEntry = {
@@ -452,6 +543,7 @@ export async function saveActiveSubscription(
   discountAmount?: number,
   paymentMethod?: string,
   paidPeopleCount?: number,
+  checkoutMeta?: SubscriptionCheckoutMeta,
 ): Promise<SubscriptionPlan> {
   const normalized = normalizePhone(phone);
   const plan = getSubscriptionPlan(planId);
@@ -461,7 +553,16 @@ export async function saveActiveSubscription(
     if (!(await hasActiveMonthlySubscription(normalized))) {
       throw new Error('Add-on plans require an active monthly subscription.');
     }
-    await appendAddon(normalized, plan.id, paid);
+    await appendAddon(normalized, plan.id, paid, checkoutMeta);
+    const existing = await loadActiveSubscriptionRecord(normalized);
+    if (existing && checkoutMeta) {
+      const withPayment = applyPaymentMeta(
+        { ...existing, updatedAt: new Date().toISOString() },
+        checkoutMeta,
+      );
+      await AsyncStorage.setItem(activeKey(normalized), JSON.stringify(withPayment));
+      await syncDocument('subscriptions', withPayment.id, withPayment);
+    }
     return plan;
   }
 
@@ -483,13 +584,16 @@ export async function saveActiveSubscription(
   ) {
     const nextPaidPeople = Math.max(existing.paidPeopleCount ?? 1, paidPeopleCount ?? 1);
     const baseRate = getPlanBaseAmount(plan);
-    const upgraded: CustomerSubscription = {
-      ...existing,
-      amountPaid: baseRate * nextPaidPeople,
-      paidPeopleCount: nextPaidPeople,
-      paymentMethod: paymentMethod ?? existing.paymentMethod,
-      updatedAt: new Date().toISOString(),
-    };
+    const upgraded: CustomerSubscription = applyPaymentMeta(
+      {
+        ...existing,
+        amountPaid: baseRate * nextPaidPeople,
+        paidPeopleCount: nextPaidPeople,
+        paymentMethod: paymentMethod ?? existing.paymentMethod,
+        updatedAt: new Date().toISOString(),
+      },
+      checkoutMeta,
+    );
     await AsyncStorage.setItem(activeKey(normalized), JSON.stringify(upgraded));
     await appendHistory(normalized, upgraded);
     await syncDocument('subscriptions', upgraded.id, upgraded);
@@ -506,6 +610,7 @@ export async function saveActiveSubscription(
     discountAmount,
     paymentMethod,
     paidPeopleCount,
+    checkoutMeta,
   );
 
   await AsyncStorage.setItem(activeKey(normalized), JSON.stringify(record));

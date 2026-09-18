@@ -30,8 +30,15 @@ export function orderStatusRank(status: DeliveryStatus): number {
   }
 }
 
+/** True once pickup progress has started (food marked ready or later). */
+export function hasActiveBookingProgress(order: DeliveryOrder | null): boolean {
+  if (!order || order.status === 'pickup_closed') return false;
+  return order.status !== 'booked';
+}
+
 /** Maps Firestore order status to the 5-step Home progress index (0–4). */
 export function getHomeProgressIndex(status: DeliveryStatus): number {
+  if (status === 'booked') return -1;
   if (status === 'delivered') return 4;
   if (status === 'in_transit' || status === 'at_drop') return 3;
   if (status === 'picked_up') return 2;
@@ -44,7 +51,7 @@ export function getHomeProgressIndex(status: DeliveryStatus): number {
   ) {
     return 1;
   }
-  return 0;
+  return -1;
 }
 
 /** Progress ring percent derived from order status (25% at booked → 100% at delivered). */
@@ -62,7 +69,11 @@ export function getHomeGaugeMeta(order: DeliveryOrder | null): {
   hint: string;
 } {
   if (!order || order.status === 'booked') {
-    return { percent: getHomeProgressPercent('booked'), status: 'READY TO BOOK', hint: 'Tap when lunchbox is packed & ready.' };
+    return {
+      percent: 0,
+      status: order ? 'READY TO BOOK' : 'NO ACTIVE BOOKING',
+      hint: 'Tap when lunchbox is packed & ready.',
+    };
   }
   if (order.status === 'pickup_closed') {
     return { percent: 0, status: 'CANCELLED', hint: 'This delivery was cancelled.' };
@@ -82,7 +93,7 @@ export function getHomeGaugeMeta(order: DeliveryOrder | null): {
   if (order.status === 'awaiting_driver' || order.status === 'food_ready') {
     return { percent: getHomeProgressPercent(order.status), status: 'FOOD READY', hint: 'Waiting for a rider to accept.' };
   }
-  return { percent: getHomeProgressPercent('booked'), status: 'READY TO BOOK', hint: 'Tap when lunchbox is packed & ready.' };
+  return { percent: 0, status: 'READY TO BOOK', hint: 'Tap when lunchbox is packed & ready.' };
 }
 
 export const HOME_PROGRESS_STEPS: {
@@ -98,9 +109,11 @@ export const HOME_PROGRESS_STEPS: {
 ];
 
 export function getActiveStepTime(order: DeliveryOrder | null): string | null {
-  if (!order) return null;
+  if (!order || !hasActiveBookingProgress(order)) return null;
 
   const activeIndex = getHomeProgressIndex(order.status);
+  if (activeIndex < 0) return null;
+
   const step = HOME_PROGRESS_STEPS[activeIndex];
   if (!step) return null;
 

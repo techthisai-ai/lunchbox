@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -18,13 +18,17 @@ import { colors, radius, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { ProfileStackParamList } from '../navigation/types';
 import { goBackInProfileStack } from '../navigation/customerRoutes';
+import { getCustomerOrderToday } from '../services/orderHubService';
 import {
   SUPPORT_FAQS,
   SUPPORT_PHONE_DISPLAY,
+  formatDriverSupportPhone,
+  openDriverSupportCall,
   openSupportCall,
   openSupportChat,
   submitSupportComplaint,
 } from '../services/supportService';
+import { DeliveryOrder } from '../types/delivery';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Support'>;
 
@@ -34,6 +38,21 @@ export function SupportScreen({ navigation }: Props) {
   const [complaintOpen, setComplaintOpen] = useState(false);
   const [complaintText, setComplaintText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [activeOrder, setActiveOrder] = useState<DeliveryOrder | null>(null);
+
+  useEffect(() => {
+    if (!user?.phone) {
+      setActiveOrder(null);
+      return;
+    }
+    let cancelled = false;
+    void getCustomerOrderToday(user.phone).then((order) => {
+      if (!cancelled) setActiveOrder(order);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.phone]);
 
   const toggleFaq = (id: string) => {
     setExpandedId((current) => (current === id ? null : id));
@@ -86,9 +105,17 @@ export function SupportScreen({ navigation }: Props) {
           icon="call"
           iconBg={colors.orangeLight}
           iconColor={colors.orange}
-          title="Call Support"
+          title="Call Support Team"
           sub={SUPPORT_PHONE_DISPLAY}
           onPress={() => openSupportCall()}
+        />
+        <SupportOption
+          icon="bicycle"
+          iconBg={colors.greenLight}
+          iconColor={colors.green}
+          title="Driver Support"
+          sub={formatDriverSupportPhone(activeOrder)}
+          onPress={() => void openDriverSupportCall(activeOrder)}
         />
 
         <Text style={styles.section}>FAQs</Text>

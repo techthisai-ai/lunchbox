@@ -2,6 +2,10 @@ export type BillingPeriod = '1_month' | '3_month' | 'per_delivery' | 'custom';
 
 export type SubscriptionStatus = 'active' | 'expired' | 'cancelled' | 'pending';
 
+export type SubscriptionPaymentMethod = 'RAZORPAY' | 'COD';
+
+export type SubscriptionPaymentStatus = 'PAID' | 'PENDING_COD' | 'COLLECTED_COD' | 'FAILED';
+
 export type CustomerSubscription = {
   id: string;
   customerPhone: string;
@@ -13,7 +17,14 @@ export type CustomerSubscription = {
   endDate: string;
   renewalDate: string;
   amountPaid: number;
+  /** Legacy display label (e.g. "Razorpay", "By Cash"). */
   paymentMethod?: string;
+  payment_method?: SubscriptionPaymentMethod;
+  payment_status?: SubscriptionPaymentStatus;
+  transaction_id?: string | null;
+  amount_due?: number;
+  cash_collected_at?: string | null;
+  cash_collected_by?: string | null;
   couponCode?: string;
   discountAmount?: number;
   expiresOnDelivery?: boolean;

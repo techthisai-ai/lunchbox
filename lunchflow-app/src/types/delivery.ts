@@ -230,8 +230,15 @@ export type DeliveryOrder = {
   assignedDriverPhone?: string;
   /** Amount the customer paid for the plan covering this order. */
   amountPaid?: number;
+  /** Outstanding cash amount for COD orders. */
+  amount_due?: number;
   /** Cash / UPI / GPay / PhonePe / etc. */
   paymentMethod?: string;
+  payment_method?: 'RAZORPAY' | 'COD';
+  payment_status?: 'PAID' | 'PENDING_COD' | 'COLLECTED_COD' | 'FAILED';
+  transaction_id?: string | null;
+  cash_collected_at?: string | null;
+  cash_collected_by?: string | null;
   deliverySlotId?: string;
   deliverySlotLabel?: string;
   studentEntries?: FoodReadyStudentEntry[];

@@ -51,7 +51,10 @@ export function getOrderDeliveryLocation(
 
 export type OrderTab = 'all' | 'pending' | 'picked_up' | 'in_transit' | 'delivered' | 'cancelled';
 
-export type PaymentFilter = 'all' | 'paid' | 'cash' | 'upi' | 'refunded';
+export type PaymentFilter = 'all' | 'razorpay' | 'cod' | 'paid' | 'pending_cod' | 'refunded';
+
+export type PaymentMethodBadge = { label: string; tone: 'blue' | 'orange' | 'gray' };
+export type PaymentStatusBadge = { label: string; tone: 'green' | 'yellow' | 'red' | 'gray' };
 
 export function formatOrderDisplayId(id: string): string {
   const compact = id.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
@@ -112,35 +115,95 @@ export function getTableStatusTone(status: DeliveryStatus): 'blue' | 'green' | '
   return 'orange';
 }
 
-export function getPaymentInfo(order: DeliveryOrder): { label: string; tone: 'green' | 'orange' | 'blue' | 'red' } {
-  if (order.status === 'pickup_closed') return { label: 'Refunded', tone: 'red' };
-  const method = (order.paymentMethod ?? '').toLowerCase();
-  if (method.includes('cash')) return { label: 'Cash', tone: 'orange' };
-  if (
-    method.includes('upi') ||
-    method.includes('gpay') ||
-    method.includes('google') ||
-    method.includes('phonepe') ||
-    method.includes('paytm')
-  ) {
-    return { label: 'UPI', tone: 'blue' };
+function resolveStructuredPaymentMethod(order: DeliveryOrder): 'RAZORPAY' | 'COD' | null {
+  if (order.payment_method === 'RAZORPAY' || order.payment_method === 'COD') {
+    return order.payment_method;
   }
-  if (method.includes('card') || method.includes('debit') || method.includes('credit')) {
-    return { label: 'Paid', tone: 'green' };
+  const legacy = (order.paymentMethod ?? '').toLowerCase();
+  if (legacy.includes('by cash') || legacy.includes('cod') || legacy.includes('cash on delivery') || legacy.includes('cash')) {
+    return 'COD';
   }
-  if (typeof order.amountPaid === 'number' && order.amountPaid > 0) return { label: 'Paid', tone: 'green' };
-  if (order.status === 'delivered') return { label: 'Paid', tone: 'green' };
+  if (legacy.includes('razorpay') || legacy.includes('upi') || legacy.includes('card')) {
+    return 'RAZORPAY';
+  }
+  return null;
+}
+
+function resolveStructuredPaymentStatus(order: DeliveryOrder): 'PAID' | 'PENDING_COD' | 'COLLECTED_COD' | 'FAILED' | null {
+  if (order.payment_status) return order.payment_status;
+  if (order.status === 'pickup_closed') return 'FAILED';
+  const method = resolveStructuredPaymentMethod(order);
+  if (method === 'COD') {
+    return typeof order.amountPaid === 'number' && order.amountPaid > 0 ? 'COLLECTED_COD' : 'PENDING_COD';
+  }
+  if (typeof order.amountPaid === 'number' && order.amountPaid > 0) return 'PAID';
+  return 'PAID';
+}
+
+export function getPaymentMethodBadge(order: DeliveryOrder): PaymentMethodBadge {
+  const method = resolveStructuredPaymentMethod(order);
+  if (method === 'COD') return { label: 'By Cash', tone: 'orange' };
+  if (method === 'RAZORPAY') return { label: 'Online (Razorpay)', tone: 'blue' };
+  const legacy = (order.paymentMethod ?? '').trim();
+  if (legacy) return { label: legacy, tone: 'gray' };
+  return { label: 'Online (Razorpay)', tone: 'blue' };
+}
+
+export function getPaymentStatusBadge(order: DeliveryOrder): PaymentStatusBadge {
+  if (order.status === 'pickup_closed') return { label: 'Failed', tone: 'red' };
+  const status = resolveStructuredPaymentStatus(order);
+  if (status === 'PENDING_COD') return { label: 'Pending By Cash', tone: 'yellow' };
+  if (status === 'COLLECTED_COD') return { label: 'Paid', tone: 'green' };
+  if (status === 'FAILED') return { label: 'Failed', tone: 'red' };
   return { label: 'Paid', tone: 'green' };
+}
+
+/** @deprecated Use getPaymentMethodBadge / getPaymentStatusBadge */
+export function getPaymentInfo(order: DeliveryOrder): { label: string; tone: 'green' | 'orange' | 'blue' | 'red' } {
+  const method = getPaymentMethodBadge(order);
+  return { label: method.label, tone: method.tone === 'gray' ? 'blue' : method.tone };
 }
 
 export function matchesPaymentFilter(order: DeliveryOrder, filter: PaymentFilter): boolean {
   if (filter === 'all') return true;
-  const payment = getPaymentInfo(order);
-  if (filter === 'paid') return payment.label === 'Paid';
-  if (filter === 'cash') return payment.label === 'Cash';
-  if (filter === 'upi') return payment.label === 'UPI';
-  if (filter === 'refunded') return payment.label === 'Refunded';
+  if (filter === 'refunded') return order.status === 'pickup_closed';
+  if (filter === 'razorpay') return resolveStructuredPaymentMethod(order) === 'RAZORPAY';
+  if (filter === 'cod') return resolveStructuredPaymentMethod(order) === 'COD';
+  if (filter === 'paid') return getPaymentStatusBadge(order).label === 'Paid';
+  if (filter === 'pending_cod') return resolveStructuredPaymentStatus(order) === 'PENDING_COD';
   return true;
+}
+
+export function isPendingByCashOrder(order: DeliveryOrder): boolean {
+  if (order.payment_status === 'PENDING_COD') return true;
+  if (order.payment_status === 'COLLECTED_COD' || order.payment_status === 'PAID') return false;
+  if (resolveStructuredPaymentMethod(order) !== 'COD') return false;
+  return !(typeof order.amountPaid === 'number' && order.amountPaid > 0);
+}
+
+export function getOrderPaymentAmount(order: DeliveryOrder, amountsByPhone: Map<string, number>): number {
+  if (order.payment_status === 'PENDING_COD') {
+    return order.amount_due ?? getOrderAmountForCustomer(order, amountsByPhone);
+  }
+  return getOrderAmountForCustomer(order, amountsByPhone);
+}
+
+export function computePaymentRevenueSummary(orders: DeliveryOrder[], amountsByPhone: Map<string, number>) {
+  let razorpayRevenue = 0;
+  let codCollected = 0;
+  let pendingCod = 0;
+
+  for (const order of orders) {
+    const amount = getOrderPaymentAmount(order, amountsByPhone);
+    if (amount <= 0) continue;
+    const method = resolveStructuredPaymentMethod(order);
+    const status = resolveStructuredPaymentStatus(order);
+    if (method === 'RAZORPAY' && status === 'PAID') razorpayRevenue += amount;
+    if (method === 'COD' && status === 'COLLECTED_COD') codCollected += amount;
+    if (method === 'COD' && status === 'PENDING_COD') pendingCod += order.amount_due ?? amount;
+  }
+
+  return { razorpayRevenue, codCollected, pendingCod };
 }
 
 export function countByTab(orders: DeliveryOrder[]): Record<OrderTab, number> {

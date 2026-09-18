@@ -5,6 +5,7 @@ import {
   isAddonSubscriptionPlan,
   isMonthlySubscriptionPlan,
 } from '../constants/subscriptions';
+import { CheckoutPaymentChoice } from './PaymentMethodSelector';
 import { colors, shadow, spacing } from '../constants/theme';
 import { formatPlanPrice } from '../utils/subscription';
 
@@ -12,6 +13,8 @@ type Props = {
   plan: SubscriptionPlan;
   disabled?: boolean;
   quantity?: number;
+  paymentChoice?: CheckoutPaymentChoice;
+  checkoutDisabled?: boolean;
   onQuantityChange?: (next: number) => void;
   onSelect: () => void;
 };
@@ -56,6 +59,22 @@ function subtitleFor(plan: SubscriptionPlan): string {
   return plan.desc;
 }
 
+function checkoutLabel(
+  plan: SubscriptionPlan,
+  quantity: number,
+  lineTotal: number,
+  paymentChoice: CheckoutPaymentChoice,
+): string {
+  const amount = formatPlanPrice(lineTotal);
+  if (isAddonSubscriptionPlan(plan)) {
+    const prefix = `Add ${quantity} person${quantity > 1 ? 's' : ''} • `;
+    return paymentChoice === 'cod'
+      ? `${prefix}Confirm By Cash • ${amount}`
+      : `${prefix}Pay Via Razorpay • ${amount}`;
+  }
+  return paymentChoice === 'cod' ? `Confirm By Cash Order • ${amount}` : `Pay Via Razorpay • ${amount}`;
+}
+
 function suffixFor(plan: SubscriptionPlan): string {
   if (plan.detailPriceSuffix) return plan.detailPriceSuffix;
   if (plan.planKind === 'single') return 'per day';
@@ -67,6 +86,8 @@ export function SubscriptionDetailPlanCard({
   plan,
   disabled,
   quantity = 1,
+  paymentChoice = 'online',
+  checkoutDisabled,
   onQuantityChange,
   onSelect,
 }: Props) {
@@ -141,10 +162,10 @@ export function SubscriptionDetailPlanCard({
           pressed && !disabled && styles.ctaPressed,
         ]}
         onPress={onSelect}
-        disabled={disabled}
+        disabled={disabled || checkoutDisabled}
       >
         <Text style={styles.ctaText}>
-          {isAddon ? `Add ${quantity} person${quantity > 1 ? 's' : ''}` : 'Choose Plan'}
+          {checkoutLabel(plan, quantity, lineTotal, paymentChoice)}
         </Text>
         <Ionicons name="arrow-forward" size={16} color={colors.onPrimary} />
       </Pressable>

@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert, Linking } from 'react-native';
 import { normalizePhone } from '../constants/auth';
+import { callDriver, resolveDriverCallPhone } from '../utils/phoneCall';
+import { DeliveryOrder } from '../types/delivery';
 import { syncDocument } from './firestoreSync';
 
 export const SUPPORT_PHONE_DISPLAY = '1800-LUNCH-FLOW';
@@ -24,7 +26,7 @@ export const SUPPORT_FAQS: SupportFaq[] = [
     id: 'driver-delay',
     question: 'What if my driver is delayed?',
     answer:
-      'Go to Track on the home screen to see live status and ETA. You can call the driver from the tracking page. If you still need help, use Call Support on this page.',
+      'Go to Track on the home screen to see live status and ETA. You can call the driver from Driver Support on this page. If you still need help, use Call Support Team.',
   },
   {
     id: 'change-address',
@@ -45,6 +47,20 @@ export type SupportComplaint = {
 
 function complaintsKey(phone: string): string {
   return `@lunchflow_support_complaints_${normalizePhone(phone)}`;
+}
+
+export function formatDriverSupportPhone(order: DeliveryOrder | null): string {
+  const phone = order ? resolveDriverCallPhone(order) : null;
+  if (!phone) return 'No driver assigned yet';
+  return `+91 ${phone.slice(0, 5)} ${phone.slice(5)}`;
+}
+
+export async function openDriverSupportCall(order: DeliveryOrder | null): Promise<void> {
+  if (!order) {
+    Alert.alert('No active order', 'Book lunch delivery and wait for a driver to be assigned.');
+    return;
+  }
+  await callDriver(order);
 }
 
 export async function openSupportCall(): Promise<void> {

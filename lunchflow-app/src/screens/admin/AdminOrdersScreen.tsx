@@ -18,9 +18,11 @@ import { useAdminTableColumn } from '../../hooks/useAdminTableColumn';
 import {
   assignDriverByAdmin,
   listAllOrdersToday,
+  markOrderCodCashCollected,
   processExpiredPickupOrders,
   subscribeToAllOrdersToday,
 } from '../../services/orderHubService';
+import { useAuth } from '../../context/AuthContext';
 import { loadSubscriptionAmountsByPhone } from '../../services/subscriptionService';
 import { loadRegisteredCustomers, loadRegisteredDrivers } from '../../services/userRegistryService';
 import { DeliveryOrder } from '../../types/delivery';
@@ -31,12 +33,16 @@ import {
   filterOrders,
   formatOrderDateTime,
   formatOrderDisplayId,
+  computePaymentRevenueSummary,
   getOrderAmountForCustomer,
   getOrderDeliveryLocation,
+  getOrderPaymentAmount,
   getOrderTab,
-  getPaymentInfo,
+  getPaymentMethodBadge,
+  getPaymentStatusBadge,
   getTableStatusLabel,
   getTableStatusTone,
+  isPendingByCashOrder,
   resolveAssignedDriver,
 } from '../../utils/adminOrderHelpers';
 import { buildCustomerDetail, CustomerDetail, formatCustomerName } from '../../utils/adminCustomerHelpers';
@@ -52,10 +58,11 @@ const TABS: { id: OrderTab; label: string }[] = [
 ];
 
 const PAYMENT_OPTIONS: { id: PaymentFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
+  { id: 'all', label: 'All Methods' },
+  { id: 'razorpay', label: 'Razorpay Only' },
+  { id: 'cod', label: 'By Cash Only' },
+  { id: 'pending_cod', label: 'Pending By Cash' },
   { id: 'paid', label: 'Paid' },
-  { id: 'cash', label: 'Cash' },
-  { id: 'upi', label: 'UPI' },
   { id: 'refunded', label: 'Refunded' },
 ];
 
@@ -81,6 +88,7 @@ function initials(name: string): string {
 }
 
 export function AdminOrdersScreen() {
+  const { user } = useAuth();
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
   const [drivers, setDrivers] = useState<Awaited<ReturnType<typeof loadRegisteredDrivers>>>([]);
   const [tab, setTab] = useState<OrderTab>('all');
@@ -94,8 +102,10 @@ export function AdminOrdersScreen() {
     location: col(1.05, 130),
     driver: col(1.05, 130),
     status: col(0.75, 92, { alignItems: 'flex-start' }),
-    payment: col(0.65, 78, { alignItems: 'flex-start' }),
+    paymentMethod: col(0.85, 108, { alignItems: 'flex-start' }),
+    paymentStatus: col(0.75, 96, { alignItems: 'flex-start' }),
     amount: col(0.6, 72, { alignItems: 'flex-end' }),
+    actions: col(0.95, 120, { alignItems: 'flex-start' }),
   };
   const [query, setQuery] = useState('');
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all');
@@ -194,6 +204,37 @@ export function AdminOrdersScreen() {
     [ordersWithDrivers, tab, query, paymentFilter, driverFilter],
   );
 
+  const paymentSummary = useMemo(
+    () => computePaymentRevenueSummary(ordersWithDrivers, amountsByPhone),
+    [ordersWithDrivers, amountsByPhone],
+  );
+
+  const handleMarkCashCollected = (order: DeliveryOrder) => {
+    const adminId = user?.email ?? user?.phone ?? 'admin';
+    Alert.alert(
+      'Mark Cash Collected',
+      `Confirm cash received for order ${formatOrderDisplayId(order.id)}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Confirm',
+          onPress: async () => {
+            try {
+              await markOrderCodCashCollected(order.id, adminId);
+              await refresh();
+              Alert.alert('Updated', 'By Cash payment marked as collected.');
+            } catch (error) {
+              Alert.alert(
+                'Could not update',
+                error instanceof Error ? error.message : 'Please try again.',
+              );
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const handleExport = () => {
     if (filtered.length === 0) {
       Alert.alert('No orders', 'No orders match your current filters.');
@@ -201,9 +242,10 @@ export function AdminOrdersScreen() {
     }
 
     const csv = [
-      ['Order ID', 'Customer', 'Phone', 'Pickup', 'Delivery', 'Driver', 'Status', 'Payment', 'Amount'].join(','),
+      ['Order ID', 'Customer', 'Phone', 'Pickup', 'Delivery', 'Driver', 'Status', 'Payment Method', 'Payment Status', 'Amount'].join(','),
       ...filtered.map((order) => {
-        const payment = getPaymentInfo(order);
+        const method = getPaymentMethodBadge(order);
+        const status = getPaymentStatusBadge(order);
         return [
           formatOrderDisplayId(order.id),
           order.customerName,
@@ -212,8 +254,9 @@ export function AdminOrdersScreen() {
           getOrderDeliveryLocation(order, deliveryFallbackByPhone) || '—',
           order.driver?.name ?? '',
           getTableStatusLabel(order.status),
-          payment.label,
-          getOrderAmountForCustomer(order, amountsByPhone),
+          method.label,
+          status.label,
+          getOrderPaymentAmount(order, amountsByPhone),
         ]
           .map((v) => `"${String(v).replace(/"/g, '""')}"`)
           .join(',');
@@ -259,6 +302,9 @@ export function AdminOrdersScreen() {
         <AdminKpiCard compact label="Completed Orders" value={String(completed.length)} icon="checkmark-circle" iconBg={colors.greenLight} iconColor={colors.greenDark} />
         <AdminKpiCard compact label="Pending Orders" value={String(pending.length)} icon="time" iconBg={colors.yellowLight} iconColor={colors.dark} />
         <AdminKpiCard compact label="Cancelled Orders" value={String(cancelled.length)} icon="close-circle" iconBg={colors.redLight} iconColor={colors.red} />
+        <AdminKpiCard compact label="Razorpay Revenue" value={`₹${paymentSummary.razorpayRevenue.toLocaleString('en-IN')}`} icon="card" iconBg={colors.blueLight} iconColor={colors.blue} />
+        <AdminKpiCard compact label="By Cash Collected" value={`₹${paymentSummary.codCollected.toLocaleString('en-IN')}`} icon="cash" iconBg={colors.greenLight} iconColor={colors.greenDark} />
+        <AdminKpiCard compact label="Pending By Cash" value={`₹${paymentSummary.pendingCod.toLocaleString('en-IN')}`} icon="time" iconBg={colors.yellowLight} iconColor={colors.dark} />
       </AdminKpiRow>
 
       {isSidebarCollapsed ? (
@@ -322,7 +368,7 @@ export function AdminOrdersScreen() {
           </Pressable>
         </View>
 
-        <AdminTableScroll minWidth={980}>
+        <AdminTableScroll minWidth={1180}>
         <View style={styles.tableWrap}>
           <View style={styles.table}>
             <View style={styles.tableHead}>
@@ -334,14 +380,18 @@ export function AdminOrdersScreen() {
               <View style={c.location}><Text style={styles.th}>Delivery</Text></View>
               <View style={c.driver}><Text style={styles.th}>Driver</Text></View>
               <View style={c.status}><Text style={styles.th}>Status</Text></View>
-              <View style={c.payment}><Text style={styles.th}>Payment</Text></View>
+              <View style={c.paymentMethod}><Text style={styles.th}>Payment Method</Text></View>
+              <View style={c.paymentStatus}><Text style={styles.th}>Payment Status</Text></View>
               <View style={c.amount}><Text style={styles.th}>Amount</Text></View>
+              <View style={c.actions}><Text style={styles.th}>Actions</Text></View>
             </View>
 
             {filtered.length > 0 ? (
               filtered.map((order) => {
-                const payment = getPaymentInfo(order);
-                const orderAmount = getOrderAmountForCustomer(order, amountsByPhone);
+                const methodBadge = getPaymentMethodBadge(order);
+                const statusBadge = getPaymentStatusBadge(order);
+                const orderAmount = getOrderPaymentAmount(order, amountsByPhone);
+                const showCollectCash = isPendingByCashOrder(order);
                 return (
                   <Pressable
                     key={order.id}
@@ -427,13 +477,31 @@ export function AdminOrdersScreen() {
                     <View style={c.status}>
                       <Badge label={getTableStatusLabel(order.status)} tone={getTableStatusTone(order.status)} />
                     </View>
-                    <View style={c.payment}>
-                      <Badge label={payment.label} tone={payment.tone} />
+                    <View style={c.paymentMethod}>
+                      <Badge label={methodBadge.label} tone={methodBadge.tone} />
+                    </View>
+                    <View style={c.paymentStatus}>
+                      <Badge label={statusBadge.label} tone={statusBadge.tone} />
                     </View>
                     <View style={c.amount}>
                       <Text style={[styles.td, styles.amountText]} numberOfLines={1}>
                         {orderAmount > 0 ? `₹${orderAmount.toLocaleString('en-IN')}` : '—'}
                       </Text>
+                    </View>
+                    <View style={c.actions}>
+                      {showCollectCash ? (
+                        <Pressable
+                          style={styles.collectBtn}
+                          onPress={(event) => {
+                            event.stopPropagation?.();
+                            handleMarkCashCollected(order);
+                          }}
+                        >
+                          <Text style={styles.collectBtnText}>Mark Cash Collected</Text>
+                        </Pressable>
+                      ) : (
+                        <Text style={styles.mutedTd}>—</Text>
+                      )}
                     </View>
                   </Pressable>
                 );
@@ -578,4 +646,17 @@ const styles = StyleSheet.create({
   driverAvatarText: { fontSize: 9, fontWeight: '800', color: colors.greenDark },
   emptyRow: { paddingVertical: 40, alignItems: 'center' },
   emptyText: { fontSize: 14, color: colors.muted, fontWeight: '600' },
+  collectBtn: {
+    borderWidth: 1,
+    borderColor: colors.orange,
+    backgroundColor: colors.orangeLight,
+    borderRadius: radius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  collectBtnText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.orangeDark,
+  },
 });

@@ -21,6 +21,7 @@ import { goToCustomerHome } from '../navigation/customerRoutes';
 import { RootStackParamList } from '../navigation/types';
 import { markCustomerOnboardingComplete } from '../services/onboardingStorage';
 import {
+  ONBOARDING_AD_ASPECT,
   OnboardingPageAds,
   prefetchOnboardingPageAds,
   readCachedOnboardingPageAds,
@@ -33,6 +34,13 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CustomerOnboarding'>;
 const ONBOARDING_PAGE_COUNT = 2;
 const ONBOARDING_AD_AUTO_SCROLL_MS = 4000;
 const ONBOARDING_MAX_LOAD_MS = 1000;
+const ONBOARDING_IMAGE_MAX_HEIGHT = 520;
+
+function resolveOnboardingSlideHeight(pageWidth: number, windowHeight: number): number {
+  const idealHeight = pageWidth / ONBOARDING_AD_ASPECT;
+  const cappedByViewport = windowHeight * 0.58;
+  return Math.round(Math.min(idealHeight, cappedByViewport, ONBOARDING_IMAGE_MAX_HEIGHT));
+}
 
 function hasOnboardingAds(pages: OnboardingPageAds): boolean {
   return pages.step1.some((ad) => ad.bannerImageUrl) || pages.step2.some((ad) => ad.bannerImageUrl);
@@ -200,7 +208,7 @@ export function CustomerOnboardingScreen({ navigation }: Props) {
   const [step1AdIndex, setStep1AdIndex] = useState(0);
   const [step2AdIndex, setStep2AdIndex] = useState(0);
 
-  const slideHeight = height;
+  const slideHeight = resolveOnboardingSlideHeight(pageWidth, height);
   const isGetStartedPage = pageIndex === 0;
   const currentAds = isGetStartedPage ? pageAds.step1 : pageAds.step2;
   const currentAdIndex = isGetStartedPage ? step1AdIndex : step2AdIndex;
@@ -253,26 +261,28 @@ export function CustomerOnboardingScreen({ navigation }: Props) {
 
   if (!showPage) {
     return (
-      <View style={[styles.container, styles.loadingScreen, { width: '100%', maxWidth: pageWidth, height: slideHeight, alignSelf: 'center' }]}>
-        <ActivityIndicator size="large" color={colors.orange} />
-      </View>
+      <SafeAreaView style={styles.container}>
+        <View style={[styles.loadingScreen, { maxWidth: pageWidth, alignSelf: 'center', width: '100%' }]}>
+          <ActivityIndicator size="large" color={colors.orange} />
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={[styles.container, { width: '100%', maxWidth: pageWidth, height: slideHeight, alignSelf: 'center' }]}>
-      <View style={[styles.pageHost, { width: pageWidth, height: slideHeight }]}>
-        <OnboardingAdCarousel
-          ads={currentAds}
-          width={pageWidth}
-          height={slideHeight}
-          adIndex={currentAdIndex}
-          onAdIndexChange={setCurrentAdIndex}
-        />
-      </View>
+    <SafeAreaView style={styles.container}>
+      <View style={[styles.content, { maxWidth: pageWidth, alignSelf: 'center', width: '100%' }]}>
+        <View style={[styles.pageHost, { width: pageWidth, height: slideHeight }]}>
+          <OnboardingAdCarousel
+            ads={currentAds}
+            width={pageWidth}
+            height={slideHeight}
+            adIndex={currentAdIndex}
+            onAdIndexChange={setCurrentAdIndex}
+          />
+        </View>
 
-      <SafeAreaView style={styles.overlay} edges={['bottom']} pointerEvents="box-none">
-        <View style={styles.overlayContent} pointerEvents="box-none">
+        <View style={styles.controls}>
           <AdDots ads={liveAds} activeIndex={currentAdIndex} onSelect={goToCurrentAd} />
           <PageDots activeIndex={pageIndex} />
           <View style={styles.footer}>
@@ -288,18 +298,25 @@ export function CustomerOnboardingScreen({ navigation }: Props) {
             </Pressable>
           </View>
         </View>
-      </SafeAreaView>
-    </View>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    overflow: 'hidden',
     backgroundColor: colors.bg,
   },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    gap: spacing.md,
+  },
   loadingScreen: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.lg,
@@ -313,24 +330,21 @@ const styles = StyleSheet.create({
   },
   pageHost: {
     overflow: 'hidden',
-    zIndex: 0,
+    borderRadius: radius.lg,
+    backgroundColor: colors.white,
+    alignSelf: 'center',
+    ...shadow.card,
   },
   slidePage: {
     overflow: 'hidden',
-    backgroundColor: colors.bg,
+    backgroundColor: colors.white,
   },
   emptySlide: {
-    backgroundColor: colors.bg,
+    backgroundColor: colors.white,
   },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-    zIndex: 1,
-  },
-  overlayContent: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
+  controls: {
     gap: spacing.sm,
+    paddingHorizontal: spacing.xs,
   },
   adDotsRow: {
     flexDirection: 'row',

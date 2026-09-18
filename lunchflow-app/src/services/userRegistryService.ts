@@ -20,6 +20,12 @@ export type CustomerRegistration = {
   addressLocation?: GeoPoint | null;
   registrationType: DeliveryType;
   school: string;
+  /** Landmark or drop-off note for the default delivery address. */
+  deliveryLandmark?: string;
+  /** City and pincode for the default delivery address. */
+  deliveryCityPincode?: string;
+  /** Contact number shown on pickup — can differ from login phone. */
+  pickupContactPhone?: string;
   studentName: string;
   classSection: string;
   emergencyContact: string;
@@ -179,6 +185,9 @@ function customerFromFirestoreData(
     addressLocation: readGeoPoint(data, 'addressLocation'),
     registrationType: normalizeDeliveryType(data.registrationType),
     school: String(data.school ?? ''),
+    deliveryLandmark: data.deliveryLandmark ? String(data.deliveryLandmark) : undefined,
+    deliveryCityPincode: data.deliveryCityPincode ? String(data.deliveryCityPincode) : undefined,
+    pickupContactPhone: data.pickupContactPhone ? String(data.pickupContactPhone) : undefined,
     studentName: String(data.studentName ?? ''),
     classSection: String(data.classSection ?? ''),
     emergencyContact: String(data.emergencyContact ?? ''),
@@ -323,6 +332,9 @@ export async function loadRegisteredCustomers(): Promise<RegisteredCustomer[]> {
         address: String(data.address ?? ''),
         registrationType: normalizeDeliveryType(data.registrationType),
         school: String(data.school ?? ''),
+        deliveryLandmark: data.deliveryLandmark ? String(data.deliveryLandmark) : undefined,
+        deliveryCityPincode: data.deliveryCityPincode ? String(data.deliveryCityPincode) : undefined,
+        pickupContactPhone: data.pickupContactPhone ? String(data.pickupContactPhone) : undefined,
         studentName: String(data.studentName ?? ''),
         classSection: String(data.classSection ?? ''),
         emergencyContact: String(data.emergencyContact ?? ''),

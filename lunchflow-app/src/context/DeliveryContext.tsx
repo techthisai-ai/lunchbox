@@ -158,19 +158,13 @@ export function DeliveryProvider({ children }: { children: ReactNode }) {
       }
       if (!remote) {
         const current = localOrderRef.current;
-        // Transient sync gaps — never wipe an in-progress order or spawn a duplicate booked row.
+        // Transient sync gaps — never wipe an in-progress order during refresh.
         if (current && current.status !== 'pickup_closed') {
           return;
         }
-        if (customerIdRef.current) {
-          const profile = await loadCustomerProfile(phoneRef.current);
-          remote = await createBooking(customerIdRef.current, phoneRef.current, {
-            ...profile,
-            name: userNameRef.current ?? profile.name,
-          });
-        }
+        syncOrder(null);
+        return;
       }
-      if (!remote) return;
       syncOrder(remote);
       await handleDeliveredOrder(remote);
       await handleCancelledOrder(remote);

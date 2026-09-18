@@ -37,6 +37,16 @@ type Props = {
 
 type Feedback = { type: 'success' | 'error'; message: string } | null;
 
+type DefaultDeliveryAddress = {
+  addressLine: string;
+  landmark: string;
+  cityPincode: string;
+};
+
+function hasDefaultDeliveryAddress(address: DefaultDeliveryAddress): boolean {
+  return [address.addressLine, address.landmark, address.cityPincode].some((value) => value.trim());
+}
+
 export function ProfileHeaderCard({ phone, name, email, avatarUrl, onProfileUpdated }: Props) {
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -47,6 +57,9 @@ export function ProfileHeaderCard({ phone, name, email, avatarUrl, onProfileUpda
   const [draftAvatarUrl, setDraftAvatarUrl] = useState(avatarUrl ?? '');
   const [draftEmergency, setDraftEmergency] = useState('');
   const [draftStudentName, setDraftStudentName] = useState('');
+  const [draftDeliveryAddress, setDraftDeliveryAddress] = useState('');
+  const [draftDeliveryLandmark, setDraftDeliveryLandmark] = useState('');
+  const [draftDeliveryCityPincode, setDraftDeliveryCityPincode] = useState('');
   const [deliveryTypeLabel, setDeliveryTypeLabel] = useState('');
   const [feedback, setFeedback] = useState<Feedback>(null);
 
@@ -57,6 +70,9 @@ export function ProfileHeaderCard({ phone, name, email, avatarUrl, onProfileUpda
     setDraftAvatarUrl(profile.avatarUrl ?? '');
     setDraftEmergency(profile.emergencyContact ?? '');
     setDraftStudentName(profile.studentName ?? '');
+    setDraftDeliveryAddress(profile.school ?? '');
+    setDraftDeliveryLandmark(profile.deliveryLandmark ?? '');
+    setDraftDeliveryCityPincode(profile.deliveryCityPincode ?? '');
     setDeliveryTypeLabel(getDeliveryTypeLabel(profile.registrationType));
   };
 
@@ -153,6 +169,9 @@ export function ProfileHeaderCard({ phone, name, email, avatarUrl, onProfileUpda
         avatarUrl: nextAvatarUrl || undefined,
         emergencyContact: draftEmergency,
         studentName: draftStudentName,
+        school: draftDeliveryAddress,
+        deliveryLandmark: draftDeliveryLandmark,
+        deliveryCityPincode: draftDeliveryCityPincode,
       });
 
       setDraftAvatarUrl(user.avatarUrl ?? nextAvatarUrl);
@@ -176,13 +195,21 @@ export function ProfileHeaderCard({ phone, name, email, avatarUrl, onProfileUpda
   const displayAvatarUrl = draftAvatarUrl || avatarUrl;
   const displayName = editing ? draftName : name;
   const initials = getInitials(displayName || 'Customer');
+  const defaultDeliveryAddress: DefaultDeliveryAddress = {
+    addressLine: draftDeliveryAddress,
+    landmark: draftDeliveryLandmark,
+    cityPincode: draftDeliveryCityPincode,
+  };
+  const hasDeliveryAddress = hasDefaultDeliveryAddress(defaultDeliveryAddress);
+
+  const startEditing = () => setEditing(true);
 
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <Text style={styles.cardTitle}>My Profile</Text>
         {!editing ? (
-          <Pressable style={styles.editBtn} onPress={() => setEditing(true)} accessibilityRole="button">
+          <Pressable style={styles.editBtn} onPress={startEditing} accessibilityRole="button">
             <Ionicons name="create-outline" size={16} color={colors.orange} />
             <Text style={styles.editBtnText}>Edit Profile</Text>
           </Pressable>
@@ -292,6 +319,59 @@ export function ProfileHeaderCard({ phone, name, email, avatarUrl, onProfileUpda
           <Text style={styles.fieldValue}>
             {draftEmergency.trim() ? `+91 ${normalizePhone(draftEmergency)}` : 'Not added yet'}
           </Text>
+        )}
+
+        <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>Address</Text>
+        {editing ? (
+          <>
+            <TextInput
+              style={styles.input}
+              value={draftDeliveryAddress}
+              onChangeText={setDraftDeliveryAddress}
+              placeholder="School, office, or apartment address"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="words"
+            />
+            <TextInput
+              style={[styles.input, styles.inputSpaced]}
+              value={draftDeliveryLandmark}
+              onChangeText={setDraftDeliveryLandmark}
+              placeholder="Landmark or specific drop note"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="words"
+            />
+            <TextInput
+              style={[styles.input, styles.inputSpaced]}
+              value={draftDeliveryCityPincode}
+              onChangeText={setDraftDeliveryCityPincode}
+              placeholder="City / pincode"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="words"
+            />
+          </>
+        ) : hasDeliveryAddress ? (
+          <View style={styles.deliveryAddressBlock}>
+            <Ionicons name="location-outline" size={18} color={colors.orange} style={styles.deliveryAddressIcon} />
+            <View style={styles.deliveryAddressCopy}>
+              {defaultDeliveryAddress.addressLine.trim() ? (
+                <Text style={styles.fieldValue}>{defaultDeliveryAddress.addressLine.trim()}</Text>
+              ) : null}
+              {defaultDeliveryAddress.landmark.trim() ? (
+                <Text style={styles.deliveryAddressMeta}>{defaultDeliveryAddress.landmark.trim()}</Text>
+              ) : null}
+              {defaultDeliveryAddress.cityPincode.trim() ? (
+                <Text style={styles.deliveryAddressMeta}>{defaultDeliveryAddress.cityPincode.trim()}</Text>
+              ) : null}
+            </View>
+          </View>
+        ) : (
+          <View style={styles.emptyDeliveryRow}>
+            <Text style={styles.emptyDeliveryText}>No default address set yet.</Text>
+            <Pressable style={styles.addAddressBtn} onPress={startEditing} accessibilityRole="button">
+              <Ionicons name="add" size={14} color={colors.orange} />
+              <Text style={styles.addAddressBtnText}>Add Address</Text>
+            </Pressable>
+          </View>
         )}
       </View>
 
@@ -443,6 +523,50 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: colors.text,
+  },
+  inputSpaced: {
+    marginTop: 8,
+  },
+  deliveryAddressBlock: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  deliveryAddressIcon: {
+    marginTop: 2,
+  },
+  deliveryAddressCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  deliveryAddressMeta: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.muted,
+    lineHeight: 18,
+  },
+  emptyDeliveryRow: {
+    gap: 8,
+  },
+  emptyDeliveryText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.muted,
+  },
+  addAddressBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: colors.orangeLight,
+  },
+  addAddressBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.orange,
   },
   readOnlyField: {
     flexDirection: 'row',

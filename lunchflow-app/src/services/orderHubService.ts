@@ -29,7 +29,7 @@ import {
   incrementDriverCompletedDeliveries,
   updateCustomerRegistration,
 } from './userRegistryService';
-import { loadSubscriptionPaymentSnapshot } from './subscriptionService';
+import { loadSubscriptionPaymentSnapshot, markSubscriptionCodCollected } from './subscriptionService';
 import { getDriverRatingSummary } from './ratingService';
 import {
   geocodeAddressAsync,
@@ -191,7 +191,13 @@ function asRemoteOrder(data: Record<string, unknown>, docId: string): DeliveryOr
     driver,
     assignedDriverPhone: raw.assignedDriverPhone || driver?.phone,
     amountPaid: typeof raw.amountPaid === 'number' ? raw.amountPaid : undefined,
+    amount_due: typeof raw.amount_due === 'number' ? raw.amount_due : undefined,
     paymentMethod: raw.paymentMethod?.trim() || undefined,
+    payment_method: raw.payment_method,
+    payment_status: raw.payment_status,
+    transaction_id: raw.transaction_id ?? undefined,
+    cash_collected_at: raw.cash_collected_at ?? undefined,
+    cash_collected_by: raw.cash_collected_by ?? undefined,
   };
 }
 
@@ -707,8 +713,19 @@ export async function createBooking(
     driver: null,
     routePlan: null,
     date: todayKey(),
-    amountPaid: payment?.amountPaid,
+    amountPaid: payment?.payment_status === 'PAID' || payment?.payment_status === 'COLLECTED_COD'
+      ? payment.amountPaid
+      : payment?.payment_status === 'PENDING_COD'
+        ? 0
+        : payment?.amountPaid,
+    amount_due:
+      payment?.payment_status === 'PENDING_COD'
+        ? (payment.amount_due ?? payment.amountPaid)
+        : undefined,
     paymentMethod: payment?.paymentMethod,
+    payment_method: payment?.payment_method,
+    payment_status: payment?.payment_status,
+    transaction_id: payment?.transaction_id,
   };
 
   await persistOrder(order);
@@ -814,6 +831,8 @@ export async function updateCustomerHomeAddress(
   phone: string,
   homeAddress: string,
   addressLocation?: GeoPoint | null,
+  contactName?: string,
+  pickupContactPhone?: string,
 ): Promise<void> {
   const trimmed = homeAddress.trim();
   if (!trimmed) throw new Error('Enter your home address');
@@ -821,6 +840,18 @@ export async function updateCustomerHomeAddress(
   const registrationFields: Partial<CustomerRegistration> = { address: trimmed };
   if (addressLocation !== undefined) {
     registrationFields.addressLocation = addressLocation;
+  }
+  if (contactName != null) {
+    const trimmedName = contactName.trim();
+    if (!trimmedName) throw new Error('Enter contact name');
+    registrationFields.name = trimmedName;
+  }
+  if (pickupContactPhone != null) {
+    const normalizedContact = normalizePhone(pickupContactPhone);
+    if (normalizedContact.length !== 10) {
+      throw new Error('Enter a valid 10-digit pickup contact number');
+    }
+    registrationFields.pickupContactPhone = normalizedContact;
   }
 
   await updateCustomerRegistration(phone, registrationFields);
@@ -1092,6 +1123,36 @@ export async function assignDriverByAdmin(orderId: string, driverId: string): Pr
   });
 
   return order;
+}
+
+export async function markOrderCodCashCollected(orderId: string, adminId: string): Promise<DeliveryOrder> {
+  const order = await loadOrder(orderId);
+  if (!order) throw new Error('Order not found');
+  const pendingByCash =
+    order.payment_status === 'PENDING_COD' ||
+    (order.payment_method === 'COD' && order.payment_status !== 'COLLECTED_COD' && order.payment_status !== 'PAID') ||
+    ((order.paymentMethod ?? '').toLowerCase().includes('cash') &&
+      order.payment_status !== 'COLLECTED_COD' &&
+      !(typeof order.amountPaid === 'number' && order.amountPaid > 0));
+
+  if (!pendingByCash) {
+    throw new Error('This order does not have pending By Cash payment.');
+  }
+
+  const collectedAmount = order.amount_due ?? order.amountPaid ?? 0;
+  const updated: DeliveryOrder = {
+    ...order,
+    payment_method: 'COD',
+    payment_status: 'COLLECTED_COD',
+    paymentMethod: 'By Cash',
+    amountPaid: collectedAmount > 0 ? collectedAmount : order.amount_due ?? 0,
+    amount_due: 0,
+    cash_collected_at: new Date().toISOString(),
+    cash_collected_by: adminId,
+  };
+  await persistOrder(updated);
+  await markSubscriptionCodCollected(order.customerPhone, adminId);
+  return updated;
 }
 
 function buildDriverInfo(

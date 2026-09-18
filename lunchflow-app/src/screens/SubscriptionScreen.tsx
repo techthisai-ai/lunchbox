@@ -3,7 +3,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { OnlinePaymentDialog } from '../components/OnlinePaymentDialog';
+import { CheckoutStatusBanner } from '../components/CheckoutStatusBanner';
+import { PaymentMethodSelector } from '../components/PaymentMethodSelector';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { SubscriptionPlanPriceText } from '../components/SubscriptionPlanPriceText';
 import { SubscriptionPlan, getSubscriptionDetailLineLabel, isAddonSubscriptionPlan } from '../constants/subscriptions';
@@ -27,13 +28,12 @@ export function SubscriptionScreen() {
   const { plans } = useSubscriptionDetailPlans();
 
   const {
-    paymentVisible,
-    paymentDraft,
+    paymentMethodChoice,
+    setPaymentMethodChoice,
     paying,
     message,
-    startPaymentForPlan,
-    handlePaymentSelect,
-    closePayment,
+    messageTone,
+    handleCheckout,
   } = useSubscriptionPayment({
     bookPickupAfterPurchase: true,
     onSuccess: () => {
@@ -72,7 +72,7 @@ export function SubscriptionScreen() {
       );
       return;
     }
-    await startPaymentForPlan(plan);
+    await handleCheckout(plan);
   };
 
   if (isOnboarding && checkingAccess) {
@@ -87,29 +87,26 @@ export function SubscriptionScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <OnlinePaymentDialog
-        visible={paymentVisible}
-        amount={paymentDraft?.amountPaid ?? 0}
-        description={paymentDraft?.description ?? 'Subscription payment'}
-        paying={paying}
-        onSelect={handlePaymentSelect}
-        onCancel={closePayment}
-      />
       <ScreenHeader
         title="Choose Plan"
-        subtitle="Tap a plan to pay with GPay, UPI, or PhonePe"
+        subtitle="Select payment method, then tap a plan to continue"
         onBack={isOnboarding ? undefined : () => navigation.goBack()}
       />
       <ScrollView contentContainerStyle={styles.scroll}>
+        <CheckoutStatusBanner paying={paying} message={message} tone={messageTone} />
+        <PaymentMethodSelector
+          value={paymentMethodChoice}
+          onChange={setPaymentMethodChoice}
+          disabled={paying}
+        />
         {plans.map((plan) => (
           <PlanCard
             key={plan.id}
             plan={plan}
-            disabled={isAddonSubscriptionPlan(plan) && !monthlyActive}
+            disabled={(isAddonSubscriptionPlan(plan) && !monthlyActive) || paying}
             onPress={() => void handlePlanPress(plan)}
           />
         ))}
-        {message ? <Text style={styles.message}>{message}</Text> : null}
       </ScrollView>
     </SafeAreaView>
   );

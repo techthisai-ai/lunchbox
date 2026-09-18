@@ -5,24 +5,20 @@ import {
   isAddonSubscriptionPlan,
   isSingleOrderPlan,
 } from '../constants/subscriptions';
+import { CheckoutPaymentChoice } from '../components/PaymentMethodSelector';
 import { useAuth } from '../context/AuthContext';
 import { useDelivery } from '../context/DeliveryContext';
-import { launchOnlinePayment, processOnlinePayment } from '../services/paymentService';
+import { openRazorpayCheckout } from '../services/razorpayCheckout';
 import { sendCustomerSmsAndWhatsApp } from '../services/messagingService';
 import {
   checkSubscriptionRenewalReminders,
   hasActiveMonthlySubscription,
   saveActiveSubscription,
+  SubscriptionCheckoutMeta,
 } from '../services/subscriptionService';
 import { resolvePlanAmount } from '../services/slotPricingService';
 import { buildSubscriptionPaymentDescription } from '../utils/paymentDescription';
-
-type PaymentDraft = {
-  amountPaid: number;
-  description: string;
-  plan: SubscriptionPlan;
-  quantity: number;
-};
+import { showCheckoutAlert } from '../utils/checkoutFeedback';
 
 type Options = {
   bookPickupAfterPurchase?: boolean;
@@ -34,14 +30,17 @@ export function useSubscriptionPayment(options: Options = {}) {
   const { bookPickupAfterPurchase = true, peopleCount = 1, onSuccess } = options;
   const { user } = useAuth();
   const { bookPickup } = useDelivery();
-  const [paymentVisible, setPaymentVisible] = useState(false);
-  const [paymentDraft, setPaymentDraft] = useState<PaymentDraft | null>(null);
+  const [paymentMethodChoice, setPaymentMethodChoice] = useState<CheckoutPaymentChoice>('online');
   const [paying, setPaying] = useState(false);
   const [message, setMessage] = useState('');
+  const [messageTone, setMessageTone] = useState<'success' | 'error' | 'info'>('info');
 
-  const startPaymentForPlan = useCallback(
+  const handleCheckout = useCallback(
     async (plan: SubscriptionPlan, quantity = peopleCount) => {
-      if (!user?.phone) return;
+      if (!user?.phone) {
+        showCheckoutAlert('Sign in required', 'Please log in with your phone number to subscribe.');
+        return;
+      }
 
       const count = Math.max(1, quantity);
 
@@ -54,45 +53,50 @@ export function useSubscriptionPayment(options: Options = {}) {
       }
 
       setMessage('');
-      let amountPaid = await resolvePlanAmount(plan.id);
-      if (isSingleOrderPlan(plan)) {
-        amountPaid = await resolvePlanAmount(plan.id, { peopleCount: count, phone: user.phone });
-      } else if (isAddonSubscriptionPlan(plan)) {
-        amountPaid = await resolvePlanAmount(plan.id, { peopleCount: count, phone: user.phone });
-      }
-      setPaymentDraft({
-        plan,
-        amountPaid,
-        quantity: count,
-        description: buildSubscriptionPaymentDescription(plan, count, amountPaid),
-      });
-      setPaymentVisible(true);
-    },
-    [user?.phone, peopleCount],
-  );
-
-  const closePayment = useCallback(() => {
-    if (!paying) setPaymentVisible(false);
-  }, [paying]);
-
-  const handlePaymentSelect = useCallback(
-    async (methodId: string) => {
-      if (!paymentDraft || !user?.phone) return;
-
-      const { plan, amountPaid, description, quantity } = paymentDraft;
+      setMessageTone('info');
       setPaying(true);
-      setMessage('');
 
       try {
-        const { launched, methodLabel } = await launchOnlinePayment(methodId, amountPaid, description);
-
-        if (!launched) {
-          setMessage('Could not open payment app. Please try another method.');
-          setPaying(false);
-          return;
+        let amountPaid = await resolvePlanAmount(plan.id);
+        if (isSingleOrderPlan(plan) || isAddonSubscriptionPlan(plan)) {
+          amountPaid = await resolvePlanAmount(plan.id, { peopleCount: count, phone: user.phone });
         }
 
-        await processOnlinePayment(user.phone, amountPaid, description, methodLabel, plan.id);
+        if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
+          throw new Error('This plan is already active for the selected quantity. No additional payment is due.');
+        }
+
+        const description = buildSubscriptionPaymentDescription(plan, count, amountPaid);
+        let checkoutMeta: SubscriptionCheckoutMeta;
+        let methodLabel: string;
+
+        if (paymentMethodChoice === 'online') {
+          const result = await openRazorpayCheckout({
+            amountInr: amountPaid,
+            description,
+            prefillName: user.name,
+            prefillContact: user.phone,
+            prefillEmail: user.email,
+          });
+          methodLabel = 'Razorpay';
+          checkoutMeta = {
+            paymentMethodLabel: methodLabel,
+            payment_method: 'RAZORPAY',
+            payment_status: 'PAID',
+            transaction_id: result.razorpay_payment_id,
+            amount_due: 0,
+          };
+        } else {
+          methodLabel = 'By Cash';
+          checkoutMeta = {
+            paymentMethodLabel: methodLabel,
+            payment_method: 'COD',
+            payment_status: 'PENDING_COD',
+            transaction_id: null,
+            amount_due: amountPaid,
+          };
+        }
+
         await saveActiveSubscription(
           user.phone,
           plan.id,
@@ -100,56 +104,86 @@ export function useSubscriptionPayment(options: Options = {}) {
           undefined,
           undefined,
           methodLabel,
-          isSingleOrderPlan(plan) || isAddonSubscriptionPlan(plan) ? quantity : undefined,
+          isSingleOrderPlan(plan) || isAddonSubscriptionPlan(plan) ? count : undefined,
+          checkoutMeta,
         );
 
         let pickupError: string | null = null;
         if (bookPickupAfterPurchase && !isAddonSubscriptionPlan(plan)) {
-          pickupError = await bookPickup();
+          try {
+            pickupError = await bookPickup();
+          } catch {
+            pickupError = 'Could not book pickup. Please try again from Home.';
+          }
         }
 
-        await checkSubscriptionRenewalReminders(user.phone);
+        try {
+          await checkSubscriptionRenewalReminders(user.phone);
+        } catch {
+          // Non-blocking.
+        }
 
-        await sendCustomerSmsAndWhatsApp(
-          user.phone,
-          `LunchFlow: Payment of ₹${amountPaid} received via ${methodLabel} for ${plan.name}.`,
-          `Your ${plan.name} subscription payment was successful.`,
-        );
+        if (paymentMethodChoice === 'online') {
+          try {
+            await sendCustomerSmsAndWhatsApp(
+              user.phone,
+              `LunchFlow: Payment of ₹${amountPaid} received via ${methodLabel} for ${plan.name}.`,
+              `Your ${plan.name} subscription payment was successful.`,
+            );
+          } catch {
+            // Non-blocking.
+          }
+        }
 
-        setPaymentVisible(false);
+        const expiryNote = isSingleOrderPlan(plan)
+          ? ' Valid until your delivery is completed.'
+          : isAddonSubscriptionPlan(plan)
+            ? ' Valid for today only (1 day).'
+            : '';
+        const pickupNote =
+          bookPickupAfterPurchase && !isAddonSubscriptionPlan(plan) && !pickupError
+            ? ' Pickup booked for today.'
+            : '';
+
+        let successMessage: string;
+        if (paymentMethodChoice === 'cod') {
+          successMessage = `Subscription activated with By Cash! Please pay ₹${amountPaid.toLocaleString('en-IN')} to the delivery executive at drop-off.${pickupNote}${expiryNote}`;
+          showCheckoutAlert(
+            'Order Placed!',
+            `Your ${plan.name} subscription is active. Please pay ₹${amountPaid.toLocaleString('en-IN')} in cash when your lunch is delivered.`,
+          );
+        } else {
+          successMessage = `Paid ₹${amountPaid.toLocaleString('en-IN')} via ${methodLabel}. ${plan.name} is now active.${pickupNote}${expiryNote}`;
+          showCheckoutAlert('Subscription Active!', successMessage);
+        }
 
         if (pickupError) {
-          setMessage(`Payment received via ${methodLabel}, but pickup booking failed: ${pickupError}`);
-        } else {
-          const expiryNote = isSingleOrderPlan(plan)
-            ? ' Valid until your delivery is completed.'
-            : isAddonSubscriptionPlan(plan)
-              ? ' Valid for today only (1 day).'
-              : '';
-          const pickupNote =
-            bookPickupAfterPurchase && !isAddonSubscriptionPlan(plan) ? ' Pickup booked for today.' : '';
-          setMessage(`Paid ₹${amountPaid} via ${methodLabel}. ${plan.name} is active.${pickupNote}${expiryNote}`);
+          successMessage = `${successMessage} Note: ${pickupError}`;
         }
 
+        setMessageTone('success');
+        setMessage(successMessage);
         onSuccess?.(plan, methodLabel, amountPaid);
       } catch (error) {
-        const note = error instanceof Error ? error.message : 'Payment could not be completed. Please try again.';
+        const note =
+          error instanceof Error ? error.message : 'Checkout could not be completed. Please try again.';
+        setMessageTone('error');
         setMessage(note);
+        showCheckoutAlert('Checkout failed', note);
       } finally {
         setPaying(false);
       }
     },
-    [paymentDraft, user?.phone, bookPickup, bookPickupAfterPurchase, onSuccess, peopleCount],
+    [user, paymentMethodChoice, bookPickup, bookPickupAfterPurchase, onSuccess, peopleCount],
   );
 
   return {
-    paymentVisible,
-    paymentDraft,
+    paymentMethodChoice,
+    setPaymentMethodChoice,
     paying,
     message,
+    messageTone,
     setMessage,
-    startPaymentForPlan,
-    handlePaymentSelect,
-    closePayment,
+    handleCheckout,
   };
 }

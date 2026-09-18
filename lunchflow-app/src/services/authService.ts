@@ -491,15 +491,6 @@ export async function registerCustomer(data: CustomerRegistration): Promise<Auth
       status: 'new',
       notes: 'New customer registration',
     }).catch(() => undefined);
-    const { createBooking } = await import('./orderHubService');
-    await createBooking(`CUS-${phone}`, phone, {
-      name: data.name.trim(),
-      studentName: data.studentName.trim(),
-      school: data.school.trim(),
-      address: data.address.trim(),
-      addressLocation: data.addressLocation ?? null,
-      deliveryType: registrationType,
-    });
   } catch {
     // Local registration is enough for login when remote side-effects fail.
   }

@@ -1,17 +1,28 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { Input } from '../components/Input';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { normalizePhone } from '../constants/auth';
 import { colors, radius, spacing } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { ProfileStackParamList } from '../navigation/types';
 import { goBackInProfileStack } from '../navigation/customerRoutes';
+import { validateEmergencyContact, validateProfileName } from '../services/customerProfileService';
 import { fetchCustomerLocationFromGps } from '../services/customerAddressLocationService';
 import {
   getCustomerOrderToday,
@@ -19,6 +30,7 @@ import {
   updateCustomerDeliveryAddress,
   updateCustomerHomeAddress,
 } from '../services/orderHubService';
+import { CustomerRegistration, loadCustomerRegistration } from '../services/userRegistryService';
 import {
   DeliveryType,
   FoodReadyStudentEntry,
@@ -31,6 +43,13 @@ import {
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'SavedAddresses'>;
 
+type PickupAddressDetails = {
+  contactName: string;
+  phone: string;
+  address: string;
+  addressLocation: GeoPoint | null;
+};
+
 type DeliveryAddressCard = {
   key: string;
   index: number;
@@ -41,8 +60,28 @@ type DeliveryAddressCard = {
 };
 
 type EditTarget =
-  | { kind: 'home'; address: string; addressLocation?: GeoPoint | null }
+  | {
+      kind: 'home';
+      contactName: string;
+      phone: string;
+      address: string;
+      addressLocation?: GeoPoint | null;
+    }
   | { kind: 'delivery'; index: number; name: string; address: string; detail: string };
+
+function formatDisplayPhone(phone: string): string {
+  const digits = normalizePhone(phone);
+  if (digits.length !== 10) return phone.trim();
+  return `+91 ${digits.slice(0, 5)} ${digits.slice(5)}`;
+}
+
+function formatRegistrationDropAddress(registration: CustomerRegistration | null): string {
+  if (!registration) return '';
+  return [registration.school, registration.deliveryLandmark, registration.deliveryCityPincode]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(', ');
+}
 
 function deliveryIcon(type: DeliveryType): {
   name: keyof typeof Ionicons.glyphMap;
@@ -99,18 +138,42 @@ function buildDeliveryCards(
   ];
 }
 
+function PickupCardSkeleton() {
+  return (
+    <Card>
+      <View style={styles.row}>
+        <View style={[styles.iconWrap, styles.skeletonBlock]} />
+        <View style={styles.info}>
+          <View style={styles.titleRow}>
+            <View style={[styles.skeletonLine, { width: '42%' }]} />
+            <View style={[styles.skeletonPill, { width: 64 }]} />
+          </View>
+          <View style={[styles.skeletonLine, { width: '36%', marginTop: 10 }]} />
+          <View style={[styles.skeletonLine, { width: '52%', marginTop: 8 }]} />
+          <View style={[styles.skeletonLine, { width: '78%', marginTop: 8 }]} />
+        </View>
+      </View>
+    </Card>
+  );
+}
+
 export function SavedAddressesScreen({ navigation, route }: Props) {
   const focus = route.params?.focus;
   const showPickup = !focus || focus === 'pickup';
   const showDrop = !focus || focus === 'drop';
   const screenTitle =
     focus === 'pickup' ? 'Pickup Address' : focus === 'drop' ? 'Drop Address' : 'Saved Addresses';
-  const { user } = useAuth();
-  const [homeAddress, setHomeAddress] = useState('');
-  const [homeAddressLocation, setHomeAddressLocation] = useState<GeoPoint | null>(null);
+  const { user, loading: authLoading, refreshCustomerProfile } = useAuth();
+  const [pickupDetails, setPickupDetails] = useState<PickupAddressDetails>({
+    contactName: '',
+    phone: '',
+    address: '',
+    addressLocation: null,
+  });
   const [deliveryCards, setDeliveryCards] = useState<DeliveryAddressCard[]>([]);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [locatingAddress, setLocatingAddress] = useState(false);
   const gpsFocusAttemptedRef = useRef(false);
@@ -127,7 +190,7 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
       setEditTarget((current) => {
         if (!current || current.kind !== 'home') return current;
         if (!replaceExisting && current.address.trim()) return current;
-        return { kind: 'home', address: detected.address, addressLocation: detected.location };
+        return { ...current, address: detected.address, addressLocation: detected.location };
       });
     } finally {
       setLocatingAddress(false);
@@ -143,36 +206,100 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
   };
 
   const loadAddresses = useCallback(async () => {
-    if (!user?.phone) return;
-    const [profile, order] = await Promise.all([
-      loadCustomerProfile(user.phone),
-      getCustomerOrderToday(user.phone),
-    ]);
-    setHomeAddress(profile.address || order?.pickupAddress || '');
-    setHomeAddressLocation(profile.addressLocation ?? order?.pickupLocation ?? null);
+    if (!user?.phone) {
+      setLoading(false);
+      return;
+    }
 
-    const fallbackType = normalizeDeliveryType(order?.deliveryType ?? profile.deliveryType);
-    const fallbackAddress = (order ? getDropAddress(order) : '') || profile.school || '';
-    const students = buildFoodReadyStudents({
-      studentEntries: order?.studentEntries,
-      students: order?.studentEntries,
-      person: order?.studentName || profile.studentName,
-      dropAddress: fallbackAddress,
-      deliveryType: fallbackType,
-      deliveryTypes: order?.deliveryTypes,
-    });
+    setLoading(true);
+    setError('');
+    try {
+      const [registration, profile, order] = await Promise.all([
+        loadCustomerRegistration(user.phone),
+        loadCustomerProfile(user.phone),
+        getCustomerOrderToday(user.phone),
+      ]);
 
-    setDeliveryCards(buildDeliveryCards(students, fallbackAddress, fallbackType));
-  }, [user?.phone]);
+      const contactName = registration?.name?.trim() || user.name?.trim() || 'Customer';
+      const phone = normalizePhone(
+        registration?.pickupContactPhone || registration?.phone || user.phone || '',
+      );
+      const savedAddress = profile.address?.trim() || order?.pickupAddress?.trim() || '';
+      const fallbackAddress = registration?.address?.trim() || '';
+      const address = savedAddress || fallbackAddress;
+      const addressLocation =
+        profile.addressLocation ?? order?.pickupLocation ?? registration?.addressLocation ?? null;
+
+      setPickupDetails({
+        contactName,
+        phone,
+        address,
+        addressLocation,
+      });
+
+      const fallbackType = normalizeDeliveryType(
+        order?.deliveryType ?? registration?.registrationType ?? profile.deliveryType,
+      );
+      const fallbackDropAddress =
+        (order ? getDropAddress(order) : '') ||
+        formatRegistrationDropAddress(registration) ||
+        profile.school ||
+        '';
+      const students = buildFoodReadyStudents({
+        studentEntries: order?.studentEntries,
+        students: order?.studentEntries,
+        person: order?.studentName || registration?.studentName || profile.studentName,
+        dropAddress: fallbackDropAddress,
+        deliveryType: fallbackType,
+        deliveryTypes: order?.deliveryTypes,
+      });
+
+      let cards = buildDeliveryCards(students, fallbackDropAddress, fallbackType);
+      if (!cards.length && registration?.studentName?.trim()) {
+        cards = [
+          {
+            key: 'delivery-profile',
+            index: 0,
+            title: registration.studentName.trim(),
+            address: fallbackDropAddress,
+            detail: [registration.deliveryLandmark, registration.deliveryCityPincode]
+              .map((part) => part?.trim())
+              .filter(Boolean)
+              .join(' · ') || undefined,
+            type: fallbackType,
+          },
+        ];
+      }
+      setDeliveryCards(cards);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Could not load saved addresses');
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.phone, user?.name]);
 
   useEffect(() => {
+    if (authLoading) return;
     void loadAddresses();
-  }, [loadAddresses]);
+  }, [authLoading, loadAddresses]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (authLoading || !user?.phone) return;
+      void loadAddresses();
+    }, [authLoading, loadAddresses, user?.phone]),
+  );
 
   const openHomeEdit = () => {
     setError('');
     gpsFocusAttemptedRef.current = false;
-    setEditTarget({ kind: 'home', address: homeAddress, addressLocation: homeAddressLocation });
+    setEditTarget({
+      kind: 'home',
+      contactName: pickupDetails.contactName,
+      phone: pickupDetails.phone,
+      address: pickupDetails.address,
+      addressLocation: pickupDetails.addressLocation,
+    });
   };
 
   const openDeliveryEdit = (entry: DeliveryAddressCard) => {
@@ -193,7 +320,19 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
     setError('');
     try {
       if (editTarget.kind === 'home') {
-        await updateCustomerHomeAddress(user.phone, editTarget.address, editTarget.addressLocation ?? null);
+        const nameError = validateProfileName(editTarget.contactName);
+        if (nameError) throw new Error(nameError);
+        const phoneError = validateEmergencyContact(editTarget.phone);
+        if (phoneError) throw new Error(phoneError);
+
+        await updateCustomerHomeAddress(
+          user.phone,
+          editTarget.address,
+          editTarget.addressLocation ?? null,
+          editTarget.contactName,
+          editTarget.phone,
+        );
+        await refreshCustomerProfile();
       } else {
         await updateCustomerDeliveryAddress(user.phone, editTarget.index, {
           name: editTarget.name,
@@ -210,6 +349,8 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
     }
   };
 
+  const showLoading = authLoading || loading;
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScreenHeader title={screenTitle} onBack={() => goBackInProfileStack(navigation)} />
@@ -217,93 +358,107 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
         {showPickup ? (
           <>
             {!focus ? <Text style={styles.groupLabel}>Pickup address</Text> : null}
-            <Card>
-              <View style={styles.row}>
-                <View style={styles.iconWrap}>
-                  <Ionicons name="home" size={18} color={colors.orange} />
-                </View>
-                <View style={styles.info}>
-                  <View style={styles.titleRow}>
-                    <Text style={styles.title}>Home Pickup</Text>
-                    <View style={styles.titleActions}>
-                      <Badge label="Default" tone="green" />
-                      <Pressable style={styles.editBtn} onPress={openHomeEdit} accessibilityLabel="Edit home address">
-                        <Ionicons name="create-outline" size={18} color={colors.orange} />
-                      </Pressable>
-                    </View>
+            {showLoading ? (
+              <PickupCardSkeleton />
+            ) : (
+              <Card>
+                <View style={styles.row}>
+                  <View style={styles.iconWrap}>
+                    <Ionicons name="home" size={18} color={colors.orange} />
                   </View>
-                  <Text style={styles.address}>{homeAddress || 'No home address saved'}</Text>
+                  <View style={styles.info}>
+                    <View style={styles.titleRow}>
+                      <Text style={styles.title}>Home Pickup</Text>
+                      <View style={styles.titleActions}>
+                        <Badge label="Default" tone="green" />
+                        <Pressable style={styles.editBtn} onPress={openHomeEdit} accessibilityLabel="Edit home address">
+                          <Ionicons name="create-outline" size={18} color={colors.orange} />
+                        </Pressable>
+                      </View>
+                    </View>
+                    <Text style={styles.contactName}>{pickupDetails.contactName || 'Customer'}</Text>
+                    {pickupDetails.phone ? (
+                      <Text style={styles.metaLine}>{formatDisplayPhone(pickupDetails.phone)}</Text>
+                    ) : null}
+                    <Text style={styles.address}>
+                      {pickupDetails.address || 'No home address saved yet'}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            </Card>
+              </Card>
+            )}
           </>
         ) : null}
 
         {showDrop ? (
           <>
             {!focus ? <Text style={styles.groupLabel}>Drop address</Text> : null}
-            {deliveryCards.length ? (
-          deliveryCards.map((entry) => {
-            const icon = deliveryIcon(entry.type);
-            return (
-              <Card key={entry.key}>
+            {showLoading ? (
+              <PickupCardSkeleton />
+            ) : deliveryCards.length ? (
+              deliveryCards.map((entry) => {
+                const icon = deliveryIcon(entry.type);
+                return (
+                  <Card key={entry.key}>
+                    <View style={styles.row}>
+                      <View style={[styles.iconWrap, { backgroundColor: icon.backgroundColor }]}>
+                        <Ionicons name={icon.name} size={18} color={icon.color} />
+                      </View>
+                      <View style={styles.info}>
+                        <View style={styles.titleRow}>
+                          <Text style={styles.title}>{entry.title}</Text>
+                          <View style={styles.titleActions}>
+                            <Badge label={getDeliveryTypeLabel(entry.type)} tone={badgeTone(entry.type)} />
+                            <Pressable
+                              style={styles.editBtn}
+                              onPress={() => openDeliveryEdit(entry)}
+                              accessibilityLabel={`Edit ${entry.title} address`}
+                            >
+                              <Ionicons name="create-outline" size={18} color={colors.orange} />
+                            </Pressable>
+                          </View>
+                        </View>
+                        <Text style={styles.address}>{entry.address}</Text>
+                        {entry.detail ? <Text style={styles.detail}>{entry.detail}</Text> : null}
+                      </View>
+                    </View>
+                  </Card>
+                );
+              })
+            ) : (
+              <Card>
                 <View style={styles.row}>
-                  <View style={[styles.iconWrap, { backgroundColor: icon.backgroundColor }]}>
-                    <Ionicons name={icon.name} size={18} color={icon.color} />
+                  <View style={[styles.iconWrap, { backgroundColor: colors.blueLight }]}>
+                    <Ionicons name="school" size={18} color={colors.blue} />
                   </View>
                   <View style={styles.info}>
                     <View style={styles.titleRow}>
-                      <Text style={styles.title}>{entry.title}</Text>
-                      <View style={styles.titleActions}>
-                        <Badge label={getDeliveryTypeLabel(entry.type)} tone={badgeTone(entry.type)} />
-                        <Pressable
-                          style={styles.editBtn}
-                          onPress={() => openDeliveryEdit(entry)}
-                          accessibilityLabel={`Edit ${entry.title} address`}
-                        >
-                          <Ionicons name="create-outline" size={18} color={colors.orange} />
-                        </Pressable>
-                      </View>
+                      <Text style={styles.title}>Delivery Location</Text>
+                      <Pressable
+                        style={styles.editBtn}
+                        onPress={() =>
+                          setEditTarget({
+                            kind: 'delivery',
+                            index: 0,
+                            name: '',
+                            address: '',
+                            detail: '',
+                          })
+                        }
+                        accessibilityLabel="Add delivery address"
+                      >
+                        <Ionicons name="create-outline" size={18} color={colors.orange} />
+                      </Pressable>
                     </View>
-                    <Text style={styles.address}>{entry.address}</Text>
-                    {entry.detail ? <Text style={styles.detail}>{entry.detail}</Text> : null}
+                    <Text style={styles.address}>No delivery location saved</Text>
                   </View>
                 </View>
               </Card>
-            );
-          })
-        ) : (
-          <Card>
-            <View style={styles.row}>
-              <View style={[styles.iconWrap, { backgroundColor: colors.blueLight }]}>
-                <Ionicons name="school" size={18} color={colors.blue} />
-              </View>
-              <View style={styles.info}>
-                <View style={styles.titleRow}>
-                  <Text style={styles.title}>Delivery Location</Text>
-                  <Pressable
-                    style={styles.editBtn}
-                    onPress={() =>
-                      setEditTarget({
-                        kind: 'delivery',
-                        index: 0,
-                        name: '',
-                        address: '',
-                        detail: '',
-                      })
-                    }
-                    accessibilityLabel="Add delivery address"
-                  >
-                    <Ionicons name="create-outline" size={18} color={colors.orange} />
-                  </Pressable>
-                </View>
-                <Text style={styles.address}>No delivery location saved</Text>
-              </View>
-            </View>
-          </Card>
-        )}
+            )}
           </>
         ) : null}
+
+        {error && !editTarget ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
 
       <Modal visible={Boolean(editTarget)} transparent animationType="fade" onRequestClose={() => setEditTarget(null)}>
@@ -316,11 +471,27 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
             {editTarget?.kind === 'home' ? (
               <>
                 <Input
+                  label="Contact Name"
+                  value={editTarget.contactName}
+                  onChangeText={(contactName) => setEditTarget({ ...editTarget, contactName })}
+                  placeholder="Your name"
+                />
+                <Input
+                  label="Phone Number"
+                  phone
+                  value={editTarget.phone}
+                  onChangeText={(phone) => setEditTarget({ ...editTarget, phone })}
+                  placeholder="10-digit pickup contact number"
+                />
+                <Text style={styles.helperText}>Used for pickup coordination. Your login number stays the same.</Text>
+                <Input
                   label="Home Address"
                   value={editTarget.address}
-                  onChangeText={(address) => setEditTarget({ kind: 'home', address, addressLocation: null })}
+                  onChangeText={(address) => setEditTarget({ ...editTarget, address, addressLocation: null })}
                   onFocus={handleHomeAddressFocus}
-                  placeholder={locatingAddress ? 'Detecting your location...' : 'Tap to use location or enter your home pickup address'}
+                  placeholder={
+                    locatingAddress ? 'Detecting your location...' : 'Tap to use location or enter your home pickup address'
+                  }
                   multiline
                 />
                 <Pressable
@@ -328,7 +499,11 @@ export function SavedAddressesScreen({ navigation, route }: Props) {
                   onPress={() => void fillHomeAddressFromGps({ replaceExisting: true, promptOnFailure: true })}
                   disabled={locatingAddress}
                 >
-                  <Ionicons name="locate-outline" size={16} color={colors.orange} />
+                  {locatingAddress ? (
+                    <ActivityIndicator size="small" color={colors.orange} />
+                  ) : (
+                    <Ionicons name="locate-outline" size={16} color={colors.orange} />
+                  )}
                   <Text style={styles.useLocationText}>
                     {locatingAddress ? 'Detecting location...' : 'Use my location'}
                   </Text>
@@ -404,8 +579,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.orangeLight,
   },
+  contactName: { fontSize: 14, fontWeight: '700', color: colors.text, marginTop: 8 },
+  metaLine: { fontSize: 13, color: colors.muted, marginTop: 4 },
   address: { fontSize: 13, color: colors.muted, marginTop: 6, lineHeight: 18 },
   detail: { fontSize: 12, color: colors.muted, marginTop: 4, lineHeight: 16 },
+  skeletonBlock: {
+    backgroundColor: colors.borderSubtle,
+  },
+  skeletonLine: {
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.borderSubtle,
+  },
+  skeletonPill: {
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.borderSubtle,
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
@@ -421,6 +611,13 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   modalTitle: { fontSize: 18, fontWeight: '800', color: colors.text, marginBottom: 8 },
+  helperText: {
+    fontSize: 11,
+    color: colors.muted,
+    fontWeight: '600',
+    marginTop: -4,
+    marginBottom: 8,
+  },
   error: { color: colors.red, fontSize: 13, marginBottom: 8 },
   useLocationBtn: {
     flexDirection: 'row',

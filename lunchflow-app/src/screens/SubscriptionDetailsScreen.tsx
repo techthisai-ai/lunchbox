@@ -4,7 +4,8 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { OnlinePaymentDialog } from '../components/OnlinePaymentDialog';
+import { CheckoutStatusBanner } from '../components/CheckoutStatusBanner';
+import { PaymentMethodSelector } from '../components/PaymentMethodSelector';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { SubscriptionDetailPlanCard } from '../components/SubscriptionDetailPlanCard';
 import { SubscriptionPlan, isAddonSubscriptionPlan } from '../constants/subscriptions';
@@ -30,14 +31,20 @@ export function SubscriptionDetailsScreen({ navigation }: Props) {
     'addon-diff-drop': 1,
   });
   const {
-    paymentVisible,
-    paymentDraft,
+    paymentMethodChoice,
+    setPaymentMethodChoice,
     paying,
     message,
-    startPaymentForPlan,
-    handlePaymentSelect,
-    closePayment,
-  } = useSubscriptionPayment({ bookPickupAfterPurchase: true });
+    messageTone,
+    handleCheckout,
+  } = useSubscriptionPayment({
+    bookPickupAfterPurchase: true,
+    onSuccess: () => {
+      if (user?.phone) {
+        void hasActiveMonthlySubscription(user.phone).then(setMonthlyActive);
+      }
+    },
+  });
 
   useFocusEffect(
     useCallback(() => {
@@ -65,7 +72,7 @@ export function SubscriptionDetailsScreen({ navigation }: Props) {
       return;
     }
     const quantity = isAddonSubscriptionPlan(plan) ? quantities[plan.id] ?? 1 : 1;
-    void startPaymentForPlan(plan, quantity);
+    void handleCheckout(plan, quantity);
   };
 
   const setQuantity = (planId: string, next: number) => {
@@ -74,14 +81,6 @@ export function SubscriptionDetailsScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <OnlinePaymentDialog
-        visible={paymentVisible}
-        amount={paymentDraft?.amountPaid ?? 0}
-        description={paymentDraft?.description ?? 'Subscription payment'}
-        paying={paying}
-        onSelect={handlePaymentSelect}
-        onCancel={closePayment}
-      />
       <ScreenHeader title="Subscription Details" onBack={() => goBackInProfileStack(navigation)} />
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -94,6 +93,14 @@ export function SubscriptionDetailsScreen({ navigation }: Props) {
           </Text>
         </View>
 
+        <CheckoutStatusBanner paying={paying} message={message} tone={messageTone} />
+
+        <PaymentMethodSelector
+          value={paymentMethodChoice}
+          onChange={setPaymentMethodChoice}
+          disabled={paying}
+        />
+
         {plans.map((plan) => (
           <SubscriptionDetailPlanCard
             key={plan.id}
@@ -103,6 +110,8 @@ export function SubscriptionDetailsScreen({ navigation }: Props) {
             onQuantityChange={
               isAddonSubscriptionPlan(plan) ? (next) => setQuantity(plan.id, next) : undefined
             }
+            paymentChoice={paymentMethodChoice}
+            checkoutDisabled={paying}
             onSelect={() => handlePlanPress(plan)}
           />
         ))}
@@ -116,8 +125,6 @@ export function SubscriptionDetailsScreen({ navigation }: Props) {
             <Text style={styles.summaryHint}>Totals update when you change the quantity on each add-on card.</Text>
           </View>
         ) : null}
-
-        {message ? <Text style={styles.successMessage}>{message}</Text> : null}
 
         <View style={styles.noteCard}>
           <View style={styles.noteHeader}>

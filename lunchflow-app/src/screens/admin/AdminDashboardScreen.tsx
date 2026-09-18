@@ -10,7 +10,13 @@ import { AdminLogoutButton } from '../../components/admin/AdminLogoutButton';
 import { AdminPageLayout } from '../../components/admin/AdminPageLayout';
 import { AdminPanel } from '../../components/admin/AdminPanel';
 import { Badge } from '../../components/Badge';
-import { formatOrderDisplayId, resolveAssignedDriver } from '../../utils/adminOrderHelpers';
+import {
+  computePaymentRevenueSummary,
+  formatOrderDisplayId,
+  resolveAssignedDriver,
+} from '../../utils/adminOrderHelpers';
+import { loadSubscriptionAmountsByPhone } from '../../services/subscriptionService';
+import { normalizePhone } from '../../constants/auth';
 import { LiveDeliveryMap, type FleetDriverMarker } from '../../components/LiveDeliveryMap';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAdminLayout } from '../../hooks/useAdminLayout';
@@ -59,6 +65,7 @@ export function AdminDashboardScreen() {
   const [liveLocations, setLiveLocations] = useState<DriverLiveLocation[]>([]);
   const [revenue, setRevenue] = useState(0);
   const [pendingPayments, setPendingPayments] = useState(0);
+  const [amountsByPhone, setAmountsByPhone] = useState<Map<string, number>>(new Map());
   const { showMobileHeader, pageTitleSize, isSidebarCollapsed, isCompact } = useAdminLayout();
   const col = useAdminTableColumn();
   const c = {
@@ -95,6 +102,15 @@ export function AdminDashboardScreen() {
   useEffect(() => subscribeToAllOrdersToday(setOrders), []);
   useEffect(() => subscribeToDriverLiveLocations(setLiveLocations), []);
 
+  useEffect(() => {
+    const phones = [...new Set(orders.map((order) => normalizePhone(order.customerPhone)).filter((p) => p.length === 10))];
+    if (phones.length === 0) {
+      setAmountsByPhone(new Map());
+      return;
+    }
+    loadSubscriptionAmountsByPhone(phones).then(setAmountsByPhone);
+  }, [orders]);
+
   const today = new Date().toISOString().slice(0, 10);
   const deliveredToday = orders.filter((o) => o.status === 'delivered' && (o.date === today || o.date.startsWith(today)));
   const totalDeliveries = orders.filter((o) => o.status === 'delivered');
@@ -127,6 +143,11 @@ export function AdminDashboardScreen() {
     [orders, drivers],
   );
 
+  const paymentSummary = useMemo(
+    () => computePaymentRevenueSummary(orders, amountsByPhone),
+    [orders, amountsByPhone],
+  );
+
   return (
     <AdminPageLayout wide>
       <View style={[styles.header, isSidebarCollapsed && styles.headerMobile]}>
@@ -157,6 +178,9 @@ export function AdminDashboardScreen() {
         <AdminKpiCard compact label="Total Deliveries" value={String(totalDeliveries.length)} icon="checkmark-done" iconBg={colors.greenLight} iconColor={colors.greenDark} />
         <AdminKpiCard compact label="Revenue Today" value={`₹${revenue.toLocaleString('en-IN')}`} icon="wallet" iconBg={colors.purpleLight} iconColor={colors.purple} />
         <AdminKpiCard compact label="Pending Payments" value={`₹${pendingPayments.toLocaleString('en-IN')}`} icon="card" iconBg={colors.yellowLight} iconColor={colors.dark} />
+        <AdminKpiCard compact label="Razorpay Revenue" value={`₹${paymentSummary.razorpayRevenue.toLocaleString('en-IN')}`} icon="card-outline" iconBg={colors.blueLight} iconColor={colors.blue} />
+        <AdminKpiCard compact label="By Cash Collected" value={`₹${paymentSummary.codCollected.toLocaleString('en-IN')}`} icon="cash-outline" iconBg={colors.greenLight} iconColor={colors.greenDark} />
+        <AdminKpiCard compact label="Pending By Cash" value={`₹${paymentSummary.pendingCod.toLocaleString('en-IN')}`} icon="hourglass-outline" iconBg={colors.yellowLight} iconColor={colors.dark} />
       </AdminKpiRow>
 
       <View style={styles.midRow}>

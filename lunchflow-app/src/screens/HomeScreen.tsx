@@ -44,6 +44,7 @@ import {
   getActiveStepTime,
   getHomeGaugeMeta,
   getHomeProgressIndex,
+  hasActiveBookingProgress,
   HOME_PROGRESS_STEPS,
 } from '../utils/homeOrderProgress';
 import { PromoAd, PromoAdAssetKey } from '../types/promoAd';
@@ -431,6 +432,22 @@ function TodaysDeliveryCard({
   );
 }
 
+function EmptyBookingCard({ onBook }: { onBook: () => void }) {
+  return (
+    <View style={styles.emptyBookingCard}>
+      <View style={styles.emptyBookingIconWrap}>
+        <Ionicons name="calendar-outline" size={28} color={colors.orange} />
+      </View>
+      <Text style={styles.emptyBookingTitle}>No active booking for today</Text>
+      <Text style={styles.emptyBookingSub}>Book lunch delivery to track pickup and delivery progress here.</Text>
+      <Pressable style={({ pressed }) => [styles.emptyBookingBtn, pressed && styles.emptyBookingBtnPressed]} onPress={onBook}>
+        <Text style={styles.emptyBookingBtnText}>Book Lunch Delivery Now</Text>
+        <Ionicons name="arrow-forward" size={16} color={colors.onPrimary} />
+      </Pressable>
+    </View>
+  );
+}
+
 function LiveTrackingCard({
   order,
   disabled,
@@ -442,34 +459,21 @@ function LiveTrackingCard({
   onPress: () => void;
   onHistoryPress: () => void;
 }) {
-  // Hold the last good order so a momentary null refresh cannot flash BOOKED
-  // or hide the date / Booked→Delivered tracking row.
-  const stableOrderRef = useRef<DeliveryOrder | null>(null);
-  if (order && order.status !== 'pickup_closed') {
-    stableOrderRef.current = order;
-  } else if (!order) {
-    // keep previous
-  } else if (order.status === 'pickup_closed') {
-    stableOrderRef.current = order;
-  }
-
-  const displayOrder = order ?? stableOrderRef.current;
-  const gauge = getHomeGaugeMeta(displayOrder);
-  const isCancelled = displayOrder?.status === 'pickup_closed';
-  const activeStepTime = getActiveStepTime(displayOrder);
+  const gauge = getHomeGaugeMeta(order);
+  const isCancelled = order?.status === 'pickup_closed';
+  const showProgressTime = hasActiveBookingProgress(order) || order?.status === 'delivered';
+  const activeStepTime = getActiveStepTime(order);
   const lastStepTimeRef = useRef<string | null>(null);
   if (activeStepTime) lastStepTimeRef.current = activeStepTime;
-  const stepTimeLabel = activeStepTime ?? lastStepTimeRef.current ?? new Date().toLocaleTimeString('en-IN', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  const stepTimeLabel = activeStepTime ?? lastStepTimeRef.current;
 
   return (
     <View style={[styles.liveTrackingCard, isCancelled && styles.liveTrackingCardCancelled]}>
-      <View style={styles.liveTrackingTimeBadge}>
-        <Text style={styles.liveTrackingTimeText}>{stepTimeLabel}</Text>
-      </View>
+      {showProgressTime && stepTimeLabel ? (
+        <View style={styles.liveTrackingTimeBadge}>
+          <Text style={styles.liveTrackingTimeText}>{stepTimeLabel}</Text>
+        </View>
+      ) : null}
 
       <Pressable
         style={({ pressed }) => [styles.historyShortcut, pressed && styles.historyShortcutPressed]}
@@ -508,9 +512,11 @@ function LiveTrackingCard({
                     size={20}
                     color={isCancelled ? colors.red : colors.orange}
                   />
-                  <View style={[styles.gaugeCheckBadge, isCancelled && styles.gaugeCheckBadgeCancelled]}>
-                    <Ionicons name={isCancelled ? 'close' : 'checkmark'} size={10} color={colors.onPrimary} />
-                  </View>
+                  {gauge.percent > 0 || isCancelled ? (
+                    <View style={[styles.gaugeCheckBadge, isCancelled && styles.gaugeCheckBadgeCancelled]}>
+                      <Ionicons name={isCancelled ? 'close' : 'checkmark'} size={10} color={colors.onPrimary} />
+                    </View>
+                  ) : null}
                 </View>
                 <Text style={[styles.gaugePercent, isCancelled && styles.gaugePercentCancelled]}>{gauge.percent}%</Text>
                 <Text style={[styles.gaugeStatus, isCancelled && styles.gaugeStatusCancelled]}>{gauge.status}</Text>
@@ -523,7 +529,7 @@ function LiveTrackingCard({
         </Pressable>
 
         <View style={styles.timelineBelow}>
-          <HorizontalLiveProgress order={displayOrder} />
+          <HorizontalLiveProgress order={order} />
         </View>
       </View>
     </View>
@@ -711,16 +717,16 @@ function RecentDeliveryCard({ entry }: { entry: DeliveryHistoryEntry }) {
 
 export function HomeScreen({ navigation }: Props) {
   const { user } = useAuth();
-  const { order, submitting, markFoodReady, refreshDelivery } = useDelivery();
+  const { order, loading: deliveryLoading, submitting, markFoodReady, refreshDelivery } = useDelivery();
   const { openFoodReadyDialog, closeFoodReadyDialog } = useFoodReadyOverlay();
   const { horizontalPadding } = useResponsive();
-  // Keep last known active order so Today's Delivery + Live Tracking never
-  // flash empty BOOKED / hide the timeline during refresh gaps.
   const stableHomeOrderRef = useRef<DeliveryOrder | null>(null);
   if (order && order.status !== 'pickup_closed') {
     stableHomeOrderRef.current = order;
+  } else if (!deliveryLoading && !order) {
+    stableHomeOrderRef.current = null;
   }
-  const displayOrder = order ?? stableHomeOrderRef.current;
+  const displayOrder = order ?? (deliveryLoading ? stableHomeOrderRef.current : null);
   const [errorMessage, setErrorMessage] = useState('');
   const [pickupSlotBanner, setPickupSlotBanner] = useState<string | null>(null);
   const pickupSlotBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1088,13 +1094,26 @@ export function HomeScreen({ navigation }: Props) {
         {pickupSlotBanner ? (
           <PickupSlotHomeBanner message={pickupSlotBanner} onDismiss={() => void dismissPickupSlotBanner()} />
         ) : null}
-        <TodaysDeliveryCard order={displayOrder} onViewDetails={handleViewDetails} />
-        <LiveTrackingCard
-          order={displayOrder}
-          disabled={submitting}
-          onPress={handleLunchBoxPress}
-          onHistoryPress={() => navigation.navigate('History')}
-        />
+        {deliveryLoading ? (
+          <View style={styles.emptyBookingCard}>
+            <Text style={styles.emptyBookingSub}>Loading today&apos;s booking...</Text>
+          </View>
+        ) : (
+          <>
+            {hasActiveBookingProgress(displayOrder) ? (
+              <TodaysDeliveryCard order={displayOrder!} onViewDetails={handleViewDetails} />
+            ) : null}
+            <LiveTrackingCard
+              order={displayOrder}
+              disabled={submitting}
+              onPress={handleLunchBoxPress}
+              onHistoryPress={() => navigation.navigate('History')}
+            />
+            {!hasActiveBookingProgress(displayOrder) ? (
+              <EmptyBookingCard onBook={goToFoodReady} />
+            ) : null}
+          </>
+        )}
 
         {deliveredProof ? (
           <HomeDeliveredProofCard title={deliveredProof.title} whenLabel={deliveredProof.whenLabel} />
@@ -1648,6 +1667,55 @@ const styles = StyleSheet.create({
     marginTop: 6,
     paddingHorizontal: 4,
     maxWidth: 120,
+  },
+  emptyBookingCard: {
+    backgroundColor: colors.white,
+    borderRadius: 22,
+    padding: spacing.lg,
+    alignItems: 'center',
+    marginBottom: spacing.md,
+    ...shadow.card,
+  },
+  emptyBookingIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.orangeLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  emptyBookingTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.text,
+    textAlign: 'center',
+  },
+  emptyBookingSub: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.muted,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  emptyBookingBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.green,
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  emptyBookingBtnPressed: {
+    opacity: 0.92,
+  },
+  emptyBookingBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.onPrimary,
   },
   error: {
     color: colors.red,
